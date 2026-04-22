@@ -15,6 +15,12 @@ module.exports = merge(base, {
         ws: true,
       },
       {
+        // PDF output and content range requests go directly to clsi-nginx
+        context: pathname =>
+          pathname.includes('/build/') || pathname.includes('/content/'),
+        target: 'http://clsi-nginx:8080',
+      },
+      {
         context: ['!**/*.js', '!**/*.css', '!**/*.json'],
         target: 'http://web:3000',
       },
