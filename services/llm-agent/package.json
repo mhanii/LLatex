@@ -7,16 +7,20 @@
   "scripts": {
     "start": "node app.js",
     "nodemon": "node --watch app.js",
+    "test:unit": "mocha --require test/setup.js --recursive --timeout 5000 --exit test/unit",
     "test:acceptance": "npm run test:acceptance:_run -- --grep=$MOCHA_GREP",
     "test:acceptance:_run": "mocha --require test/setup.js --recursive --timeout 15000 --exit test/acceptance"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.41",
     "@overleaf/logger": "*",
     "@overleaf/metrics": "*",
     "@overleaf/mongo-utils": "*",
     "@overleaf/settings": "*",
+    "ai": "^6.0.116",
     "express": "4.22.1",
-    "mongodb": "6.12.0"
+    "mongodb": "6.12.0",
+    "zod": "^4.1.11"
   },
   "devDependencies": {
     "chai": "^4.3.6",

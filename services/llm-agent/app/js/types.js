@@ -83,6 +83,7 @@
  * @property {string} projectId
  * @property {string} userId
  * @property {string} runId
+ * @property {ProjectContext} [context]
  */
 
 /**
