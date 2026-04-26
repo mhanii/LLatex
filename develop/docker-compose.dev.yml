@@ -6,9 +6,9 @@ services:
     ports:
       - "127.0.0.1:9230:9229"
     volumes:
-      - ../services/clsi/app:/overleaf/services/clsi/app
-      - ../services/clsi/app.js:/overleaf/services/clsi/app.js
-      - ../services/clsi/config:/overleaf/services/clsi/config
+      - ../services/clsi/app:/overleaf/services/clsi/app:z
+      - ../services/clsi/app.js:/overleaf/services/clsi/app.js:z
+      - ../services/clsi/config:/overleaf/services/clsi/config:z
 
   chat:
     command: ["node", "--watch", "app.js"]
@@ -17,9 +17,20 @@ services:
     ports:
       - "127.0.0.1:9231:9229"
     volumes:
-      - ../services/chat/app:/overleaf/services/chat/app
-      - ../services/chat/app.js:/overleaf/services/chat/app.js
-      - ../services/chat/config:/overleaf/services/chat/config
+      - ../services/chat/app:/overleaf/services/chat/app:z
+      - ../services/chat/app.js:/overleaf/services/chat/app.js:z
+      - ../services/chat/config:/overleaf/services/chat/config:z
+
+  llm-agent:
+    command: ["node", "--watch", "app.js"]
+    environment:
+      - NODE_OPTIONS=--inspect=0.0.0.0:9229
+    ports:
+      - "127.0.0.1:9241:9229"
+    volumes:
+      - ../services/llm-agent/app:/overleaf/services/llm-agent/app:z
+      - ../services/llm-agent/app.js:/overleaf/services/llm-agent/app.js:z
+      - ../services/llm-agent/config:/overleaf/services/llm-agent/config:z
 
   contacts:
     command: ["node", "--watch", "app.js"]
@@ -28,9 +39,9 @@ services:
     ports:
       - "127.0.0.1:9232:9229"
     volumes:
-      - ../services/contacts/app:/overleaf/services/contacts/app
-      - ../services/contacts/app.js:/overleaf/services/contacts/app.js
-      - ../services/contacts/config:/overleaf/services/contacts/config
+      - ../services/contacts/app:/overleaf/services/contacts/app:z
+      - ../services/contacts/app.js:/overleaf/services/contacts/app.js:z
+      - ../services/contacts/config:/overleaf/services/contacts/config:z
 
   docstore:
     command: ["node", "--watch", "app.js"]
@@ -39,9 +50,9 @@ services:
     ports:
       - "127.0.0.1:9233:9229"
     volumes:
-      - ../services/docstore/app:/overleaf/services/docstore/app
-      - ../services/docstore/app.js:/overleaf/services/docstore/app.js
-      - ../services/docstore/config:/overleaf/services/docstore/config
+      - ../services/docstore/app:/overleaf/services/docstore/app:z
+      - ../services/docstore/app.js:/overleaf/services/docstore/app.js:z
+      - ../services/docstore/config:/overleaf/services/docstore/config:z
 
   document-updater:
     command: ["node", "--watch", "app.js"]
@@ -50,9 +61,9 @@ services:
     ports:
       - "127.0.0.1:9234:9229"
     volumes:
-      - ../services/document-updater/app:/overleaf/services/document-updater/app
-      - ../services/document-updater/app.js:/overleaf/services/document-updater/app.js
-      - ../services/document-updater/config:/overleaf/services/document-updater/config
+      - ../services/document-updater/app:/overleaf/services/document-updater/app:z
+      - ../services/document-updater/app.js:/overleaf/services/document-updater/app.js:z
+      - ../services/document-updater/config:/overleaf/services/document-updater/config:z
 
   filestore:
     command: ["node", "--watch", "app.js"]
@@ -61,9 +72,9 @@ services:
     ports:
       - "127.0.0.1:9235:9229"
     volumes:
-      - ../services/filestore/app:/overleaf/services/filestore/app
-      - ../services/filestore/app.js:/overleaf/services/filestore/app.js
-      - ../services/filestore/config:/overleaf/services/filestore/config
+      - ../services/filestore/app:/overleaf/services/filestore/app:z
+      - ../services/filestore/app.js:/overleaf/services/filestore/app.js:z
+      - ../services/filestore/config:/overleaf/services/filestore/config:z
 
   history-v1:
     command: ["node", "--watch", "app.js"]
@@ -72,12 +83,12 @@ services:
     ports:
       - "127.0.0.1:9239:9229"
     volumes:
-      - ../services/history-v1/api:/overleaf/services/history-v1/api
-      - ../services/history-v1/app.js:/overleaf/services/history-v1/app.js
-      - ../services/history-v1/config:/overleaf/services/history-v1/config
-      - ../services/history-v1/storage:/overleaf/services/history-v1/storage
-      - ../services/history-v1/knexfile.js:/overleaf/services/history-v1/knexfile.js
-      - ../services/history-v1/migrations:/overleaf/services/history-v1/migrations
+      - ../services/history-v1/api:/overleaf/services/history-v1/api:z
+      - ../services/history-v1/app.js:/overleaf/services/history-v1/app.js:z
+      - ../services/history-v1/config:/overleaf/services/history-v1/config:z
+      - ../services/history-v1/storage:/overleaf/services/history-v1/storage:z
+      - ../services/history-v1/knexfile.js:/overleaf/services/history-v1/knexfile.js:z
+      - ../services/history-v1/migrations:/overleaf/services/history-v1/migrations:z
 
   notifications:
     command: ["node", "--watch", "app.ts"]
@@ -86,9 +97,9 @@ services:
     ports:
       - "127.0.0.1:9236:9229"
     volumes:
-      - ../services/notifications/app:/overleaf/services/notifications/app
-      - ../services/notifications/app.ts:/overleaf/services/notifications/app.ts
-      - ../services/notifications/config:/overleaf/services/notifications/config
+      - ../services/notifications/app:/overleaf/services/notifications/app:z
+      - ../services/notifications/app.ts:/overleaf/services/notifications/app.ts:z
+      - ../services/notifications/config:/overleaf/services/notifications/config:z
 
   project-history:
     command: ["node", "--watch", "app.js"]
@@ -97,9 +108,9 @@ services:
     ports:
       - "127.0.0.1:9240:9229"
     volumes:
-      - ../services/project-history/app:/overleaf/services/project-history/app
-      - ../services/project-history/app.js:/overleaf/services/project-history/app.js
-      - ../services/project-history/config:/overleaf/services/project-history/config
+      - ../services/project-history/app:/overleaf/services/project-history/app:z
+      - ../services/project-history/app.js:/overleaf/services/project-history/app.js:z
+      - ../services/project-history/config:/overleaf/services/project-history/config:z
 
   real-time:
     command: ["node", "--watch", "app.js"]
@@ -108,9 +119,9 @@ services:
     ports:
       - "127.0.0.1:9237:9229"
     volumes:
-      - ../services/real-time/app:/overleaf/services/real-time/app
-      - ../services/real-time/app.js:/overleaf/services/real-time/app.js
-      - ../services/real-time/config:/overleaf/services/real-time/config
+      - ../services/real-time/app:/overleaf/services/real-time/app:z
+      - ../services/real-time/app.js:/overleaf/services/real-time/app.js:z
+      - ../services/real-time/config:/overleaf/services/real-time/config:z
 
   web:
     command: ["node", "--watch", "app.mjs", "--watch-locales"]
@@ -119,21 +130,21 @@ services:
     ports:
       - "127.0.0.1:9229:9229"
     volumes:
-      - ../services/web/app:/overleaf/services/web/app
-      - ../services/web/app.mjs:/overleaf/services/web/app.mjs
-      - ../services/web/config:/overleaf/services/web/config
-      - ../services/web/locales:/overleaf/services/web/locales
-      - ../services/web/modules:/overleaf/services/web/modules
-      - ../services/web/public:/overleaf/services/web/public
+      - ../services/web/app:/overleaf/services/web/app:z
+      - ../services/web/app.mjs:/overleaf/services/web/app.mjs:z
+      - ../services/web/config:/overleaf/services/web/config:z
+      - ../services/web/locales:/overleaf/services/web/locales:z
+      - ../services/web/modules:/overleaf/services/web/modules:z
+      - ../services/web/public:/overleaf/services/web/public:z
 
   webpack:
     volumes:
-      - ../services/web/app:/overleaf/services/web/app
-      - ../services/web/config:/overleaf/services/web/config
-      - ../services/web/frontend:/overleaf/services/web/frontend
-      - ../services/web/locales:/overleaf/services/web/locales
-      - ../services/web/modules:/overleaf/services/web/modules
-      - ../services/web/public:/overleaf/services/web/public
-      - ../services/web/transform:/overleaf/services/web/transform
-      - ../services/web/types:/overleaf/services/web/types
-      - ../services/web/webpack-plugins:/overleaf/services/web/webpack-plugins
+      - ../services/web/app:/overleaf/services/web/app:z
+      - ../services/web/config:/overleaf/services/web/config:z
+      - ../services/web/frontend:/overleaf/services/web/frontend:z
+      - ../services/web/locales:/overleaf/services/web/locales:z
+      - ../services/web/modules:/overleaf/services/web/modules:z
+      - ../services/web/public:/overleaf/services/web/public:z
+      - ../services/web/transform:/overleaf/services/web/transform:z
+      - ../services/web/types:/overleaf/services/web/types:z
+      - ../services/web/webpack-plugins:/overleaf/services/web/webpack-plugins:z

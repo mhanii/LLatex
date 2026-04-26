@@ -69,6 +69,7 @@
     "server-ce/test",
     "services/analytics",
     "services/chat",
+    "services/llm-agent",
     "services/clsi",
     "services/clsi-cache",
     "services/clsi-perf",

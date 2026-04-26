@@ -4,3 +4,17 @@
 # user defined files
 .env
 docker-compose.override.yml
+
+# project-local dev notes (not for upstream)
+CLAUDE.md
+doc/
+
+# npm workspaces — root and per-service node_modules
+node_modules/
+services/*/node_modules/
+libraries/*/node_modules/
+server-ce/test/node_modules/
+
+# selinux debug artefacts
+develop/*.pp
+develop/*.te
