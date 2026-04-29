@@ -17,7 +17,7 @@ import { webUrl, basicAuth } from './utils.js'
 export async function compileAndCheck({ path } = {}, ctx) {
   const body = { userId: ctx.userId }
   if (path) {
-    const file = ctx.context.files.find(f => f.path === path)
+    const file = ctx.context?.files?.find(f => f.path === path)
     if (!file) {
       return { success: false, status: `file not found: ${path}`, errors: [] }
     }

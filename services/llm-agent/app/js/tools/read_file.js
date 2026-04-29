@@ -2,7 +2,7 @@
 import { resolveFile, docUpdaterUrl } from './utils.js'
 
 /**
- * Read lines from a LaTeX file, optionally sliced to a range.
+ * Read lines from a LaTeX file, optionally sliced to a 1-indexed inclusive range.
  *
  * @param {{ path: string, fromLine?: number, toLine?: number }} input
  * @param {import('../types.js').RunContext} ctx
@@ -20,7 +20,19 @@ export async function readFile({ path, fromLine, toLine }, ctx) {
     return `Failed to read "${path}": HTTP ${res.status}`
   }
   const { lines } = /** @type {{lines: string[]}} */ (await res.json())
-  const start = fromLine ?? 0
-  const slice = lines.slice(start, toLine != null ? toLine + 1 : undefined)
-  return slice.map((l, i) => `${start + i + 1}: ${l}`).join('\n')
+  if (
+    (fromLine != null && (!Number.isInteger(fromLine) || fromLine < 1)) ||
+    (toLine != null && (!Number.isInteger(toLine) || toLine < 1))
+  ) {
+    return 'Invalid line range: fromLine/toLine must be positive integers (1-indexed).'
+  }
+
+  const startLine = fromLine ?? 1
+  const endLine = toLine ?? lines.length
+  if (endLine < startLine) {
+    return 'Invalid line range: toLine must be greater than or equal to fromLine.'
+  }
+
+  const slice = lines.slice(startLine - 1, endLine)
+  return slice.map((l, i) => `${startLine + i}: ${l}`).join('\n')
 }

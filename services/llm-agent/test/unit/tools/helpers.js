@@ -6,10 +6,13 @@
  * @param {unknown} [body]
  */
 export function fakeResponse(status, body) {
+  const text =
+    typeof body === 'string' ? body : body != null ? JSON.stringify(body) : ''
   return {
     ok: status >= 200 && status < 300,
     status,
     json: async () => body,
+    text: async () => text,
   }
 }
 

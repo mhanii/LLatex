@@ -118,7 +118,21 @@ async function agentReplace(req, res) {
       { projectId, docId, oldText, contentStart: content.substring(0, 500), linesCount: lines.length },
       'agent-replace: old_text not found'
     )
-    return res.status(404).json({ error: 'old_text not found' })
+    return res.status(404).json({
+      error: 'old_text not found',
+      code: 'OLD_TEXT_NOT_FOUND',
+    })
+  }
+  const duplicatePos = content.indexOf(oldText, pos + oldText.length)
+  if (duplicatePos !== -1) {
+    logger.warn(
+      { projectId, docId, oldText },
+      'agent-replace: old_text is ambiguous (multiple matches)'
+    )
+    return res.status(409).json({
+      error: 'old_text matched multiple locations',
+      code: 'AMBIGUOUS_OLD_TEXT',
+    })
   }
   await UpdateManager.promises.applyUpdate(projectId, docId, {
     doc: docId,
