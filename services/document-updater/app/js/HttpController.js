@@ -100,6 +100,42 @@ async function getComment(req, res) {
 }
 
 // return the doc from redis if present, but don't load it from mongo
+async function agentReplace(req, res) {
+  const { project_id: projectId, doc_id: docId } = req.params
+  const { old_text: oldText, new_text: newText, user_id: userId } = req.body
+  if (!oldText || newText == null || !userId) {
+    return res.status(400).json({ error: 'old_text, new_text, user_id required' })
+  }
+  // Lazy requires to avoid circular dependency (same pattern used throughout DocumentManager)
+  const UpdateManager = require('./UpdateManager')
+  const RangesTracker = require('@overleaf/ranges-tracker')
+  const { lines, version } =
+    await DocumentManager.promises.getDocWithLock(projectId, docId)
+  const content = lines.join('\n')
+  const pos = content.indexOf(oldText)
+  if (pos === -1) {
+    logger.warn(
+      { projectId, docId, oldText, contentStart: content.substring(0, 500), linesCount: lines.length },
+      'agent-replace: old_text not found'
+    )
+    return res.status(404).json({ error: 'old_text not found' })
+  }
+  await UpdateManager.promises.applyUpdate(projectId, docId, {
+    doc: docId,
+    v: version,
+    op: [
+      { p: pos, d: oldText },
+      { p: pos, i: newText },
+    ],
+    meta: {
+      user_id: userId,
+      tc: RangesTracker.generateIdSeed(),
+      source: 'agent',
+    },
+  })
+  res.sendStatus(204)
+}
+
 async function peekDoc(req, res) {
   const docId = req.params.doc_id
   const projectId = req.params.project_id
@@ -545,6 +581,7 @@ async function unblockProject(req, res) {
 module.exports = {
   getDoc: expressify(getDoc),
   peekDoc: expressify(peekDoc),
+  agentReplace: expressify(agentReplace),
   getProjectDocsAndFlushIfOld: expressify(getProjectDocsAndFlushIfOld),
   getProjectLastUpdatedAt: expressify(getProjectLastUpdatedAt),
   getProjectRanges: expressify(getProjectRanges),
