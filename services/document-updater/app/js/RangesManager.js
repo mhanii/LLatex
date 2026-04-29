@@ -66,7 +66,10 @@ const RangesManager = {
         } else if (isInsert(op) || isDelete(op)) {
           historyOps.push(op)
         }
-        rangesTracker.applyOp(op, { user_id: update.meta?.user_id })
+        rangesTracker.applyOp(op, {
+          user_id: update.meta?.user_id,
+          ...(update.meta?.source ? { source: update.meta.source } : {}),
+        })
         if (croppedCommentOps.length > 0) {
           historyOps.push(
             ...croppedCommentOps.map(op =>

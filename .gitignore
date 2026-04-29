@@ -18,3 +18,7 @@ server-ce/test/node_modules/
 # selinux debug artefacts
 develop/*.pp
 develop/*.te
+
+# editor swap files
+*.kate-swp
+*.swp

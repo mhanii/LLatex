@@ -108,7 +108,7 @@ async function agentReplace(req, res) {
   }
   // Lazy requires to avoid circular dependency (same pattern used throughout DocumentManager)
   const UpdateManager = require('./UpdateManager')
-  const { ObjectId } = require('./mongodb')
+  const RangesTracker = require('@overleaf/ranges-tracker')
   const { lines, version } =
     await DocumentManager.promises.getDocWithLock(projectId, docId)
   const content = lines.join('\n')
@@ -129,8 +129,8 @@ async function agentReplace(req, res) {
     ],
     meta: {
       user_id: userId,
-      tc: new ObjectId().toString(),
-      source: 'llm-agent',
+      tc: RangesTracker.generateIdSeed(),
+      source: 'agent',
     },
   })
   res.sendStatus(204)
