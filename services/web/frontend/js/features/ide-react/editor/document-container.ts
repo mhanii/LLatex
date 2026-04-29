@@ -62,6 +62,7 @@ type Message = {
   meta: {
     tc: string
     user_id: string
+    source?: string
   }
 }
 
@@ -717,8 +718,12 @@ export class DocumentContainer extends EventEmitter {
       track_changes_as = this.track_changes_as
     }
     this.ranges!.track_changes = track_changes_as != null
+    const source = remote_op ? msg?.meta?.source : undefined
     for (const op of this.filterOps(ops)) {
-      this.ranges!.applyOp(op, { user_id: track_changes_as })
+      this.ranges!.applyOp(op, {
+        user_id: track_changes_as,
+        ...(source ? { source } : {}),
+      })
     }
     if (old_id_seed != null) {
       this.ranges!.setIdSeed(old_id_seed)

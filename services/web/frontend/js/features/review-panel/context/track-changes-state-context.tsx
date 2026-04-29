@@ -88,6 +88,26 @@ export const TrackChangesStateProvider: FC<React.PropsWithChildren> = ({
 
   const saveTrackChanges = useCallback(
     async (trackChangesBody: SaveTrackChangesRequestBody) => {
+      // Apply optimistically so review mode engages immediately, even if our own
+      // toggle-track-changes broadcast doesn't echo back to this client.
+      setTrackChangesValue(prev => {
+        if (typeof trackChangesBody.on === 'boolean') {
+          return trackChangesBody.on
+        }
+        const next: Record<string, boolean | undefined> =
+          prev !== true && prev !== false
+            ? { ...prev }
+            : { __guests__: prev === true }
+        if (trackChangesBody.on_for) {
+          for (const [k, v] of Object.entries(trackChangesBody.on_for)) {
+            next[k] = v
+          }
+        }
+        if (typeof trackChangesBody.on_for_guests === 'boolean') {
+          next.__guests__ = trackChangesBody.on_for_guests
+        }
+        return next as ProjectMetadata['trackChangesState']
+      })
       postJSON(`/project/${projectId}/track_changes`, {
         body: trackChangesBody,
       })

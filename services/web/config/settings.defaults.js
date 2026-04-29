@@ -1081,6 +1081,7 @@ module.exports = {
 
   moduleImportSequence: [
     'history-v1',
+    'track-changes',
     'launchpad',
     'llm-agent',
     'server-ce-scripts',

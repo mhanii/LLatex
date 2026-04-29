@@ -176,9 +176,12 @@ function useCodeMirrorScope(view: EditorView) {
   }, [view, currentDocument])
 
   useEffect(() => {
-    if (ranges && threads) {
+    if (ranges) {
+      // threads only matter for comment ranges; insert/delete decorations
+      // should still render when comments aren't available (e.g. no /threads route)
+      const threadsForDispatch = threads ?? {}
       window.setTimeout(() => {
-        view.dispatch(updateRanges({ ranges, threads }))
+        view.dispatch(updateRanges({ ranges, threads: threadsForDispatch }))
       })
     }
   }, [view, ranges, threads])

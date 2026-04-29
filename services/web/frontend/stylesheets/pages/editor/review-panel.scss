@@ -220,6 +220,30 @@ del.review-panel-content-highlight {
   text-decoration: line-through;
 }
 
+.review-panel-entry[data-source='agent'] ins.review-panel-content-highlight {
+  background-color: rgba(44, 142, 48, 0.22);
+}
+
+.review-panel-entry[data-source='agent'] del.review-panel-content-highlight {
+  background-color: rgba(197, 6, 11, 0.18);
+  text-decoration: none;
+}
+
+.review-panel-source-pill {
+  display: inline-block;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 0 6px;
+  border-radius: 8px;
+  margin-left: 6px;
+  vertical-align: middle;
+
+  &.agent {
+    background: rgba(197, 6, 11, 0.15);
+    color: #a3050a;
+  }
+}
+
 .review-panel-entry-icon {
   border-radius: var(--border-radius-base);
   padding: var(--spacing-02);
@@ -792,6 +816,84 @@ del.review-panel-content-highlight {
   &.review-mode-switcher-toggle-button-expanded {
     .review-mode-switcher-toggle-label {
       display: block;
+    }
+  }
+}
+
+.inline-change-actions-layer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 80;
+}
+
+.inline-change-actions {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 6px;
+  border-radius: 12px;
+  font-size: 11px;
+  line-height: 1.4;
+  background-color: var(--bg-light-primary, #ffffff);
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  user-select: none;
+  white-space: nowrap;
+
+  .inline-change-actions-source {
+    font-weight: 600;
+    margin-right: 2px;
+  }
+
+  .inline-change-actions-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    border-radius: 50%;
+    cursor: pointer;
+    color: var(--content-secondary, #555);
+
+    .material-symbols {
+      font-size: 14px;
+      line-height: 14px;
+    }
+
+    &:hover {
+      background-color: rgba(0, 0, 0, 0.06);
+    }
+
+    &.accept:hover {
+      color: #2c8e30;
+    }
+
+    &.reject:hover {
+      color: #c5060b;
+    }
+  }
+
+  &.user {
+    border-color: rgba(56, 122, 224, 0.45);
+
+    .inline-change-actions-source {
+      color: #1c5dc0;
+    }
+  }
+
+  &.agent {
+    border-color: rgba(197, 6, 11, 0.45);
+
+    .inline-change-actions-source {
+      color: #a3050a;
     }
   }
 }

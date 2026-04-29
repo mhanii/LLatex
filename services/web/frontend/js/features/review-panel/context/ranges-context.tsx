@@ -52,6 +52,8 @@ type RangesActions = {
   rejectChanges: (
     ...changes: Array<Change<EditOperation> & { snapshotRange?: Range }>
   ) => Promise<void>
+  acceptAllChangesBySource: (source: 'agent' | 'user') => Promise<void>
+  rejectAllChangesBySource: (source: 'agent' | 'user') => Promise<void>
 }
 
 const buildRanges = (currentDocument: DocumentContainer | null) => {
@@ -363,16 +365,40 @@ export const RangesProvider: FC<React.PropsWithChildren> = ({ children }) => {
             })
           }
         },
-      } satisfies RangesActions
+      } satisfies Pick<RangesActions, 'acceptChanges' | 'rejectChanges'>
     }
   }, [currentDocument, projectId, view, sendEvent, reviewPanelView])
 
-  if (!actions) {
+  const actionsWithBulk = useMemo<RangesActions | undefined>(() => {
+    if (!actions) return undefined
+    const allChanges = ranges?.changes ?? []
+    const filterChanges = (source: 'agent' | 'user') =>
+      source === 'agent'
+        ? allChanges.filter(c => c.metadata?.source === 'agent')
+        : allChanges.filter(c => c.metadata?.source !== 'agent')
+    return {
+      ...actions,
+      async acceptAllChangesBySource(source) {
+        const filtered = filterChanges(source)
+        if (filtered.length > 0) {
+          await actions.acceptChanges(...filtered)
+        }
+      },
+      async rejectAllChangesBySource(source) {
+        const filtered = filterChanges(source)
+        if (filtered.length > 0) {
+          await actions.rejectChanges(...filtered)
+        }
+      },
+    }
+  }, [actions, ranges])
+
+  if (!actionsWithBulk) {
     return null
   }
 
   return (
-    <RangesActionsContext.Provider value={actions}>
+    <RangesActionsContext.Provider value={actionsWithBulk}>
       <RangesContext.Provider value={ranges}>{children}</RangesContext.Provider>
     </RangesActionsContext.Provider>
   )
