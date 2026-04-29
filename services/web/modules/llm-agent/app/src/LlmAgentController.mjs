@@ -167,14 +167,17 @@ async function agentMoveFile(req, res) {
 
 async function internalCompile(req, res) {
   const { project_id: projectId } = req.params
-  const { userId } = req.body
+  const { userId, rootDoc_id } = req.body
   if (!userId) {
     return res.status(400).json({ error: 'userId required' })
   }
-  const result = await CompileManager.promises.compile(projectId, userId, {
-    isAutoCompile: false,
-    fileLineErrors: true,
-  })
+  const compileOptions = { isAutoCompile: false, fileLineErrors: true }
+  if (rootDoc_id) compileOptions.rootDoc_id = rootDoc_id
+  const result = await CompileManager.promises.compile(
+    projectId,
+    userId,
+    compileOptions
+  )
   const { status, validationProblems } = result
   const errors = validationProblems
     ? Object.values(validationProblems).flat().map(String)

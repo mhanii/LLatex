@@ -244,8 +244,8 @@ async function cleanup(mongo, projectId) {
     info(`test user removal skipped (using pre-existing account)`)
   }
   if (projectId) {
-    await mongo.db().collection('projects').deleteOne({ _id: new ObjectId(projectId) })
-    info(`test project removed`)
+    // await mongo.db().collection('projects').deleteOne({ _id: new ObjectId(projectId) })
+    // info(`test project removed`)
   }
 }
 
@@ -377,8 +377,9 @@ async function main() {
       assert(breakResult === 'Change applied.', `error introduced: "${breakResult}"`)
 
       // ── Step 10: compileAndCheck (broken) ────────────────────────────────────
+      // Compile new.tex directly as the root document so CLSI sees the error.
       step('10 · compileAndCheck (should fail)')
-      const compile2 = await compileAndCheck({}, ctx)
+      const compile2 = await compileAndCheck({ path: NEW_FILE_PATH }, ctx)
       info(`status: ${compile2.status}`)
       if (compile2.status === 'too-recently-compiled') {
         info('skipped (compiled too recently)')
