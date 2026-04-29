@@ -17,6 +17,7 @@ import { postJSON } from '@/infrastructure/fetch-json'
 import useEventListener from '@/shared/hooks/use-event-listener'
 import { ProjectMetadata } from '@/shared/context/types/project-metadata'
 import { usePermissionsContext } from '@/features/ide-react/context/permissions-context'
+import { debugConsole } from '@/utils/debugging'
 
 export type TrackChangesState = {
   onForEveryone: boolean
@@ -42,6 +43,30 @@ type TrackChangesStateActions = {
 const TrackChangesStateActionsContext = createContext<
   TrackChangesStateActions | undefined
 >(undefined)
+
+const buildNextTrackChangesState = (
+  prev: ProjectMetadata['trackChangesState'],
+  trackChangesBody: SaveTrackChangesRequestBody
+): ProjectMetadata['trackChangesState'] => {
+  if (typeof trackChangesBody.on === 'boolean') {
+    return trackChangesBody.on
+  }
+
+  const next: Record<string, boolean | undefined> =
+    prev !== true && prev !== false ? { ...prev } : { __guests__: prev === true }
+
+  if (trackChangesBody.on_for) {
+    for (const [k, v] of Object.entries(trackChangesBody.on_for)) {
+      next[k] = v
+    }
+  }
+
+  if (typeof trackChangesBody.on_for_guests === 'boolean') {
+    next.__guests__ = trackChangesBody.on_for_guests
+  }
+
+  return next as ProjectMetadata['trackChangesState']
+}
 
 export const TrackChangesStateProvider: FC<React.PropsWithChildren> = ({
   children,
@@ -88,29 +113,30 @@ export const TrackChangesStateProvider: FC<React.PropsWithChildren> = ({
 
   const saveTrackChanges = useCallback(
     async (trackChangesBody: SaveTrackChangesRequestBody) => {
+      let previousState: ProjectMetadata['trackChangesState'] | undefined
+      let optimisticState: ProjectMetadata['trackChangesState'] | undefined
+
       // Apply optimistically so review mode engages immediately, even if our own
       // toggle-track-changes broadcast doesn't echo back to this client.
       setTrackChangesValue(prev => {
-        if (typeof trackChangesBody.on === 'boolean') {
-          return trackChangesBody.on
-        }
-        const next: Record<string, boolean | undefined> =
-          prev !== true && prev !== false
-            ? { ...prev }
-            : { __guests__: prev === true }
-        if (trackChangesBody.on_for) {
-          for (const [k, v] of Object.entries(trackChangesBody.on_for)) {
-            next[k] = v
+        previousState = prev
+        optimisticState = buildNextTrackChangesState(prev, trackChangesBody)
+        return optimisticState
+      })
+
+      try {
+        await postJSON(`/project/${projectId}/track_changes`, {
+          body: trackChangesBody,
+        })
+      } catch (error) {
+        setTrackChangesValue(current => {
+          if (current === optimisticState && previousState !== undefined) {
+            return previousState
           }
-        }
-        if (typeof trackChangesBody.on_for_guests === 'boolean') {
-          next.__guests__ = trackChangesBody.on_for_guests
-        }
-        return next as ProjectMetadata['trackChangesState']
-      })
-      postJSON(`/project/${projectId}/track_changes`, {
-        body: trackChangesBody,
-      })
+          return current
+        })
+        debugConsole.error('Failed to save track changes state', error)
+      }
     },
     [projectId]
   )

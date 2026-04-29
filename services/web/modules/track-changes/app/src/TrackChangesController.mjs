@@ -95,11 +95,12 @@ async function saveTrackChanges(req, res) {
 async function acceptChanges(req, res) {
   const { project_id: projectId, doc_id: docId } = req.params
   const changeIds = req.body?.change_ids
-  const userId = getLoggedInUserId(req)
 
   if (!Array.isArray(changeIds)) {
     return res.status(400).json({ error: 'change_ids must be an array' })
   }
+
+  const userId = getLoggedInUserId(req)
 
   await DocumentUpdaterHandler.promises.acceptChanges(
     projectId,
@@ -121,11 +122,12 @@ async function acceptChanges(req, res) {
 async function rejectChanges(req, res) {
   const { project_id: projectId, doc_id: docId } = req.params
   const changeIds = req.body?.change_ids
-  const userId = getLoggedInUserId(req)
 
   if (!Array.isArray(changeIds)) {
     return res.status(400).json({ error: 'change_ids must be an array' })
   }
+
+  const userId = getLoggedInUserId(req)
 
   const response = await DocumentUpdaterHandler.promises.rejectChanges(
     projectId,

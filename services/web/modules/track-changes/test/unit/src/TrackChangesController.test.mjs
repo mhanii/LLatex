@@ -292,6 +292,7 @@ describe('TrackChangesController', function () {
       )
 
       expect(res.statusCode).toBe(400)
+      expect(SessionManager.getLoggedInUserId).not.toHaveBeenCalled()
       expect(DocumentUpdaterHandler.promises.acceptChanges).not.toHaveBeenCalled()
     })
   })
@@ -332,6 +333,7 @@ describe('TrackChangesController', function () {
       )
 
       expect(res.statusCode).toBe(400)
+      expect(SessionManager.getLoggedInUserId).not.toHaveBeenCalled()
       expect(DocumentUpdaterHandler.promises.rejectChanges).not.toHaveBeenCalled()
     })
   })

@@ -3,21 +3,27 @@ import ProjectEditorHandler from '../../app/src/Features/Project/ProjectEditorHa
 
 /** @import { WebModule } from "../../types/web-module" */
 
-const buildProjectModelView =
-  ProjectEditorHandler.buildProjectModelView.bind(ProjectEditorHandler)
+const PATCH_APPLIED_FLAG = '__trackChangesBuildProjectModelViewPatched__'
+
+if (!ProjectEditorHandler[PATCH_APPLIED_FLAG]) {
+  const buildProjectModelView =
+    ProjectEditorHandler.buildProjectModelView.bind(ProjectEditorHandler)
+
+  ProjectEditorHandler.buildProjectModelView = function (...args) {
+    const project = args[0]
+    const result = buildProjectModelView(...args)
+
+    result.features.trackChanges = true
+    result.features.trackChangesVisible = true
+    result.trackChangesState = project.track_changes || false
+
+    return result
+  }
+
+  ProjectEditorHandler[PATCH_APPLIED_FLAG] = true
+}
 
 ProjectEditorHandler.trackChangesAvailable = true
-
-ProjectEditorHandler.buildProjectModelView = function (...args) {
-  const project = args[0]
-  const result = buildProjectModelView(...args)
-
-  result.features.trackChanges = true
-  result.features.trackChangesVisible = true
-  result.trackChangesState = project.track_changes || false
-
-  return result
-}
 
 /** @type {WebModule} */
 const TrackChangesModule = {

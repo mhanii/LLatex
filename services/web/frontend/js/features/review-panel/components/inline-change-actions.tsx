@@ -18,6 +18,7 @@ import MaterialIcon from '@/shared/components/material-icon'
 
 const VERTICAL_OFFSET_PX = 26
 const MIN_PADDING_PX = 8
+const COLLISION_STACK_OFFSET_PX = 24
 
 type Entry = {
   primary: Change<EditOperation>
@@ -74,12 +75,12 @@ export const InlineChangeActions = memo(function InlineChangeActions() {
     id: string
     pos: { top: number; left: number }
     isAgent: boolean
-    onAccept: () => void
-    onReject: () => void
+    handleAcceptClick: () => void
+    handleRejectClick: () => void
   }
 
   const items: Item[] = []
-  const seenKeys = new Set<string>()
+  const collisionsByPosition = new Map<string, number>()
 
   for (const entry of aggregate(ranges.changes)) {
     const { primary, aggregate: agg } = entry
@@ -91,8 +92,8 @@ export const InlineChangeActions = memo(function InlineChangeActions() {
     }
     if (!coords) continue
     const key = `${Math.round(coords.top)}:${Math.round(coords.left)}`
-    if (seenKeys.has(key)) continue
-    seenKeys.add(key)
+    const collisionIndex = collisionsByPosition.get(key) ?? 0
+    collisionsByPosition.set(key, collisionIndex + 1)
 
     const isAgent =
       primary.metadata?.source === 'agent' || agg?.metadata?.source === 'agent'
@@ -100,15 +101,18 @@ export const InlineChangeActions = memo(function InlineChangeActions() {
     items.push({
       id: primary.id,
       pos: {
-        top: Math.max(MIN_PADDING_PX, coords.top - VERTICAL_OFFSET_PX),
+        top: Math.max(
+          MIN_PADDING_PX,
+          coords.top - VERTICAL_OFFSET_PX + collisionIndex * COLLISION_STACK_OFFSET_PX
+        ),
         left: Math.max(MIN_PADDING_PX, coords.left),
       },
       isAgent,
-      onAccept: () =>
+      handleAcceptClick: () =>
         agg
           ? actions.acceptChanges(primary, agg)
           : actions.acceptChanges(primary),
-      onReject: () =>
+      handleRejectClick: () =>
         agg
           ? actions.rejectChanges(primary, agg)
           : actions.rejectChanges(primary),
@@ -135,7 +139,7 @@ export const InlineChangeActions = memo(function InlineChangeActions() {
           <button
             type="button"
             className="inline-change-actions-btn accept"
-            onClick={item.onAccept}
+            onClick={item.handleAcceptClick}
             aria-label={t('accept_change')}
             title={t('accept_change')}
           >
@@ -144,7 +148,7 @@ export const InlineChangeActions = memo(function InlineChangeActions() {
           <button
             type="button"
             className="inline-change-actions-btn reject"
-            onClick={item.onReject}
+            onClick={item.handleRejectClick}
             aria-label={t('reject_change')}
             title={t('reject_change')}
           >
