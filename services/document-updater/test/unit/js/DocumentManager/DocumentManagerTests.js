@@ -756,7 +756,14 @@ describe('DocumentManager', function () {
       ]
       this.version = 34
       this.lines = ['original', 'lines']
-      this.ranges = { entries: 'mock', comments: 'mock' }
+      this.ranges = {
+        entries: 'mock',
+        comments: 'mock',
+        changes: [
+          { id: this.change_id },
+          ...this.change_ids.map(id => ({ id })),
+        ],
+      }
       this.updated_ranges = { entries: 'updated', comments: 'updated' }
       this.DocumentManager.promises.getDoc = sinon.stub().resolves({
         lines: this.lines,
@@ -788,6 +795,18 @@ describe('DocumentManager', function () {
           [this.change_id],
           this.ranges
         )
+      })
+
+      it('should return accepted change ids', async function () {
+        await expect(
+          this.DocumentManager.promises.acceptChanges(
+            this.project_id,
+            this.doc_id,
+            [this.change_id, 'stale-change-id']
+          )
+        ).to.eventually.deep.equal({
+          acceptedChangeIds: [this.change_id],
+        })
       })
 
       it('should save the updated ranges', function () {

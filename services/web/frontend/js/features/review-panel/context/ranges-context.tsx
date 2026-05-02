@@ -52,6 +52,8 @@ type RangesActions = {
   rejectChanges: (
     ...changes: Array<Change<EditOperation> & { snapshotRange?: Range }>
   ) => Promise<void>
+  acceptAllChangesBySource: (source: 'agent' | 'user') => Promise<void>
+  rejectAllChangesBySource: (source: 'agent' | 'user') => Promise<void>
 }
 
 const buildRanges = (currentDocument: DocumentContainer | null) => {
@@ -342,11 +344,13 @@ export const RangesProvider: FC<React.PropsWithChildren> = ({ children }) => {
           if (currentDocument.ranges) {
             const ids = changes.map(change => change.id)
             const url = `/project/${projectId}/doc/${currentDocument.doc_id}/changes/accept`
-            await postJSON(url, { body: { change_ids: ids } })
-            currentDocument.ranges.removeChangeIds(ids)
+            const { acceptedChangeIds } = await postJSON<{
+              acceptedChangeIds: string[]
+            }>(url, { body: { change_ids: ids } })
+            currentDocument.ranges.removeChangeIds(acceptedChangeIds)
             setRanges(buildRanges(currentDocument))
             sendEvent('rp-changes-accepted', {
-              count: ids.length,
+              count: acceptedChangeIds.length,
               view: reviewPanelView,
             })
           }
@@ -363,16 +367,40 @@ export const RangesProvider: FC<React.PropsWithChildren> = ({ children }) => {
             })
           }
         },
-      } satisfies RangesActions
+      } satisfies Pick<RangesActions, 'acceptChanges' | 'rejectChanges'>
     }
   }, [currentDocument, projectId, view, sendEvent, reviewPanelView])
 
-  if (!actions) {
+  const actionsWithBulk = useMemo<RangesActions | undefined>(() => {
+    if (!actions) return undefined
+    const allChanges = ranges?.changes ?? []
+    const filterChanges = (source: 'agent' | 'user') =>
+      source === 'agent'
+        ? allChanges.filter(c => c.metadata?.source === 'agent')
+        : allChanges.filter(c => c.metadata?.source === 'user')
+    return {
+      ...actions,
+      async acceptAllChangesBySource(source) {
+        const filtered = filterChanges(source)
+        if (filtered.length > 0) {
+          await actions.acceptChanges(...filtered)
+        }
+      },
+      async rejectAllChangesBySource(source) {
+        const filtered = filterChanges(source)
+        if (filtered.length > 0) {
+          await actions.rejectChanges(...filtered)
+        }
+      },
+    }
+  }, [actions, ranges])
+
+  if (!actionsWithBulk) {
     return null
   }
 
   return (
-    <RangesActionsContext.Provider value={actions}>
+    <RangesActionsContext.Provider value={actionsWithBulk}>
       <RangesContext.Provider value={ranges}>{children}</RangesContext.Provider>
     </RangesActionsContext.Provider>
   )

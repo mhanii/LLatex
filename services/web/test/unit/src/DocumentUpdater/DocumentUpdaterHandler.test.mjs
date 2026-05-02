@@ -548,14 +548,17 @@ describe('DocumentUpdaterHandler', function () {
           .post(`/project/${ctx.project_id}/doc/${ctx.doc_id}/change/accept`, {
             change_ids: [ctx.change_id],
           })
-          .reply(200)
+          .reply(200, { acceptedChangeIds: [ctx.change_id] })
       })
 
       it('should accept the change in the document updater', async function (ctx) {
-        await ctx.handler.promises.acceptChanges(ctx.project_id, ctx.doc_id, [
-          ctx.change_id,
-        ])
+        const response = await ctx.handler.promises.acceptChanges(
+          ctx.project_id,
+          ctx.doc_id,
+          [ctx.change_id]
+        )
         expect(ctx.docUpdaterMock.isDone()).to.be.true
+        expect(response).to.deep.equal({ acceptedChangeIds: [ctx.change_id] })
       })
     })
 

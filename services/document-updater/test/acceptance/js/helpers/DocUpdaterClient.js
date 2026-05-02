@@ -160,14 +160,14 @@ module.exports = DocUpdaterClient = {
   },
 
   async acceptChange(projectId, docId, changeId) {
-    await fetchNothing(
+    return await fetchJson(
       `http://127.0.0.1:3003/project/${projectId}/doc/${docId}/change/${changeId}/accept`,
       { method: 'POST' }
     )
   },
 
   async acceptChanges(projectId, docId, changeIds) {
-    await fetchNothing(
+    return await fetchJson(
       `http://127.0.0.1:3003/project/${projectId}/doc/${docId}/change/accept`,
       {
         method: 'POST',
