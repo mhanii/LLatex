@@ -1,7 +1,11 @@
 import fsPromises from 'node:fs/promises'
+import fs from 'node:fs'
 import os from 'node:os'
 import Path from 'node:path'
-import { callbackify } from 'node:util'
+import { callbackify, promisify } from 'node:util'
+import { execFile, spawn as spawnProcess } from 'node:child_process'
+
+const execFilePromise = promisify(execFile)
 import Settings from '@overleaf/settings'
 import logger from '@overleaf/logger'
 import OError from '@overleaf/o-error'
@@ -869,6 +873,94 @@ function _emitMetrics(request, status, stats, timings) {
   }
 }
 
+/**
+ * Find the path to the compiled PDF.
+ * After compilation the PDF is moved from the compile dir to the output dir
+ * (via qpdf optimization). Check the output dir first, then fall back to the
+ * compile dir for backwards compatibility.
+ */
+async function findPdfPath(projectId, userId) {
+  // Check output dir — this is where the PDF lives after _saveOutputFiles.
+  const outputDir = Path.join(
+    getOutputDir(projectId, userId),
+    OutputCacheManager.CACHE_SUBDIR
+  )
+  try {
+    const builds = await fsPromises.readdir(outputDir)
+    // Build IDs start with a hex timestamp — sort descending to check newest first.
+    for (const build of builds.sort().reverse()) {
+      const pdfPath = Path.join(outputDir, build, 'output.pdf')
+      try {
+        await fsPromises.access(pdfPath)
+        return pdfPath
+      } catch {
+        // This build has no PDF (e.g. failed compile), try the next one.
+      }
+    }
+  } catch {
+    // Output dir doesn't exist yet, fall through.
+  }
+
+  // Fall back to compile dir (brief window during compile, or legacy).
+  const compilePdfPath = Path.join(getCompileDir(projectId, userId), 'output.pdf')
+  try {
+    await fsPromises.access(compilePdfPath)
+    return compilePdfPath
+  } catch {
+    return null
+  }
+}
+
+async function getPdfInfo(projectId, userId) {
+  const pdfPath = await findPdfPath(projectId, userId)
+  if (!pdfPath) return null
+  try {
+    const { stdout } = await execFilePromise('pdfinfo', [pdfPath], {
+      timeout: 10000,
+    })
+    const m = stdout.match(/^Pages:\s+(\d+)/m)
+    return m ? { pageCount: parseInt(m[1], 10) } : null
+  } catch {
+    return null
+  }
+}
+
+async function getPdfPage(projectId, userId, page) {
+  const pdfPath = await findPdfPath(projectId, userId)
+  if (!pdfPath) return null
+  // pdftoppm's stdout mode ('-') produces 0 bytes in some poppler versions,
+  // so use a temp file. pdftoppm appends the page number to the filename.
+  const tmpPrefix = Path.join(os.tmpdir(), `pdf-page-${Date.now()}`)
+  const tmpFile = `${tmpPrefix}-${page}.png`
+  try {
+    await new Promise((resolve, reject) => {
+      const proc = spawnProcess('pdftoppm', [
+        '-png',
+        '-r',
+        '150',
+        '-f',
+        String(page),
+        '-l',
+        String(page),
+        pdfPath,
+        tmpPrefix,
+      ])
+      proc.on('error', reject)
+      proc.on('close', code => {
+        if (code !== 0) {
+          reject(new Error(`pdftoppm exited with code ${code}`))
+        } else {
+          resolve()
+        }
+      })
+    })
+    const buf = await fsPromises.readFile(tmpFile)
+    return buf
+  } finally {
+    await fsPromises.unlink(tmpFile).catch(() => {})
+  }
+}
+
 export default {
   doCompileWithLock: callbackify(doCompileWithLock),
   stopCompile: callbackify(stopCompile),
@@ -891,5 +983,7 @@ export default {
     syncFromCode,
     syncFromPdf,
     wordcount,
+    getPdfInfo,
+    getPdfPage,
   },
 }

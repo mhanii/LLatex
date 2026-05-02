@@ -44,5 +44,15 @@ export default {
       requirePrivateApiAuth(),
       LlmAgentController.internalCompile
     )
+    webRouter.get(
+      '/internal/project/:project_id/agent/pdf-page',
+      requirePrivateApiAuth(),
+      LlmAgentController.agentPdfPage
+    )
+    webRouter.get(
+      '/internal/project/:project_id/agent/syntax-check',
+      requirePrivateApiAuth(),
+      LlmAgentController.agentSyntaxCheck
+    )
   },
 }

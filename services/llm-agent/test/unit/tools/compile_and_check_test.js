@@ -14,6 +14,32 @@ describe('compileAndCheck', function () {
     expect(result).to.deep.equal({ success: true, status: 'success', errors: [] })
   })
 
+  it('passes through pageCount when the endpoint returns it', async function () {
+    stubFetch(async () =>
+      fakeResponse(200, {
+        success: true,
+        status: 'success',
+        errors: [],
+        pageCount: 4,
+      })
+    )
+    const result = await compileAndCheck({}, CTX)
+    expect(result.pageCount).to.equal(4)
+  })
+
+  it('passes through null pageCount when compile fails', async function () {
+    stubFetch(async () =>
+      fakeResponse(200, {
+        success: false,
+        status: 'failure',
+        errors: ['Undefined control sequence'],
+        pageCount: null,
+      })
+    )
+    const result = await compileAndCheck({}, CTX)
+    expect(result.pageCount).to.be.null
+  })
+
   it('returns {success: false, status: "too-recently-compiled"} without throwing', async function () {
     stubFetch(async () =>
       fakeResponse(200, {

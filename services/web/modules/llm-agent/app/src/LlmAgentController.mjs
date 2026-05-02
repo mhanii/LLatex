@@ -12,6 +12,8 @@ import CompileManager from '../../../../app/src/Features/Compile/CompileManager.
 import ProjectLocator from '../../../../app/src/Features/Project/ProjectLocator.mjs'
 import ProjectGetter from '../../../../app/src/Features/Project/ProjectGetter.mjs'
 import ProjectEntityHandler from '../../../../app/src/Features/Project/ProjectEntityHandler.mjs'
+import Settings from '@overleaf/settings'
+import SyntaxChecker from './SyntaxChecker.mjs'
 import LlmAgentApiHandler from './LlmAgentApiHandler.mjs'
 
 function normalizeProjectPath(path) {
@@ -247,6 +249,15 @@ async function agentMoveFile(req, res) {
   res.sendStatus(204)
 }
 
+function clsiUrl(projectId, userId, action) {
+  const clsiUserId = Settings.disablePerUserCompiles ? undefined : userId
+  const base = Settings.apis.clsi.url
+  const prefix = clsiUserId
+    ? `/project/${projectId}/user/${clsiUserId}`
+    : `/project/${projectId}`
+  return `${base}${prefix}/${action}`
+}
+
 async function internalCompile(req, res) {
   const { project_id: projectId } = req.params
   const { userId, rootDoc_id } = req.body
@@ -264,7 +275,53 @@ async function internalCompile(req, res) {
   const errors = validationProblems
     ? Object.values(validationProblems).flat().map(String)
     : []
-  res.json({ success: status === 'success', status, errors })
+
+  let pageCount = null
+  if (status === 'success') {
+    try {
+      const infoRes = await fetch(clsiUrl(projectId, userId, 'pdf-info'))
+      if (infoRes.ok) {
+        const info = await infoRes.json()
+        pageCount = info.pageCount ?? null
+      }
+    } catch {
+      // non-fatal — pageCount stays null
+    }
+  }
+
+  res.json({ success: status === 'success', status, errors, pageCount })
+}
+
+async function agentPdfPage(req, res) {
+  const { project_id: projectId } = req.params
+  const { userId, page: pageStr } = req.query
+  const page = parseInt(pageStr, 10)
+  if (!userId || !page || page < 1) {
+    return res
+      .status(400)
+      .json({ error: 'userId and page (1-indexed) query params required' })
+  }
+  const clsiRes = await fetch(
+    `${clsiUrl(projectId, userId, 'pdf-page')}?page=${page}`
+  )
+  if (clsiRes.status === 404) {
+    return res.status(404).json({ error: clsiRes.statusText })
+  }
+  if (!clsiRes.ok) {
+    return res.status(502).json({ error: 'CLSI error' })
+  }
+  const buf = Buffer.from(await clsiRes.arrayBuffer())
+  if (buf.length === 0) {
+    return res.status(404).json({ error: 'page out of range' })
+  }
+  res.json({ imageBase64: buf.toString('base64'), mimeType: 'image/png' })
+}
+
+async function agentSyntaxCheck(req, res) {
+  const { project_id: projectId } = req.params
+  const scopePath = req.query.path ?? null
+  const result = await SyntaxChecker.check(projectId, scopePath)
+  res.json(result)
 }
 
 export default {
@@ -274,4 +331,6 @@ export default {
   agentDeleteFile: expressify(agentDeleteFile),
   agentMoveFile: expressify(agentMoveFile),
   internalCompile: expressify(internalCompile),
+  agentPdfPage: expressify(agentPdfPage),
+  agentSyntaxCheck: expressify(agentSyntaxCheck),
 }

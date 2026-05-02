@@ -27,6 +27,8 @@ import { getOutline }      from '../tools/get_outline.js'
 import { editFile }        from '../tools/edit_file.js'
 import { createFile }      from '../tools/create_file.js'
 import { compileAndCheck } from '../tools/compile_and_check.js'
+import { checkSyntax }     from '../tools/check_syntax.js'
+import { getPdfPage }      from '../tools/get_pdf_page.js'
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const WEB_URL   = `http://${process.env.WEB_HOST   || 'web'}:3000`
@@ -348,8 +350,16 @@ async function main() {
       assert(sectionTitles.length >= 3, `found ≥3 section entries`)
       ok(`outline: ${sectionTitles.join(', ')}`)
 
-      // ── Step 8: compileAndCheck (clean) ──────────────────────────────────────
-      step('8 · compileAndCheck (should succeed)')
+      // ── Step 8: checkSyntax (clean file) ─────────────────────────────────────
+      step(`8 · checkSyntax(${NEW_FILE_PATH}) — clean file`)
+      const syntax1 = await checkSyntax({ path: NEW_FILE_PATH }, ctx)
+      assert(Array.isArray(syntax1.issues), `got issues array`)
+      const errors1 = syntax1.issues.filter(i => i.type === 'error')
+      assert(errors1.length === 0, `no errors on clean file (found ${errors1.length})`)
+      ok(`issues on clean file: ${syntax1.issues.length}`)
+
+      // ── Step 9: compileAndCheck (clean) ──────────────────────────────────────
+      step('9 · compileAndCheck (should succeed)')
       const compile1 = await compileAndCheck({}, ctx)
       info(`status: ${compile1.status}`)
       if (compile1.status === 'too-recently-compiled') {
@@ -364,8 +374,25 @@ async function main() {
         if (compile1.errors?.length) info(`warnings: ${compile1.errors.join('; ')}`)
       }
 
-      // ── Step 9: editFile — introduce LaTeX error ──────────────────────────────
-      step(`9 · editFile — introduce syntax error`)
+      // ── Step 10: getPdfPage ───────────────────────────────────────────────────
+      // Only run if the compile produced a PDF (status === 'success').
+      step('10 · getPdfPage(1) — first page of compiled PDF')
+      if (compile1.status === 'success' && compile1.pageCount != null) {
+        info(`PDF has ${compile1.pageCount} page(s)`)
+        const pageResult = await getPdfPage({ page: 1 }, ctx)
+        if (typeof pageResult === 'string') {
+          info(`⚠  getPdfPage returned: ${pageResult}`)
+        } else {
+          assert(typeof pageResult.imageBase64 === 'string' && pageResult.imageBase64.length > 0, `got non-empty base64 PNG`)
+          assert(pageResult.mimeType === 'image/png', `mimeType is image/png`)
+          ok(`page 1 returned ${pageResult.imageBase64.length} base64 chars`)
+        }
+      } else {
+        info(`skipped (compile status="${compile1.status}", pageCount=${compile1.pageCount})`)
+      }
+
+      // ── Step 11: editFile — introduce LaTeX error ─────────────────────────────
+      step(`11 · editFile — introduce syntax error`)
       const breakResult = await editFile(
         {
           path: NEW_FILE_PATH,
@@ -376,9 +403,9 @@ async function main() {
       )
       assert(breakResult === 'Change applied.', `error introduced: "${breakResult}"`)
 
-      // ── Step 10: compileAndCheck (broken) ────────────────────────────────────
+      // ── Step 12: compileAndCheck (broken) ────────────────────────────────────
       // Compile new.tex directly as the root document so CLSI sees the error.
-      step('10 · compileAndCheck (should fail)')
+      step('12 · compileAndCheck (should fail)')
       const compile2 = await compileAndCheck({ path: NEW_FILE_PATH }, ctx)
       info(`status: ${compile2.status}`)
       if (compile2.status === 'too-recently-compiled') {
@@ -391,6 +418,16 @@ async function main() {
           `compile failed as expected (status="${compile2.status}")`
         )
       }
+
+      // ── Step 13: checkSyntax (broken file — detects unclosed \begin{table}) ──
+      step(`13 · checkSyntax(${NEW_FILE_PATH}) — broken file`)
+      const syntax2 = await checkSyntax({ path: NEW_FILE_PATH }, ctx)
+      assert(Array.isArray(syntax2.issues), `got issues array`)
+      const tableIssue = syntax2.issues.filter(
+        i => i.message.includes('table')
+      )
+      assert(tableIssue.length > 0, `detected unclosed \\begin{table}`)
+      ok(`issues on broken file: ${syntax2.issues.length} (includes unclosed table)`)
 
       // ── Summary ───────────────────────────────────────────────────────────────
       console.log('\n' + '─'.repeat(56))
