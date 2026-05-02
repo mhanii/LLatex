@@ -345,10 +345,16 @@ const DocumentManager = {
     }
 
     // TODO(24596): tc support for history-ot
+    const acceptedChangeIds = ranges.changes
+      ? ranges.changes
+          .filter(change => changeIds.includes(change.id))
+          .map(change => change.id)
+      : []
+
     const newRanges = RangesManager.acceptChanges(
       projectId,
       docId,
-      changeIds,
+      acceptedChangeIds,
       ranges,
       lines
     )
@@ -366,7 +372,7 @@ const DocumentManager = {
     if (historyRangesSupport) {
       const historyUpdates = RangesManager.getHistoryUpdatesForAcceptedChanges({
         docId,
-        acceptedChangeIds: changeIds,
+        acceptedChangeIds,
         changes: ranges.changes || [],
         lines,
         pathname,
@@ -374,7 +380,7 @@ const DocumentManager = {
       })
 
       if (historyUpdates.length === 0) {
-        return
+        return { acceptedChangeIds }
       }
 
       await ProjectHistoryRedisManager.promises.queueOps(
@@ -382,6 +388,8 @@ const DocumentManager = {
         ...historyUpdates.map(op => JSON.stringify(op))
       )
     }
+
+    return { acceptedChangeIds }
   },
 
   async rejectChanges(projectId, docId, changeIds, userId) {
@@ -708,7 +716,7 @@ const DocumentManager = {
 
   async acceptChangesWithLock(projectId, docId, changeIds) {
     const UpdateManager = require('./UpdateManager')
-    await UpdateManager.promises.lockUpdatesAndDo(
+    return await UpdateManager.promises.lockUpdatesAndDo(
       DocumentManager.acceptChanges,
       projectId,
       docId,

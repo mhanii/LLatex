@@ -70,6 +70,86 @@ export const rangesDataField = StateField.define<RangesData | null>({
   },
 })
 
+// Empty block widget that React portals the accept/reject chip UI into.
+// Placed at the line start of each tracked change with side: -2 so it
+// sits above the delete block widget (side: -1) and above the text line.
+class ChipContainerWidget extends WidgetType {
+  constructor(public readonly changeId: string) {
+    super()
+  }
+
+  toDOM(): HTMLElement {
+    const el = document.createElement('div')
+    el.className = 'inline-change-chip-host'
+    el.dataset.changeId = this.changeId
+    return el
+  }
+
+  eq(other: ChipContainerWidget): boolean {
+    return other.changeId === this.changeId
+  }
+}
+
+const buildChipContainerDecorations = (
+  data: RangesData,
+  state: EditorState
+): DecorationSet => {
+  if (!data.ranges) return Decoration.none
+
+  const decorations = []
+  const changes = data.ranges.changes
+  const docLength = state.doc.length
+  let i = 0
+
+  while (i < changes.length) {
+    const primary = changes[i]
+    const next = changes[i + 1]
+    const isPaired =
+      next &&
+      isInsertChange(primary) &&
+      isDeleteChange(next) &&
+      canAggregate(
+        next as Change<DeleteOperation>,
+        primary as Change<InsertOperation>
+      )
+
+    i += isPaired ? 2 : 1
+
+    try {
+      const refPos = primary.op.p
+      if (refPos < 0 || refPos > docLength) continue
+      const lineStart = state.doc.lineAt(refPos).from
+      decorations.push(
+        Decoration.widget({
+          widget: new ChipContainerWidget(primary.id),
+          side: -2,
+          block: true,
+        }).range(lineStart, lineStart)
+      )
+    } catch (error) {
+      debugConsole.debug('invalid chip container position', error)
+    }
+  }
+
+  return Decoration.set(decorations, true)
+}
+
+const chipContainerField = StateField.define<DecorationSet>({
+  create() {
+    return Decoration.none
+  },
+  update(value, tr) {
+    let next = value.map(tr.changes)
+    for (const effect of tr.effects) {
+      if (effect.is(updateRangesEffect)) {
+        next = buildChipContainerDecorations(effect.value, tr.state)
+      }
+    }
+    return next
+  },
+  provide: f => EditorView.decorations.from(f),
+})
+
 // Block decorations must come from a StateField (not a ViewPlugin) per CM6
 // rules. We keep agent's full-paragraph delete widgets here, separate from
 // the inline decorations produced by the ViewPlugin below.
@@ -95,6 +175,7 @@ const agentBlockDeleteField = StateField.define<DecorationSet>({
  */
 export const ranges = () => [
   rangesDataField,
+  chipContainerField,
   agentBlockDeleteField,
   // handle viewportChanged updates
   ViewPlugin.define(() => {

@@ -344,11 +344,13 @@ export const RangesProvider: FC<React.PropsWithChildren> = ({ children }) => {
           if (currentDocument.ranges) {
             const ids = changes.map(change => change.id)
             const url = `/project/${projectId}/doc/${currentDocument.doc_id}/changes/accept`
-            await postJSON(url, { body: { change_ids: ids } })
-            currentDocument.ranges.removeChangeIds(ids)
+            const { acceptedChangeIds } = await postJSON<{
+              acceptedChangeIds: string[]
+            }>(url, { body: { change_ids: ids } })
+            currentDocument.ranges.removeChangeIds(acceptedChangeIds)
             setRanges(buildRanges(currentDocument))
             sendEvent('rp-changes-accepted', {
-              count: ids.length,
+              count: acceptedChangeIds.length,
               view: reviewPanelView,
             })
           }
@@ -375,7 +377,7 @@ export const RangesProvider: FC<React.PropsWithChildren> = ({ children }) => {
     const filterChanges = (source: 'agent' | 'user') =>
       source === 'agent'
         ? allChanges.filter(c => c.metadata?.source === 'agent')
-        : allChanges.filter(c => c.metadata?.source !== 'agent')
+        : allChanges.filter(c => c.metadata?.source === 'user')
     return {
       ...actions,
       async acceptAllChangesBySource(source) {

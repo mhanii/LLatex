@@ -16,10 +16,6 @@ import { isDeleteChange, isInsertChange } from '@/utils/operations'
 import { canAggregate } from '../utils/can-aggregate'
 import MaterialIcon from '@/shared/components/material-icon'
 
-const VERTICAL_OFFSET_PX = 26
-const MIN_PADDING_PX = 8
-const COLLISION_STACK_OFFSET_PX = 24
-
 type Entry = {
   primary: Change<EditOperation>
   aggregate?: Change<DeleteOperation>
@@ -35,7 +31,6 @@ const aggregate = (changes: Change<EditOperation>[]): Entry[] => {
       isDeleteChange(change) &&
       canAggregate(change, preceding as Change<InsertOperation>)
     ) {
-      // attach the deletion as an aggregate of the previous insert entry
       entries[entries.length - 1].aggregate = change
     } else {
       entries.push({ primary: change })
@@ -54,6 +49,7 @@ export const InlineChangeActions = memo(function InlineChangeActions() {
 
   const bump = useCallback(() => setTick(n => n + 1), [])
 
+  // Re-query host elements on scroll/resize since CM6 may swap widget DOM nodes
   useEffect(() => {
     if (!view) return
     const scroll = view.scrollDOM
@@ -71,92 +67,87 @@ export const InlineChangeActions = memo(function InlineChangeActions() {
 
   if (!view || !ranges?.changes?.length) return null
 
-  type Item = {
-    id: string
-    pos: { top: number; left: number }
-    isAgent: boolean
-    handleAcceptClick: () => void
-    handleRejectClick: () => void
-  }
+  // Find all chip host containers currently rendered by CM6
+  const hosts = Array.from(
+    view.contentDOM.querySelectorAll<HTMLElement>('.inline-change-chip-host')
+  )
+  if (hosts.length === 0) return null
 
-  const items: Item[] = []
-  const collisionsByPosition = new Map<string, number>()
+  const entryMap = new Map(aggregate(ranges.changes).map(e => [e.primary.id, e]))
 
-  for (const entry of aggregate(ranges.changes)) {
-    const { primary, aggregate: agg } = entry
-    let coords: { top: number; left: number } | null = null
-    try {
-      coords = view.coordsAtPos(primary.op.p)
-    } catch {
-      continue
-    }
-    if (!coords) continue
-    const key = `${Math.round(coords.top)}:${Math.round(coords.left)}`
-    const collisionIndex = collisionsByPosition.get(key) ?? 0
-    collisionsByPosition.set(key, collisionIndex + 1)
+  return (
+    <>
+      {hosts.map(host => {
+        const changeId = host.dataset.changeId
+        if (!changeId) return null
+        const entry = entryMap.get(changeId)
+        if (!entry) return null
+        const { primary, aggregate: agg } = entry
 
-    const isAgent =
-      primary.metadata?.source === 'agent' || agg?.metadata?.source === 'agent'
+        const isAgent =
+          primary.metadata?.source === 'agent' ||
+          agg?.metadata?.source === 'agent'
+        const changeType = agg
+          ? 'change'
+          : isInsertChange(primary)
+            ? 'addition'
+            : 'deletion'
 
-    items.push({
-      id: primary.id,
-      pos: {
-        top: Math.max(
-          MIN_PADDING_PX,
-          coords.top - VERTICAL_OFFSET_PX + collisionIndex * COLLISION_STACK_OFFSET_PX
-        ),
-        left: Math.max(MIN_PADDING_PX, coords.left),
-      },
-      isAgent,
-      handleAcceptClick: () =>
-        agg
-          ? actions.acceptChanges(primary, agg)
-          : actions.acceptChanges(primary),
-      handleRejectClick: () =>
-        agg
-          ? actions.rejectChanges(primary, agg)
-          : actions.rejectChanges(primary),
-    })
-  }
+        const handleAccept = () =>
+          agg
+            ? actions.acceptChanges(primary, agg)
+            : actions.acceptChanges(primary)
+        const handleReject = () =>
+          agg
+            ? actions.rejectChanges(primary, agg)
+            : actions.rejectChanges(primary)
 
-  if (items.length === 0) return null
+        // For user chips, offset horizontally to sit above the actual change
+        // text rather than the line start.
+        let chipStyle: React.CSSProperties | undefined
+        if (!isAgent) {
+          try {
+            const charCoords = view.coordsAtPos(primary.op.p)
+            const hostRect = host.getBoundingClientRect()
+            const offset = Math.max(0, charCoords.left - hostRect.left)
+            if (offset > 0) chipStyle = { marginLeft: offset }
+          } catch {
+            // leave chip at line start
+          }
+        }
 
-  return createPortal(
-    <div className="inline-change-actions-layer" data-tick={tick}>
-      {items.map(item => (
-        <div
-          key={item.id}
-          className={`inline-change-actions${item.isAgent ? ' agent' : ' user'}`}
-          style={{
-            position: 'fixed',
-            top: item.pos.top,
-            left: item.pos.left,
-          }}
-        >
-          <span className="inline-change-actions-source">
-            {item.isAgent ? 'Agent' : t('you')}
-          </span>
-          <button
-            type="button"
-            className="inline-change-actions-btn accept"
-            onClick={item.handleAcceptClick}
-            aria-label={t('accept_change')}
-            title={t('accept_change')}
+        return createPortal(
+          <div
+            className={`inline-change-actions ${isAgent ? 'agent' : 'user'} ${changeType}`}
+            style={chipStyle}
           >
-            <MaterialIcon type="check" />
-          </button>
-          <button
-            type="button"
-            className="inline-change-actions-btn reject"
-            onClick={item.handleRejectClick}
-            aria-label={t('reject_change')}
-            title={t('reject_change')}
-          >
-            <MaterialIcon type="close" />
-          </button>
-        </div>
-      ))}
-    </div>,
-    document.body
+            <span className="inline-change-actions-source">
+              {isAgent ? 'Agent' : t('you')}
+            </span>
+            <span className="inline-change-actions-divider" aria-hidden />
+            <button
+              type="button"
+              className="inline-change-actions-btn accept"
+              onClick={handleAccept}
+              aria-label={t('accept_change')}
+            >
+              <MaterialIcon type="check" />
+              {isAgent && <span>Accept</span>}
+            </button>
+            <button
+              type="button"
+              className="inline-change-actions-btn reject"
+              onClick={handleReject}
+              aria-label={t('reject_change')}
+            >
+              <MaterialIcon type="close" />
+              {isAgent && <span>Reject</span>}
+            </button>
+          </div>,
+          host,
+          changeId
+        )
+      })}
+    </>
   )
 })

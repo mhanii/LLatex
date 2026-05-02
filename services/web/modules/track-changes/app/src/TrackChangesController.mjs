@@ -102,7 +102,7 @@ async function acceptChanges(req, res) {
 
   const userId = getLoggedInUserId(req)
 
-  await DocumentUpdaterHandler.promises.acceptChanges(
+  const response = await DocumentUpdaterHandler.promises.acceptChanges(
     projectId,
     docId,
     changeIds,
@@ -113,10 +113,10 @@ async function acceptChanges(req, res) {
     projectId,
     'accept-changes',
     docId,
-    changeIds
+    response.acceptedChangeIds
   )
 
-  res.sendStatus(204)
+  res.json(response)
 }
 
 async function rejectChanges(req, res) {

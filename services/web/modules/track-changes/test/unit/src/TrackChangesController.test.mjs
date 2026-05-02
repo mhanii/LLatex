@@ -51,7 +51,9 @@ describe('TrackChangesController', function () {
                 },
               },
             ]),
-            acceptChanges: vi.fn().mockResolvedValue(undefined),
+            acceptChanges: vi
+              .fn()
+              .mockResolvedValue({ acceptedChangeIds: [CHANGE_IDS[0]] }),
             rejectChanges: vi
               .fn()
               .mockResolvedValue({ rejectedChangeIds: CHANGE_IDS }),
@@ -257,7 +259,7 @@ describe('TrackChangesController', function () {
   })
 
   describe('acceptChanges', function () {
-    it('accepts changes and emits accept-changes to the project room', async function () {
+    it('accepts changes and emits confirmed accept-changes to the project room', async function () {
       const res = makeRes()
 
       await TrackChangesController.acceptChanges(
@@ -277,9 +279,12 @@ describe('TrackChangesController', function () {
         PROJECT_ID,
         'accept-changes',
         DOC_ID,
-        CHANGE_IDS
+        [CHANGE_IDS[0]]
       )
-      expect(res.statusCode).toBe(204)
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body)).toEqual({
+        acceptedChangeIds: [CHANGE_IDS[0]],
+      })
     })
 
     it('returns 400 when change_ids is not an array', async function () {
