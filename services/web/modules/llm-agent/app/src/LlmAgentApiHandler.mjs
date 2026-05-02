@@ -12,7 +12,7 @@ function agentUrl(path) {
 
 /**
  * @param {string} projectId
- * @param {{ userId: string, conversationId: string, userMessage: string, selection?: object }} payload
+ * @param {{ userId: string, conversationId: string, userMessage: string, selection?: object, context?: object }} payload
  * @returns {Promise<{ runId: string }>}
  */
 async function startRun(projectId, payload) {

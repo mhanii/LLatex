@@ -6,7 +6,7 @@ import { run } from './AgentManager.js'
 
 async function startRun(req, res) {
   const { projectId } = req.params
-  const { userId, conversationId, userMessage, selection } = req.body
+  const { userId, conversationId, userMessage, selection, context } = req.body
 
   if (!userId || !conversationId || !userMessage) {
     return res
@@ -17,7 +17,14 @@ async function startRun(req, res) {
   const startedAt = new Date()
 
   /** @type {import('./types.js').AgentInput} */
-  const input = { projectId, userId, conversationId, userMessage, selection }
+  const input = {
+    projectId,
+    userId,
+    conversationId,
+    userMessage,
+    selection,
+    context,
+  }
 
   const runId = await createRun(projectId, input)
 

@@ -10,7 +10,29 @@ import UserInfoManager from '../../../../app/src/Features/User/UserInfoManager.m
 import UserInfoController from '../../../../app/src/Features/User/UserInfoController.mjs'
 import CompileManager from '../../../../app/src/Features/Compile/CompileManager.mjs'
 import ProjectLocator from '../../../../app/src/Features/Project/ProjectLocator.mjs'
+import ProjectGetter from '../../../../app/src/Features/Project/ProjectGetter.mjs'
+import ProjectEntityHandler from '../../../../app/src/Features/Project/ProjectEntityHandler.mjs'
 import LlmAgentApiHandler from './LlmAgentApiHandler.mjs'
+
+function normalizeProjectPath(path) {
+  return path.startsWith('/') ? path.slice(1) : path
+}
+
+function buildProjectContext(project) {
+  const { docs } = ProjectEntityHandler.getAllEntitiesFromProject(project)
+  const files = docs
+    .map(({ path, doc }) => ({
+      path: normalizeProjectPath(path),
+      docId: doc._id.toString(),
+    }))
+    .sort((a, b) => a.path.localeCompare(b.path))
+
+  return {
+    projectName: project.name ?? '',
+    compiler: project.compiler ?? 'pdflatex',
+    files,
+  }
+}
 
 async function sendMessage(req, res) {
   const { project_id: projectId } = req.params
@@ -26,6 +48,16 @@ async function sendMessage(req, res) {
   }
 
   const conversationId = bodyConversationId ?? new ObjectId().toHexString()
+
+  const project = await ProjectGetter.promises.getProject(projectId, {
+    name: 1,
+    compiler: 1,
+    rootFolder: 1,
+  })
+  if (!project) {
+    return res.status(404).json({ error: 'project not found' })
+  }
+  const context = buildProjectContext(project)
 
   const chatMessage = await ChatApiHandler.promises.sendComment(
     projectId,
@@ -44,24 +76,45 @@ async function sendMessage(req, res) {
     conversationId,
     userMessage: message,
     selection: selection ?? undefined,
+    context,
   })
 
   res.status(202).json({ runId, messageId: chatMessage.id, conversationId })
 }
 
 // Called by llm-agent service after run completes — emits reply over WebSocket.
-// Expects { conversationId, messageId } in the body.
+// Accepts either:
+// - { conversationId, messageId } to re-emit an existing chat message
+// - { conversationId, userId, content } to create and emit a new chat message
 async function agentComplete(req, res) {
   const { project_id: projectId } = req.params
-  const { conversationId, messageId } = req.body
-  if (!conversationId || !messageId) {
-    return res.status(400).json({ error: 'conversationId and messageId required' })
+  const { conversationId, messageId, userId, content } = req.body
+  if (!conversationId) {
+    return res.status(400).json({ error: 'conversationId required' })
   }
-  const message = await ChatApiHandler.promises.getThreadMessage(
-    projectId,
-    conversationId,
-    messageId
-  )
+
+  let message
+  if (messageId) {
+    message = await ChatApiHandler.promises.getThreadMessage(
+      projectId,
+      conversationId,
+      messageId
+    )
+  } else if (userId && typeof content === 'string' && content.trim() !== '') {
+    message = await ChatApiHandler.promises.sendComment(
+      projectId,
+      conversationId,
+      userId,
+      content
+    )
+    const user = await UserInfoManager.promises.getPersonalInfo(message.user_id)
+    message.user = UserInfoController.formatPersonalInfo(user)
+  } else {
+    return res
+      .status(400)
+      .json({ error: 'messageId or (userId and content) required' })
+  }
+
   if (message) {
     EditorRealTimeController.emitToRoom(projectId, 'new-chat-message', message)
   }
@@ -117,7 +170,8 @@ async function agentMoveFile(req, res) {
     return res.status(400).json({ error: 'oldPath, newPath and userId required' })
   }
 
-  const { element, type } = await ProjectLocator.promises.findElementByPath({
+  const { element, type, folder } =
+    await ProjectLocator.promises.findElementByPath({
     project_id: projectId,
     path: oldPath,
   })
@@ -134,32 +188,60 @@ async function agentMoveFile(req, res) {
     ? oldPath.slice(0, oldPath.lastIndexOf('/'))
     : ''
 
-  if (oldName !== newName) {
-    await EditorController.promises.renameEntity(
-      projectId,
-      element._id.toString(),
-      type,
-      newName,
-      userId,
-      'llm-agent'
-    )
-  }
+  const entityId = element._id.toString()
+  const oldFolderId = folder?._id?.toString()
 
+  // Resolve destination folder before any mutation to reduce partial-state risk.
+  let destinationFolderId
   if (oldDir !== newDir) {
-    // mkdirp ensures target directory exists and returns its id
     const { lastFolder } = await EditorController.promises.mkdirp(
       projectId,
       newDir || '/',
       userId
     )
-    await EditorController.promises.moveEntity(
-      projectId,
-      element._id.toString(),
-      lastFolder._id.toString(),
-      type,
-      userId,
-      'llm-agent'
-    )
+    destinationFolderId = lastFolder._id.toString()
+  }
+
+  let moved = false
+  try {
+    if (destinationFolderId && oldFolderId && oldFolderId !== destinationFolderId) {
+      await EditorController.promises.moveEntity(
+        projectId,
+        entityId,
+        destinationFolderId,
+        type,
+        userId,
+        'llm-agent'
+      )
+      moved = true
+    }
+
+    if (oldName !== newName) {
+      await EditorController.promises.renameEntity(
+        projectId,
+        entityId,
+        type,
+        newName,
+        userId,
+        'llm-agent'
+      )
+    }
+  } catch (err) {
+    if (moved && oldFolderId && destinationFolderId && oldFolderId !== destinationFolderId) {
+      try {
+        await EditorController.promises.moveEntity(
+          projectId,
+          entityId,
+          oldFolderId,
+          type,
+          userId,
+          'llm-agent-rollback'
+        )
+      } catch {
+        // If rollback fails we still propagate the original error.
+      }
+    }
+    throw err
   }
 
   res.sendStatus(204)

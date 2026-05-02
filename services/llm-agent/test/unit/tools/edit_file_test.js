@@ -25,6 +25,20 @@ describe('editFile', function () {
     expect(result).to.include('main.tex')
   })
 
+  it('returns disambiguation string on 409', async function () {
+    stubFetch(async () =>
+      fakeResponse(409, {
+        error: 'old_text matched multiple locations',
+        code: 'AMBIGUOUS_OLD_TEXT',
+      })
+    )
+    const result = await editFile(
+      { path: 'main.tex', oldText: 'repeated', newText: 'replacement' },
+      CTX
+    )
+    expect(result).to.include('multiple times')
+  })
+
   it('returns error string on other HTTP error', async function () {
     stubFetch(async () => fakeResponse(500))
     const result = await editFile(

@@ -16,28 +16,44 @@ describe('readFile', function () {
     )
   })
 
-  it('slices with fromLine', async function () {
+  it('slices with fromLine (1-indexed)', async function () {
     stubFetch(async () =>
       fakeResponse(200, { lines: ['a', 'b', 'c', 'd'], version: 1 })
     )
     const result = await readFile({ path: 'main.tex', fromLine: 2 }, CTX)
-    expect(result).to.equal('3: c\n4: d')
+    expect(result).to.equal('2: b\n3: c\n4: d')
   })
 
-  it('slices with toLine', async function () {
+  it('slices with toLine (1-indexed)', async function () {
     stubFetch(async () =>
       fakeResponse(200, { lines: ['a', 'b', 'c', 'd'], version: 1 })
     )
     const result = await readFile({ path: 'main.tex', toLine: 1 }, CTX)
-    expect(result).to.equal('1: a\n2: b')
+    expect(result).to.equal('1: a')
   })
 
-  it('slices with fromLine and toLine', async function () {
+  it('slices with fromLine and toLine (1-indexed)', async function () {
     stubFetch(async () =>
       fakeResponse(200, { lines: ['a', 'b', 'c', 'd'], version: 1 })
     )
     const result = await readFile({ path: 'main.tex', fromLine: 1, toLine: 2 }, CTX)
-    expect(result).to.equal('2: b\n3: c')
+    expect(result).to.equal('1: a\n2: b')
+  })
+
+  it('returns an error string for invalid line ranges', async function () {
+    stubFetch(async () =>
+      fakeResponse(200, { lines: ['a', 'b'], version: 1 })
+    )
+    const result = await readFile({ path: 'main.tex', fromLine: 0 }, CTX)
+    expect(result).to.include('Invalid line range')
+  })
+
+  it('returns an error string when toLine < fromLine', async function () {
+    stubFetch(async () =>
+      fakeResponse(200, { lines: ['a', 'b'], version: 1 })
+    )
+    const result = await readFile({ path: 'main.tex', fromLine: 2, toLine: 1 }, CTX)
+    expect(result).to.include('toLine must be greater than or equal')
   })
 
   it('returns an error string on 404', async function () {

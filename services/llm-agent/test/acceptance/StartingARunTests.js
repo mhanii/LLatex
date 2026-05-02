@@ -93,6 +93,30 @@ describe('Starting a run', function () {
     })
   })
 
+  describe('with project context', function () {
+    it('should store context in the run document', async function () {
+      const context = {
+        projectName: 'Test Project',
+        compiler: 'pdflatex',
+        files: [{ path: 'main.tex', docId: new ObjectId().toString() }],
+      }
+      const { status, body } = await AgentClient.startRun(projectId, {
+        userId,
+        conversationId,
+        userMessage: 'Summarize this project',
+        context,
+      })
+      expect(status).to.equal(200)
+
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      const doc = await AgentApp.db.agentRuns.findOne({
+        _id: new ObjectId(body.runId),
+      })
+      expect(doc.input.context).to.deep.equal(context)
+    })
+  })
+
   describe('validation', function () {
     it('should return 400 when userMessage is missing', async function () {
       const { status, body } = await AgentClient.startRun(projectId, {
