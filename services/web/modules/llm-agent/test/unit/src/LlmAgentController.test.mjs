@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi, afterEach } from 'vitest'
 import MockResponse from '../../../../../test/unit/src/helpers/MockResponse.mjs'
 
 const PROJECT_ID = 'aaa000000000000000000001'
@@ -9,6 +9,7 @@ const MESSAGE_ID = 'eee000000000000000000001'
 
 let SessionManager
 let ChatApiHandler
+let CompileManager
 let ProjectGetter
 let ProjectEntityHandler
 let ProjectLocator
@@ -106,15 +107,16 @@ describe('LlmAgentController', function () {
       default: EditorController,
     }))
 
-    vi.doMock('../../../../../app/src/Features/Compile/CompileManager.mjs', () => ({
-      default: {
-        promises: {
-          compile: vi.fn().mockResolvedValue({
-            status: 'success',
-            validationProblems: {},
-          }),
-        },
+    CompileManager = {
+      promises: {
+        compile: vi.fn().mockResolvedValue({
+          status: 'success',
+          outputFiles: [],
+        }),
       },
+    }
+    vi.doMock('../../../../../app/src/Features/Compile/CompileManager.mjs', () => ({
+      default: CompileManager,
     }))
 
     vi.doMock(
@@ -354,6 +356,217 @@ describe('LlmAgentController', function () {
         'llm-agent-rollback'
       )
       expect(next).toHaveBeenCalledWith(expect.any(Error))
+    })
+  })
+
+  describe('internalCompile', function () {
+    let fetchMock
+
+    afterEach(function () {
+      vi.unstubAllGlobals()
+    })
+
+    function makeCompileReq(body = {}) {
+      return {
+        params: { project_id: PROJECT_ID },
+        body: { userId: USER_ID, ...body },
+      }
+    }
+
+    it('returns success:true and pageCount when compile succeeds', async function () {
+      fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ pageCount: 3 }),
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const res = makeRes()
+      await LlmAgentController.internalCompile(makeCompileReq(), res, vi.fn())
+
+      const body = JSON.parse(res.body)
+      expect(body.success).toBe(true)
+      expect(body.status).toBe('success')
+      expect(body.errors).toEqual([])
+      expect(body.pageCount).toBe(3)
+    })
+
+    it('returns success:false and errors parsed from output-log on failure', async function () {
+      const logContent = `./main.tex:5: Undefined control sequence.\n! Emergency stop.\n`
+      CompileManager.promises.compile.mockResolvedValueOnce({
+        status: 'failure',
+        outputFiles: [],
+      })
+      fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        text: async () => logContent,
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const res = makeRes()
+      await LlmAgentController.internalCompile(makeCompileReq(), res, vi.fn())
+
+      const body = JSON.parse(res.body)
+      expect(body.success).toBe(false)
+      expect(body.errors).toEqual([
+        './main.tex:5: Undefined control sequence.',
+        'Emergency stop.',
+      ])
+      // Verify it called the output-log CLSI route
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/output-log')
+      )
+    })
+
+    it('returns errors:[] when output-log route returns 404', async function () {
+      CompileManager.promises.compile.mockResolvedValueOnce({
+        status: 'failure',
+        outputFiles: [],
+      })
+      fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404 })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const res = makeRes()
+      await LlmAgentController.internalCompile(makeCompileReq(), res, vi.fn())
+
+      const body = JSON.parse(res.body)
+      expect(body.errors).toEqual([])
+    })
+
+    it('returns errors:[] when fetching output-log fails', async function () {
+      CompileManager.promises.compile.mockResolvedValueOnce({
+        status: 'failure',
+        outputFiles: [],
+      })
+      fetchMock = vi.fn().mockRejectedValue(new Error('network error'))
+      vi.stubGlobal('fetch', fetchMock)
+
+      const res = makeRes()
+      await LlmAgentController.internalCompile(makeCompileReq(), res, vi.fn())
+
+      const body = JSON.parse(res.body)
+      expect(body.errors).toEqual([])
+    })
+
+    it('returns 400 when userId is missing', async function () {
+      const req = { params: { project_id: PROJECT_ID }, body: {} }
+      const res = makeRes()
+      await LlmAgentController.internalCompile(req, res, vi.fn())
+      expect(res.statusCode).toBe(400)
+    })
+  })
+
+  describe('agentPdfPage', function () {
+    afterEach(function () {
+      vi.unstubAllGlobals()
+    })
+
+    function makePageReq(query = {}) {
+      return {
+        params: { project_id: PROJECT_ID },
+        query: { userId: USER_ID, page: '1', ...query },
+      }
+    }
+
+    it('returns the PNG bytes as base64 when CLSI returns 200', async function () {
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47])
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          arrayBuffer: async () => png.buffer.slice(
+            png.byteOffset,
+            png.byteOffset + png.byteLength
+          ),
+        })
+      )
+      const res = makeRes()
+      await LlmAgentController.agentPdfPage(makePageReq(), res, vi.fn())
+      const body = JSON.parse(res.body)
+      expect(body.mimeType).toBe('image/png')
+      expect(body.imageBase64).toBe(png.toString('base64'))
+    })
+
+    it('passes 404 NO_PDF body through from CLSI', async function () {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          status: 404,
+          json: async () => ({ error: 'no compiled PDF', code: 'NO_PDF' }),
+        })
+      )
+      const res = makeRes()
+      await LlmAgentController.agentPdfPage(makePageReq(), res, vi.fn())
+      expect(res.statusCode).toBe(404)
+      expect(JSON.parse(res.body)).toEqual({
+        error: 'no compiled PDF',
+        code: 'NO_PDF',
+      })
+    })
+
+    it('passes 416 PAGE_OUT_OF_RANGE body through from CLSI', async function () {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          status: 416,
+          json: async () => ({
+            error: 'page out of range',
+            code: 'PAGE_OUT_OF_RANGE',
+          }),
+        })
+      )
+      const res = makeRes()
+      await LlmAgentController.agentPdfPage(makePageReq(), res, vi.fn())
+      expect(res.statusCode).toBe(416)
+      expect(JSON.parse(res.body)).toEqual({
+        error: 'page out of range',
+        code: 'PAGE_OUT_OF_RANGE',
+      })
+    })
+
+    it('returns 502 cleanly when CLSI is unreachable (fetch throws)', async function () {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')))
+      const res = makeRes()
+      await LlmAgentController.agentPdfPage(makePageReq(), res, vi.fn())
+      expect(res.statusCode).toBe(502)
+    })
+
+    it('returns 502 cleanly when CLSI body fails JSON parse on error response', async function () {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          status: 404,
+          statusText: 'Not Found',
+          json: async () => {
+            throw new Error('not JSON')
+          },
+        })
+      )
+      const res = makeRes()
+      await LlmAgentController.agentPdfPage(makePageReq(), res, vi.fn())
+      // Falls through to a clean 404 with synthetic body, not a thrown 500.
+      expect(res.statusCode).toBe(404)
+      expect(JSON.parse(res.body).error).toBe('Not Found')
+    })
+
+    it('returns 400 when page is missing or invalid', async function () {
+      const res = makeRes()
+      await LlmAgentController.agentPdfPage(
+        makePageReq({ page: '0' }),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('returns 400 when userId is missing', async function () {
+      const res = makeRes()
+      await LlmAgentController.agentPdfPage(
+        { params: { project_id: PROJECT_ID }, query: { page: '1' } },
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(400)
     })
   })
 })

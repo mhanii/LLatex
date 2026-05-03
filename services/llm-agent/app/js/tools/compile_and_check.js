@@ -2,7 +2,7 @@
 import { webUrl, basicAuth } from './utils.js'
 
 /**
- * @typedef {{ success: boolean, status: string, errors: string[] }} CompileResult
+ * @typedef {{ success: boolean, status: string, errors: string[], pageCount: number | null }} CompileResult
  */
 
 /**
