@@ -15,6 +15,7 @@ import ProjectEntityHandler from '../../../../app/src/Features/Project/ProjectEn
 import Settings from '@overleaf/settings'
 import SyntaxChecker from './SyntaxChecker.mjs'
 import LlmAgentApiHandler from './LlmAgentApiHandler.mjs'
+import { parseLatexLog } from './LatexLogParser.mjs'
 
 function normalizeProjectPath(path) {
   return path.startsWith('/') ? path.slice(1) : path
@@ -258,6 +259,16 @@ function clsiUrl(projectId, userId, action) {
   return `${base}${prefix}/${action}`
 }
 
+async function fetchCompileErrors(projectId, userId) {
+  try {
+    const logRes = await fetch(clsiUrl(projectId, userId, 'output-log'))
+    if (!logRes.ok) return []
+    return parseLatexLog(await logRes.text())
+  } catch {
+    return []
+  }
+}
+
 async function internalCompile(req, res) {
   const { project_id: projectId } = req.params
   const { userId, rootDoc_id } = req.body
@@ -271,10 +282,10 @@ async function internalCompile(req, res) {
     userId,
     compileOptions
   )
-  const { status, validationProblems } = result
-  const errors = validationProblems
-    ? Object.values(validationProblems).flat().map(String)
-    : []
+  const { status } = result
+
+  const errors =
+    status !== 'success' ? await fetchCompileErrors(projectId, userId) : []
 
   let pageCount = null
   if (status === 'success') {

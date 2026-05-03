@@ -69,7 +69,7 @@ async function check(projectId, scopePath) {
   const issues = []
 
   // ── 1. Extract labels (same logic as MetaHandler.extractMetaFromDoc) ───────
-  /** @type {Map<string, string>} label → first-seen file */
+  /** @type {Map<string, string[]>} label → list of files where defined */
   const labelDefs = new Map()
   for (const [docId, content] of docContents) {
     const filePath = docIdToPath.get(docId) ?? docId
@@ -78,12 +78,29 @@ async function check(projectId, scopePath) {
       const line = stripComment(rawLine)
       for (const m of line.matchAll(LABEL_RE)) {
         const label = m[1].trim()
-        if (label && !labelDefs.has(label)) labelDefs.set(label, filePath)
+        if (!label) continue
+        const locs = labelDefs.get(label) ?? []
+        locs.push(filePath)
+        labelDefs.set(label, locs)
       }
       for (const m of line.matchAll(LABEL_OPTION_RE)) {
         const label = m[1].trim()
-        if (label && !labelDefs.has(label)) labelDefs.set(label, filePath)
+        if (!label) continue
+        const locs = labelDefs.get(label) ?? []
+        locs.push(filePath)
+        labelDefs.set(label, locs)
       }
+    }
+  }
+
+  // Emit duplicate-label warnings
+  for (const [label, files] of labelDefs) {
+    if (files.length > 1) {
+      const uniq = [...new Set(files)]
+      issues.push({
+        type: 'warning',
+        message: `Duplicate \\label{${label}} defined in: ${uniq.join(', ')}`,
+      })
     }
   }
 

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi, afterEach } from 'vitest'
 import MockResponse from '../../../../../test/unit/src/helpers/MockResponse.mjs'
 
 const PROJECT_ID = 'aaa000000000000000000001'
@@ -9,6 +9,7 @@ const MESSAGE_ID = 'eee000000000000000000001'
 
 let SessionManager
 let ChatApiHandler
+let CompileManager
 let ProjectGetter
 let ProjectEntityHandler
 let ProjectLocator
@@ -106,15 +107,16 @@ describe('LlmAgentController', function () {
       default: EditorController,
     }))
 
-    vi.doMock('../../../../../app/src/Features/Compile/CompileManager.mjs', () => ({
-      default: {
-        promises: {
-          compile: vi.fn().mockResolvedValue({
-            status: 'success',
-            validationProblems: {},
-          }),
-        },
+    CompileManager = {
+      promises: {
+        compile: vi.fn().mockResolvedValue({
+          status: 'success',
+          outputFiles: [],
+        }),
       },
+    }
+    vi.doMock('../../../../../app/src/Features/Compile/CompileManager.mjs', () => ({
+      default: CompileManager,
     }))
 
     vi.doMock(
@@ -354,6 +356,102 @@ describe('LlmAgentController', function () {
         'llm-agent-rollback'
       )
       expect(next).toHaveBeenCalledWith(expect.any(Error))
+    })
+  })
+
+  describe('internalCompile', function () {
+    let fetchMock
+
+    afterEach(function () {
+      vi.unstubAllGlobals()
+    })
+
+    function makeCompileReq(body = {}) {
+      return {
+        params: { project_id: PROJECT_ID },
+        body: { userId: USER_ID, ...body },
+      }
+    }
+
+    it('returns success:true and pageCount when compile succeeds', async function () {
+      fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ pageCount: 3 }),
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const res = makeRes()
+      await LlmAgentController.internalCompile(makeCompileReq(), res, vi.fn())
+
+      const body = JSON.parse(res.body)
+      expect(body.success).toBe(true)
+      expect(body.status).toBe('success')
+      expect(body.errors).toEqual([])
+      expect(body.pageCount).toBe(3)
+    })
+
+    it('returns success:false and errors parsed from output-log on failure', async function () {
+      const logContent = `./main.tex:5: Undefined control sequence.\n! Emergency stop.\n`
+      CompileManager.promises.compile.mockResolvedValueOnce({
+        status: 'failure',
+        outputFiles: [],
+      })
+      fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        text: async () => logContent,
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const res = makeRes()
+      await LlmAgentController.internalCompile(makeCompileReq(), res, vi.fn())
+
+      const body = JSON.parse(res.body)
+      expect(body.success).toBe(false)
+      expect(body.errors).toEqual([
+        './main.tex:5: Undefined control sequence.',
+        'Emergency stop.',
+      ])
+      // Verify it called the output-log CLSI route
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/output-log')
+      )
+    })
+
+    it('returns errors:[] when output-log route returns 404', async function () {
+      CompileManager.promises.compile.mockResolvedValueOnce({
+        status: 'failure',
+        outputFiles: [],
+      })
+      fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404 })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const res = makeRes()
+      await LlmAgentController.internalCompile(makeCompileReq(), res, vi.fn())
+
+      const body = JSON.parse(res.body)
+      expect(body.errors).toEqual([])
+    })
+
+    it('returns errors:[] when fetching output-log fails', async function () {
+      CompileManager.promises.compile.mockResolvedValueOnce({
+        status: 'failure',
+        outputFiles: [],
+      })
+      fetchMock = vi.fn().mockRejectedValue(new Error('network error'))
+      vi.stubGlobal('fetch', fetchMock)
+
+      const res = makeRes()
+      await LlmAgentController.internalCompile(makeCompileReq(), res, vi.fn())
+
+      const body = JSON.parse(res.body)
+      expect(body.errors).toEqual([])
+    })
+
+    it('returns 400 when userId is missing', async function () {
+      const req = { params: { project_id: PROJECT_ID }, body: {} }
+      const res = makeRes()
+      await LlmAgentController.internalCompile(req, res, vi.fn())
+      expect(res.statusCode).toBe(400)
     })
   })
 })

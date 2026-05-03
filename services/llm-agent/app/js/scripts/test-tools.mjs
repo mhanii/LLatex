@@ -429,6 +429,65 @@ async function main() {
       assert(tableIssue.length > 0, `detected unclosed \\begin{table}`)
       ok(`issues on broken file: ${syntax2.issues.length} (includes unclosed table)`)
 
+      // ── Step 14: compileAndCheck returns non-empty errors[] on failure ────────
+      // Verifies the log-parser path introduced in the P1 fix: when compilation
+      // fails, output.log is fetched from CLSI and parsed into actionable strings.
+      step('14 · compileAndCheck errors[] are non-empty on failure')
+      if (compile2.status === 'too-recently-compiled' || compile2.status?.includes('unavailable')) {
+        info(`skipped (compile2 status="${compile2.status}")`)
+      } else if (!compile2.success) {
+        assert(
+          Array.isArray(compile2.errors),
+          `errors field is an array`
+        )
+        assert(
+          compile2.errors.length > 0,
+          `errors[] is non-empty (got ${compile2.errors.length} error(s))`
+        )
+        info(`first error: ${compile2.errors[0]}`)
+      } else {
+        info(`skipped — compile2 unexpectedly succeeded`)
+      }
+
+      // ── Step 15: checkSyntax detects duplicate \label{} ──────────────────────
+      // Introduces a duplicate label in new.tex and verifies SyntaxChecker
+      // reports it (the P1 fix to SyntaxChecker.mjs).
+      step(`15 · checkSyntax — duplicate \\label{} detection`)
+      const dupLabelEdit = await editFile(
+        {
+          path: NEW_FILE_PATH,
+          oldText: '\\subsection{Approach}',
+          newText: '\\label{dup-label}\n\\subsection{Approach}\n\\label{dup-label}',
+        },
+        ctx
+      )
+      assert(dupLabelEdit === 'Change applied.', `duplicate label inserted: "${dupLabelEdit}"`)
+
+      const syntax3 = await checkSyntax({ path: NEW_FILE_PATH }, ctx)
+      assert(Array.isArray(syntax3.issues), `got issues array`)
+      const dupIssue = syntax3.issues.find(
+        i => i.message.includes('dup-label')
+      )
+      assert(!!dupIssue, `duplicate label detected`)
+      assert(dupIssue.type === 'warning', `duplicate label is a warning`)
+      ok(`duplicate label issue: "${dupIssue.message}"`)
+
+      // ── Step 16: restore new.tex — remove duplicate label ────────────────────
+      step(`16 · editFile — remove duplicate label (restore)`)
+      const restoreResult = await editFile(
+        {
+          path: NEW_FILE_PATH,
+          oldText: '\\label{dup-label}\n\\subsection{Approach}\n\\label{dup-label}',
+          newText: '\\subsection{Approach}',
+        },
+        ctx
+      )
+      assert(restoreResult === 'Change applied.', `duplicate label removed: "${restoreResult}"`)
+
+      const syntax4 = await checkSyntax({ path: NEW_FILE_PATH }, ctx)
+      const dupAfterRestore = syntax4.issues.filter(i => i.message.includes('dup-label'))
+      assert(dupAfterRestore.length === 0, `no duplicate-label warning after restore`)
+
       // ── Summary ───────────────────────────────────────────────────────────────
       console.log('\n' + '─'.repeat(56))
       console.log('  All tool steps completed.')

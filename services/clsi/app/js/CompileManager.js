@@ -925,6 +925,36 @@ async function getPdfInfo(projectId, userId) {
   }
 }
 
+async function getOutputLog(projectId, userId) {
+  // Check output cache first (successful builds move output.log there).
+  const outputCacheDir = Path.join(
+    getOutputDir(projectId, userId),
+    OutputCacheManager.CACHE_SUBDIR
+  )
+  try {
+    const builds = await fsPromises.readdir(outputCacheDir)
+    for (const build of builds.sort().reverse()) {
+      const logPath = Path.join(outputCacheDir, build, 'output.log')
+      try {
+        await fsPromises.access(logPath)
+        return await fsPromises.readFile(logPath, 'utf8')
+      } catch {
+        // Not in this build, try next.
+      }
+    }
+  } catch {
+    // Output cache dir doesn't exist, fall through.
+  }
+
+  // Fall back to compile dir (present right after a failed compile).
+  const compileLogPath = Path.join(getCompileDir(projectId, userId), 'output.log')
+  try {
+    return await fsPromises.readFile(compileLogPath, 'utf8')
+  } catch {
+    return null
+  }
+}
+
 async function getPdfPage(projectId, userId, page) {
   const pdfPath = await findPdfPath(projectId, userId)
   if (!pdfPath) return null
@@ -985,5 +1015,6 @@ export default {
     wordcount,
     getPdfInfo,
     getPdfPage,
+    getOutputLog,
   },
 }

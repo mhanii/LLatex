@@ -86,6 +86,7 @@ app.get('/project/:project_id/status', CompileController.status)
 app.post('/project/:project_id/status', CompileController.status)
 app.get('/project/:project_id/pdf-info', CompileController.pdfInfo)
 app.get('/project/:project_id/pdf-page', CompileController.pdfPage)
+app.get('/project/:project_id/output-log', CompileController.outputLog)
 
 // Per-user containers
 app.post(
@@ -118,6 +119,10 @@ app.get(
 app.get(
   '/project/:project_id/user/:user_id/pdf-page',
   CompileController.pdfPage
+)
+app.get(
+  '/project/:project_id/user/:user_id/output-log',
+  CompileController.outputLog
 )
 
 // This needs to be before GET /project/:project_id/build/:build_id/output/*

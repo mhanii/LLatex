@@ -309,6 +309,19 @@ async function pdfPage(req, res, next) {
   }
 }
 
+async function outputLog(req, res, next) {
+  const projectId = req.params.project_id
+  const userId = req.params.user_id ?? null
+  try {
+    const text = await CompileManager.promises.getOutputLog(projectId, userId)
+    if (text == null) return res.status(404).json({ error: 'no output.log found' })
+    res.set('Content-Type', 'text/plain')
+    res.send(text)
+  } catch (err) {
+    next(err)
+  }
+}
+
 export default {
   compile,
   stopCompile,
@@ -320,4 +333,5 @@ export default {
   timeSinceLastSuccessfulCompile,
   pdfInfo,
   pdfPage,
+  outputLog,
 }
