@@ -2,6 +2,7 @@ import fsPromises from 'node:fs/promises'
 import fs from 'node:fs'
 import os from 'node:os'
 import Path from 'node:path'
+import crypto from 'node:crypto'
 import { callbackify, promisify } from 'node:util'
 import { execFile, spawn as spawnProcess } from 'node:child_process'
 
@@ -960,7 +961,9 @@ async function getPdfPage(projectId, userId, page) {
   if (!pdfPath) return null
   // pdftoppm's stdout mode ('-') produces 0 bytes in some poppler versions,
   // so use a temp file. pdftoppm appends the page number to the filename.
-  const tmpPrefix = Path.join(os.tmpdir(), `pdf-page-${Date.now()}`)
+  // Keyed by projectId so concurrent requests for the same page converge on
+  // the same file (output is deterministic) rather than racing on random names.
+  const tmpPrefix = Path.join(os.tmpdir(), `pdf-page-${projectId}`)
   const tmpFile = `${tmpPrefix}-${page}.png`
   try {
     await new Promise((resolve, reject) => {
@@ -984,8 +987,9 @@ async function getPdfPage(projectId, userId, page) {
         }
       })
     })
-    const buf = await fsPromises.readFile(tmpFile)
-    return buf
+    // pdftoppm exits 0 but writes no file when page is beyond the PDF range.
+    // Treat any readFile failure as "page unavailable" — null flows up as 404.
+    return await fsPromises.readFile(tmpFile).catch(() => null)
   } finally {
     await fsPromises.unlink(tmpFile).catch(() => {})
   }
