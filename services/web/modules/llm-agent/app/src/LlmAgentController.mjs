@@ -312,18 +312,28 @@ async function agentPdfPage(req, res) {
       .status(400)
       .json({ error: 'userId and page (1-indexed) query params required' })
   }
-  const clsiRes = await fetch(
-    `${clsiUrl(projectId, userId, 'pdf-page')}?page=${page}`
-  )
+  let clsiRes
+  try {
+    clsiRes = await fetch(
+      `${clsiUrl(projectId, userId, 'pdf-page')}?page=${page}`
+    )
+  } catch {
+    return res.status(502).json({ error: 'CLSI unreachable' })
+  }
   if (clsiRes.status === 404 || clsiRes.status === 416) {
-    return res.status(clsiRes.status).json(await clsiRes.json())
+    const body = await clsiRes
+      .json()
+      .catch(() => ({ error: clsiRes.statusText || 'CLSI error' }))
+    return res.status(clsiRes.status).json(body)
   }
   if (!clsiRes.ok) {
     return res.status(502).json({ error: 'CLSI error' })
   }
-  const buf = Buffer.from(await clsiRes.arrayBuffer())
-  if (buf.length === 0) {
-    return res.status(404).json({ error: 'page out of range' })
+  let buf
+  try {
+    buf = Buffer.from(await clsiRes.arrayBuffer())
+  } catch {
+    return res.status(502).json({ error: 'CLSI error' })
   }
   res.json({ imageBase64: buf.toString('base64'), mimeType: 'image/png' })
 }

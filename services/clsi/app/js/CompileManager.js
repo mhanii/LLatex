@@ -959,16 +959,19 @@ async function getOutputLog(projectId, userId) {
 async function getPdfPage(projectId, userId, page) {
   const pdfPath = await findPdfPath(projectId, userId)
   if (!pdfPath) return null
-  // pdftoppm's stdout mode ('-') produces 0 bytes in some poppler versions,
-  // so use a temp file. pdftoppm appends the page number to the filename.
-  // Keyed by projectId so concurrent requests for the same page converge on
-  // the same file (output is deterministic) rather than racing on random names.
-  const tmpPrefix = Path.join(os.tmpdir(), `pdf-page-${projectId}`)
-  const tmpFile = `${tmpPrefix}-${page}.png`
+  // pdftoppm's stdout mode ('-') produces 0 bytes in some poppler versions, so
+  // use a temp file. With -singlefile the output is exactly `${prefix}.png` —
+  // this avoids pdftoppm's page-number suffix which is zero-padded to the
+  // total page count (e.g. page 5 of 20 → `prefix-05.png`).
+  // Including page in the prefix keeps concurrent requests for different pages
+  // from clobbering each other.
+  const tmpPrefix = Path.join(os.tmpdir(), `pdf-page-${projectId}-${page}`)
+  const tmpFile = `${tmpPrefix}.png`
   try {
     await new Promise((resolve, reject) => {
       const proc = spawnProcess('pdftoppm', [
         '-png',
+        '-singlefile',
         '-r',
         '150',
         '-f',
