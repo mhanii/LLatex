@@ -24,10 +24,14 @@ export async function getPdfPage({ page }, ctx) {
   const res = await fetch(url, {
     headers: { Authorization: basicAuth() },
   })
-  if (res.status === 404) {
-    return 'No compiled PDF available or page out of range. Run compile_and_check first.'
-  }
   if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    if (res.status === 404 && body.code === 'NO_PDF') {
+      return 'No compiled PDF found — run compile_and_check first.'
+    }
+    if (res.status === 416 && body.code === 'PAGE_OUT_OF_RANGE') {
+      return `Page ${page} is out of range — use compile_and_check to get the total page count.`
+    }
     return `Failed to get PDF page: HTTP ${res.status}`
   }
   return /** @type {PdfPageResult} */ (await res.json())

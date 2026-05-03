@@ -298,13 +298,13 @@ async function pdfPage(req, res, next) {
   }
   try {
     const buf = await CompileManager.promises.getPdfPage(projectId, userId, page)
-    if (!buf) return res.status(404).json({ error: 'no compiled PDF' })
-    if (buf.length === 0) {
-      return res.status(404).json({ error: 'page out of range' })
-    }
+    if (!buf) return res.status(404).json({ error: 'no compiled PDF', code: 'NO_PDF' })
     res.set('Content-Type', 'image/png')
     res.send(buf)
   } catch (err) {
+    if (err.code === 'PAGE_OUT_OF_RANGE') {
+      return res.status(416).json({ error: 'page out of range', code: 'PAGE_OUT_OF_RANGE' })
+    }
     next(err)
   }
 }

@@ -988,8 +988,16 @@ async function getPdfPage(projectId, userId, page) {
       })
     })
     // pdftoppm exits 0 but writes no file when page is beyond the PDF range.
-    // Treat any readFile failure as "page unavailable" — null flows up as 404.
-    return await fsPromises.readFile(tmpFile).catch(() => null)
+    try {
+      return await fsPromises.readFile(tmpFile)
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        const rangeErr = new Error('page out of range')
+        rangeErr.code = 'PAGE_OUT_OF_RANGE'
+        throw rangeErr
+      }
+      throw err
+    }
   } finally {
     await fsPromises.unlink(tmpFile).catch(() => {})
   }

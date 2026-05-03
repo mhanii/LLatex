@@ -315,8 +315,8 @@ async function agentPdfPage(req, res) {
   const clsiRes = await fetch(
     `${clsiUrl(projectId, userId, 'pdf-page')}?page=${page}`
   )
-  if (clsiRes.status === 404) {
-    return res.status(404).json({ error: clsiRes.statusText })
+  if (clsiRes.status === 404 || clsiRes.status === 416) {
+    return res.status(clsiRes.status).json(await clsiRes.json())
   }
   if (!clsiRes.ok) {
     return res.status(502).json({ error: 'CLSI error' })
