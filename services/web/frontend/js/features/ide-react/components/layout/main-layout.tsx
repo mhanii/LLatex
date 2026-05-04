@@ -1,5 +1,8 @@
-import { Panel, PanelGroup } from 'react-resizable-panels'
-import { ImperativePanelHandle } from 'react-resizable-panels'
+import {
+  ImperativePanelHandle,
+  Panel,
+  PanelGroup,
+} from 'react-resizable-panels'
 import classNames from 'classnames'
 import { HorizontalResizeHandle } from '@/features/ide-react/components/resize/horizontal-resize-handle'
 import PdfPreview from '@/features/pdf-preview/components/pdf-preview'
@@ -16,6 +19,7 @@ import HistoryContainer from '@/features/ide-react/components/history-container'
 import { DefaultSynctexControl } from '@/features/pdf-preview/components/detach-synctex-control'
 import importOverleafModules from '../../../../../macros/import-overleaf-module.macro'
 import useCollapsiblePanel from '@/features/ide-react/hooks/use-collapsible-panel'
+import ChatbotPanel from '@/features/ide-react/components/chatbot/chatbot-panel'
 
 const mainEditorLayoutPanels: Array<{
   import: { default: ElementType }
@@ -61,7 +65,21 @@ export default function MainLayout() {
           })}
         >
           <RailLayout />
-          <Panel id="ide-redesign-editor-and-pdf-panel" order={2}>
+          <Panel
+            id="ide-redesign-chatbot-panel"
+            order={2}
+            minSize={12}
+            defaultSize={20}
+            maxSize={40}
+            className={classNames({
+              hidden: view === 'history',
+            })}
+            tagName="section"
+            aria-label={t('chat')}
+          >
+            <ChatbotPanel />
+          </Panel>
+          <Panel id="ide-redesign-editor-and-pdf-panel" order={3}>
             <HistoryContainer />
             <PanelGroup
               autoSaveId="ide-redesign-editor-and-pdf-panel-group"
@@ -136,7 +154,7 @@ export default function MainLayout() {
           </Panel>
           {mainEditorLayoutPanels.map(
             ({ import: { default: Component }, path }, i) => {
-              return <Component key={path} order={i + 3} />
+              return <Component key={path} order={i + 4} />
             }
           )}
         </PanelGroup>
