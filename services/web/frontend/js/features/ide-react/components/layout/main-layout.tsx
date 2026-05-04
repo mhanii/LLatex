@@ -1,4 +1,5 @@
 import { Panel, PanelGroup } from 'react-resizable-panels'
+import { ImperativePanelHandle } from 'react-resizable-panels'
 import classNames from 'classnames'
 import { HorizontalResizeHandle } from '@/features/ide-react/components/resize/horizontal-resize-handle'
 import PdfPreview from '@/features/pdf-preview/components/pdf-preview'
@@ -8,12 +9,13 @@ import { HorizontalToggler } from '@/features/ide-react/components/resize/horizo
 import { useTranslation } from 'react-i18next'
 import { usePdfPane } from '@/features/ide-react/hooks/use-pdf-pane'
 import { useLayoutContext } from '@/shared/context/layout-context'
-import { ElementType, useState } from 'react'
+import { ElementType, useRef, useState } from 'react'
 import EditorPanel from '../editor/editor-panel'
 import { useRailContext } from '../../context/rail-context'
 import HistoryContainer from '@/features/ide-react/components/history-container'
 import { DefaultSynctexControl } from '@/features/pdf-preview/components/detach-synctex-control'
 import importOverleafModules from '../../../../../macros/import-overleaf-module.macro'
+import useCollapsiblePanel from '@/features/ide-react/hooks/use-collapsible-panel'
 
 const mainEditorLayoutPanels: Array<{
   import: { default: ElementType }
@@ -36,10 +38,14 @@ export default function MainLayout() {
     pdfIsOpen: isPdfOpen,
     pdfPanelRef,
   } = usePdfPane()
-  const { view, pdfLayout } = useLayoutContext()
+  const { view, pdfLayout, editorPanelOpen } = useLayoutContext()
+  const editorPanelRef = useRef<ImperativePanelHandle>(null)
+
+  useCollapsiblePanel(editorPanelOpen, editorPanelRef)
 
   const editorIsOpen =
-    view === 'editor' || view === 'file' || pdfLayout === 'sideBySide'
+    editorPanelOpen &&
+    (view === 'editor' || view === 'file' || pdfLayout === 'sideBySide')
 
   const { t } = useTranslation()
 
@@ -65,11 +71,13 @@ export default function MainLayout() {
               })}
             >
               <Panel
+                collapsible
                 id="ide-redesign-editor-panel"
                 order={1}
                 className={classNames({
                   hidden: !editorIsOpen || view === 'history',
                 })}
+                ref={editorPanelRef}
                 minSize={5}
                 defaultSize={50}
                 tagName="section"

@@ -38,6 +38,7 @@ export type LayoutContextOwnStates = {
   pdfLayout: IdeLayout
   projectSearchIsOpen: boolean
   openFile: BinaryFile | null
+  editorPanelOpen: boolean
 }
 
 export type LayoutContextValue = LayoutContextOwnStates & {
@@ -63,6 +64,7 @@ export type LayoutContextValue = LayoutContextOwnStates & {
   pdfPreviewOpen: boolean
   setProjectSearchIsOpen: Dispatch<SetStateAction<boolean>>
   setOpenFile: Dispatch<SetStateAction<BinaryFile | null>>
+  setEditorPanelOpen: Dispatch<SetStateAction<boolean>>
   restoreView: () => void
   handleChangeLayout: (newLayout: IdeLayout, newView?: IdeView) => void
   handleDetach: () => void
@@ -86,6 +88,7 @@ const reviewPanelStorageKey = `ui.reviewPanelOpen.${getMeta('ol-project_id')}`
 export const LayoutProvider: FC<React.PropsWithChildren> = ({ children }) => {
   // what to show in the "flat" view (editor or pdf)
   const [view, _setView] = useState<IdeView | null>('editor')
+  const [editorPanelOpen, setEditorPanelOpen] = useState(false)
   const [openFile, setOpenFile] = useState<BinaryFile | null>(null)
   const historyToggleEmitter = useScopeEventEmitter('history:toggle', true)
   const { isOpen: railIsOpen, setIsOpen: setRailIsOpen } = useRailContext()
@@ -148,6 +151,7 @@ export const LayoutProvider: FC<React.PropsWithChildren> = ({ children }) => {
   const [miniReviewPanelVisible, setMiniReviewPanelVisible] =
     useState<boolean>(false)
 
+  // whether the editor panel is open
   // whether the menu pane is open
   const [leftMenuShown, setLeftMenuShown] = useState<boolean>(false)
 
@@ -353,6 +357,8 @@ export const LayoutProvider: FC<React.PropsWithChildren> = ({ children }) => {
       restoreView,
       handleChangeLayout,
       handleDetach,
+      editorPanelOpen,
+      setEditorPanelOpen,
     }),
     [
       reattach,
@@ -382,6 +388,8 @@ export const LayoutProvider: FC<React.PropsWithChildren> = ({ children }) => {
       restoreView,
       handleChangeLayout,
       handleDetach,
+      editorPanelOpen,
+      setEditorPanelOpen,
     ]
   )
 
