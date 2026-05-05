@@ -5,3 +5,7 @@
 .env
 docker-compose.override.yml
 node_modules
+
+# local compile artifacts (local build outputs, not for repo)
+develop/output/
+develop/compiles/
