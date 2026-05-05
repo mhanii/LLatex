@@ -1,5 +1,8 @@
-import { FormEvent, useMemo, useRef, useState } from 'react'
+import { FormEvent, KeyboardEvent, useCallback, useMemo, useRef, useState } from 'react'
 import classNames from 'classnames'
+import OLTooltip from '@/shared/components/ol/ol-tooltip'
+import OLIconButton from '@/shared/components/ol/ol-icon-button'
+import { useLayoutContext } from '@/shared/context/layout-context'
 
 type ChatbotMessage = {
   id: string
@@ -19,12 +22,15 @@ export default function ChatbotPanel() {
   const [messages, setMessages] = useState<ChatbotMessage[]>(initialMessages)
   const [input, setInput] = useState('')
   const counterRef = useRef(0)
+  const { setChatIsOpen } = useLayoutContext()
 
   const canSend = useMemo(() => input.trim().length > 0, [input])
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+  const closeChatbot = useCallback(() => {
+    setChatIsOpen(false)
+  }, [setChatIsOpen])
 
+  const submitMessage = () => {
     const trimmed = input.trim()
     if (!trimmed) {
       return
@@ -48,10 +54,35 @@ export default function ChatbotPanel() {
     setInput('')
   }
 
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    submitMessage()
+  }
+
+  const handleInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      submitMessage()
+    }
+  }
+
   return (
     <section className="ide-chatbot-panel" aria-label="Chatbot panel">
       <header className="ide-chatbot-panel-header">
         <h3 className="ide-chatbot-panel-title">Chatbot</h3>
+        <OLTooltip
+          id="close-chatbot-panel"
+          description="Close chatbot"
+          overlayProps={{ placement: 'bottom' }}
+        >
+          <OLIconButton
+            onClick={closeChatbot}
+            className="ide-chatbot-panel-header-button-subdued"
+            icon="close"
+            accessibilityLabel="Close chatbot"
+            size="sm"
+          />
+        </OLTooltip>
       </header>
 
       <div className="ide-chatbot-panel-messages" role="log" aria-live="polite">
@@ -63,33 +94,30 @@ export default function ChatbotPanel() {
               'ide-chatbot-message-bot': message.role === 'bot',
             })}
           >
-            <p className="ide-chatbot-message-author">
-              {message.role === 'user' ? 'You' : 'Bot'}
-            </p>
             <p className="ide-chatbot-message-content">{message.text}</p>
           </article>
         ))}
       </div>
 
       <form className="ide-chatbot-panel-form" onSubmit={handleSubmit}>
-        <label htmlFor="ide-chatbot-input" className="sr-only">
-          Chatbot message
-        </label>
-        <input
+        <textarea
           id="ide-chatbot-input"
           className="ide-chatbot-panel-input"
-          type="text"
           value={input}
           onChange={event => setInput(event.target.value)}
-          placeholder="Write a message"
-          aria-label="Write a chatbot message"
+          onKeyDown={handleInputKeyDown}
+          placeholder=""
+          aria-label=""
+          rows={1}
         />
         <button
           type="submit"
           className="btn btn-primary ide-chatbot-panel-send"
           disabled={!canSend}
         >
-          Send
+          <span className="material-symbols" aria-hidden="true">
+            arrow_upward
+          </span>
         </button>
       </form>
     </section>

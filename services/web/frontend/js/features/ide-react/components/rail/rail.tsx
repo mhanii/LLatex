@@ -6,6 +6,7 @@ import {
   RailTabKey,
   useRailContext,
 } from '@/features/ide-react/context/rail-context'
+import OLTooltip from '@/shared/components/ol/ol-tooltip'
 import FileTreeOutlinePanel from '@/features/file-tree/components/file-tree-outline-panel'
 import ChatPane from '@/features/chat/components/chat-pane'
 import ChatIndicator from '@/features/chat/components/chat-indicator'
@@ -34,6 +35,45 @@ import importOverleafModules from '../../../../../macros/import-overleaf-module.
 import { shouldIncludeElement } from '@/features/ide-react/util/rail-utils'
 import { useEditorContext } from '@/shared/context/editor-context'
 import useEventListener from '@/shared/hooks/use-event-listener'
+
+function ChatbotRailOpenButton() {
+  const { chatIsOpen, setChatIsOpen } = useLayoutContext()
+
+  const openChatbot = useCallback(() => {
+    setChatIsOpen(true)
+  }, [setChatIsOpen])
+
+  if (chatIsOpen) {
+    return null
+  }
+
+  return (
+    <OLTooltip
+      id="rail-chatbot-open-button"
+      description="Open AI chat"
+      overlayProps={{ delay: 0, placement: 'right' }}
+    >
+      <button
+        type="button"
+        className="ide-rail-tab-link ide-rail-tab-button ide-rail-chatbot-open-button"
+        onClick={openChatbot}
+        aria-label="Open AI chat"
+      >
+        <svg
+          className="ide-rail-tab-link-icon ide-rail-chatbot-open-icon"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path
+            fill="currentColor"
+            d="M6.5 5.5h11c1.7 0 3 1.3 3 3v6c0 1.7-1.3 3-3 3H12l-4.7 3.2c-.3.2-.7 0-.7-.4V17.5h-.1c-1.7 0-3-1.3-3-3v-6c0-1.7 1.3-3 3-3Zm10.5 6.1c0-.5-.4-.9-.9-.9h-.2c-.5 0-.9.4-.9.9v.2c0 .5.4.9.9.9h.2c.5 0 .9-.4.9-.9v-.2Zm-3.6 0c0-.5-.4-.9-.9-.9h-.2c-.5 0-.9.4-.9.9v.2c0 .5.4.9.9.9h.2c.5 0 .9-.4.9-.9v-.2Zm-3.6 0c0-.5-.4-.9-.9-.9h-.2c-.5 0-.9.4-.9.9v.2c0 .5.4.9.9.9h.2c.5 0 .9-.4.9-.9v-.2Zm8.5-4.7c-.1-.3-.6-.3-.7 0l-.3.9-.9.3c-.3.1-.3.6 0 .7l.9.3.3.9c.1.3.6.3.7 0l.3-.9.9-.3c.3-.1.3-.6 0-.7l-.9-.3-.3-.9Z"
+          />
+        </svg>
+      </button>
+    </OLTooltip>
+  )
+}
 
 const moduleRailEntries = (
   importOverleafModules('railEntries') as {
@@ -294,6 +334,7 @@ export const RailLayout = () => {
                 ref={action.ref}
               />
             ))}
+            <ChatbotRailOpenButton />
           </nav>
         </Nav>
       </nav>

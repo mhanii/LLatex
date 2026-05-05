@@ -42,7 +42,7 @@ export default function MainLayout() {
     pdfIsOpen: isPdfOpen,
     pdfPanelRef,
   } = usePdfPane()
-  const { view, pdfLayout, editorPanelOpen } = useLayoutContext()
+  const { view, pdfLayout, editorPanelOpen, chatIsOpen } = useLayoutContext()
   const editorPanelRef = useRef<ImperativePanelHandle>(null)
 
   useCollapsiblePanel(editorPanelOpen, editorPanelRef)
@@ -72,13 +72,21 @@ export default function MainLayout() {
             defaultSize={20}
             maxSize={40}
             className={classNames({
-              hidden: view === 'history',
+              hidden: !chatIsOpen || view === 'history',
             })}
             tagName="section"
             aria-label={t('chat')}
           >
             <ChatbotPanel />
           </Panel>
+          <HorizontalResizeHandle
+            resizable
+            onDragging={setResizing}
+            hitAreaMargins={{ coarse: 0, fine: 0 }}
+            className={classNames({
+              hidden: !chatIsOpen || view === 'history',
+            })}
+          />
           <Panel id="ide-redesign-editor-and-pdf-panel" order={3}>
             <HistoryContainer />
             <PanelGroup

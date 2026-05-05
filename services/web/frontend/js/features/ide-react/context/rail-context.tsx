@@ -50,7 +50,7 @@ export const RailProvider: FC<React.PropsWithChildren> = ({ children }) => {
   const { projectId } = useProjectContext()
   const [isOpen, setIsOpen] = usePersistedState(
     `rail-is-open-${projectId}`,
-    true
+    false
   )
   const [resizing, setResizing] = useState(false)
   const [activeModal, setActiveModalInternal] = useState<RailModalKey | null>(

@@ -138,7 +138,7 @@ export const LayoutProvider: FC<React.PropsWithChildren> = ({ children }) => {
   // whether the chat pane is open
   const [chatIsOpen, setChatIsOpen] = usePersistedState<boolean>(
     'ui.chatOpen',
-    false
+    true
   )
 
   // whether the review pane is open
