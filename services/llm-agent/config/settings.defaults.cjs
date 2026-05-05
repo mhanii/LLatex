@@ -31,12 +31,19 @@ module.exports = {
     web: {
       url: `http://${process.env.WEB_HOST || '127.0.0.1'}:3000`,
     },
+    clsi: {
+      url: `http://${process.env.CLSI_HOST || '127.0.0.1'}:${process.env.CLSI_PORT || 3013}`,
+    },
   },
 
   llm: {
-    model: process.env.LLM_MODEL || 'gpt-4o',
-    apiKey: process.env.OPENAI_API_KEY || '',
-    baseURL: process.env.OPENAI_BASE_URL || undefined,
+    defaultModel: process.env.LLM_MODEL || 'gpt-4o',
+    portkey: {
+      apiKey: process.env.PORTKEY_API_KEY || '',
+      virtualKey: process.env.PORTKEY_VIRTUAL_KEY || '',
+      config: process.env.PORTKEY_CONFIG || '',
+      baseURL: process.env.PORTKEY_BASE_URL || undefined,
+    },
   },
 
   httpAuthUser: process.env.WEB_API_USER || 'overleaf',
