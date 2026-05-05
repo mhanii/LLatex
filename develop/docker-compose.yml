@@ -24,6 +24,13 @@ services:
       dockerfile: services/llm-agent/Dockerfile
     env_file:
       - dev.env
+    environment:
+      - PORTKEY_API_KEY
+      - PORTKEY_VIRTUAL_KEY
+      - PORTKEY_CONFIG
+      - PORTKEY_BASE_URL
+      - LLM_MODEL
+      - LLM_JUDGE_MODEL
 
   clsi:
     build:
