@@ -106,6 +106,7 @@ export const ReviewPanelChange = memo<{
 
     const isChangeAuthor = change.metadata?.user_id === user.id
     const aggregateChange = aggregate && /\S/.test(aggregate.op.d)
+    const isAgentChange = change.metadata?.source === 'agent'
 
     return (
       <ReviewPanelEntry
@@ -124,6 +125,7 @@ export const ReviewPanelChange = memo<{
         handleEnter={handleMouseEnter}
         handleLeave={handleMouseLeave}
         entryIndicator="edit"
+        dataSource={change.metadata?.source}
       >
         <div
           className="review-panel-entry-content"
@@ -133,6 +135,9 @@ export const ReviewPanelChange = memo<{
           <div className="review-panel-entry-header">
             <div>
               <ReviewPanelChangeUser change={change} />
+              {isAgentChange && (
+                <span className="review-panel-source-pill agent">Agent</span>
+              )}
               {change.metadata?.ts && (
                 <div className="review-panel-entry-time">
                   <FormatTimeBasedOnYear date={change.metadata.ts} />

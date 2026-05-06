@@ -220,6 +220,30 @@ del.review-panel-content-highlight {
   text-decoration: line-through;
 }
 
+.review-panel-entry[data-source='agent'] ins.review-panel-content-highlight {
+  background-color: rgb(44 142 48 / 22%);
+}
+
+.review-panel-entry[data-source='agent'] del.review-panel-content-highlight {
+  background-color: rgb(197 6 11 / 18%);
+  text-decoration: none;
+}
+
+.review-panel-source-pill {
+  display: inline-block;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 0 6px;
+  border-radius: 8px;
+  margin-left: 6px;
+  vertical-align: middle;
+
+  &.agent {
+    background: rgb(197 6 11 / 15%);
+    color: #a3050a;
+  }
+}
+
 .review-panel-entry-icon {
   border-radius: var(--border-radius-base);
   padding: var(--spacing-02);
@@ -792,6 +816,96 @@ del.review-panel-content-highlight {
   &.review-mode-switcher-toggle-button-expanded {
     .review-mode-switcher-toggle-label {
       display: block;
+    }
+  }
+}
+
+// Host created by ChipContainerWidget: a full-width unnumbered CM6 block line.
+// align-items: flex-end keeps the chip flush against the bottom of the host
+// line so it connects directly to the diff block beneath it.
+.inline-change-chip-host {
+  display: flex;
+  align-items: flex-end;
+  font-family: inherit;
+}
+
+// The chip itself is content-sized (inline-flex), not full-width.
+// Rounded top, flat bottom — sits at the bottom of the host line above the diff.
+.inline-change-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 1px solid var(--review-panel-border-color);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background-color: var(--review-panel-entry-bg-color);
+  box-shadow: 0 -2px 6px rgb(0 0 0 / 8%);
+  font-size: var(--font-size-01);
+  font-family: inherit;
+  user-select: none;
+  white-space: nowrap;
+  color: var(--review-panel-color);
+
+  // Agent chip docks to the right edge of the content area.
+  &.agent {
+    margin-left: auto;
+    margin-right: 8px;
+  }
+
+  .inline-change-actions-source {
+    font-weight: 600;
+    padding: 0 2px;
+    flex-shrink: 0;
+  }
+
+  .inline-change-actions-divider {
+    flex-shrink: 0;
+    width: 1px;
+    height: 14px;
+    background-color: var(--review-panel-border-color);
+    margin: 0 2px;
+  }
+
+  .inline-change-actions-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 6px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: inherit;
+    font-weight: 500;
+    line-height: 1;
+
+    .material-symbols {
+      font-size: 12px;
+      line-height: 1;
+    }
+
+    &.accept {
+      background-color: var(--bg-accent-01);
+      color: #fff;
+
+      &:hover {
+        filter: brightness(1.1);
+      }
+    }
+
+    &.reject {
+      background-color: var(--bg-danger-01);
+      color: #fff;
+
+      &:hover {
+        filter: brightness(1.1);
+      }
+    }
+  }
+
+  &.user {
+    .inline-change-actions-source {
+      color: var(--content-info-themed);
     }
   }
 }

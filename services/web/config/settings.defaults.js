@@ -235,6 +235,9 @@ module.exports = {
     chat: {
       internal_url: `http://${process.env.CHAT_HOST || '127.0.0.1'}:3010`,
     },
+    llmAgent: {
+      internal_url: `http://${process.env.LLM_AGENT_HOST || '127.0.0.1'}:3055`,
+    },
     filestore: {
       url: `http://${process.env.FILESTORE_HOST || '127.0.0.1'}:3009`,
     },
@@ -1078,7 +1081,9 @@ module.exports = {
 
   moduleImportSequence: [
     'history-v1',
+    'track-changes',
     'launchpad',
+    'llm-agent',
     'server-ce-scripts',
     'user-activate',
   ],

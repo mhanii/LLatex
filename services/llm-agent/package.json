@@ -1,0 +1,35 @@
+{
+  "name": "@overleaf/llm-agent",
+  "description": "LLM agent research layer for Overleaf",
+  "private": true,
+  "main": "app.js",
+  "type": "module",
+  "scripts": {
+    "start": "node app.js",
+    "nodemon": "node --watch app.js",
+    "test:unit": "mocha --require test/setup.js --recursive --timeout 5000 --exit test/unit",
+    "test:acceptance": "npm run test:acceptance:_run -- --grep=$MOCHA_GREP",
+    "test:acceptance:_run": "mocha --require test/setup.js --recursive --timeout 15000 --exit test/acceptance"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^3.0.41",
+    "@overleaf/logger": "*",
+    "@overleaf/metrics": "*",
+    "@overleaf/mongo-utils": "*",
+    "@overleaf/settings": "*",
+    "ai": "^6.0.116",
+    "express": "4.22.1",
+    "minimist": "^1.2.8",
+    "mongodb": "6.12.0",
+    "portkey-ai": "^3.1.0",
+    "xlsx": "^0.18.5",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "chai": "^4.3.6",
+    "chai-as-promised": "^7.1.1",
+    "mocha": "^11.1.0"
+  },
+  "version": "1.0.0",
+  "license": "AGPL-3.0"
+}

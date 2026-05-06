@@ -277,6 +277,51 @@ function status(req, res, next) {
   res.send('OK')
 }
 
+async function pdfInfo(req, res, next) {
+  const projectId = req.params.project_id
+  const userId = req.params.user_id ?? null
+  try {
+    const info = await CompileManager.promises.getPdfInfo(projectId, userId)
+    if (!info) return res.status(404).json({ error: 'no compiled PDF' })
+    res.json(info)
+  } catch (err) {
+    next(err)
+  }
+}
+
+async function pdfPage(req, res, next) {
+  const projectId = req.params.project_id
+  const userId = req.params.user_id ?? null
+  const page = parseInt(req.query.page, 10)
+  if (!page || page < 1) {
+    return res.status(400).json({ error: 'page query param required (1-indexed)' })
+  }
+  try {
+    const buf = await CompileManager.promises.getPdfPage(projectId, userId, page)
+    if (!buf) return res.status(404).json({ error: 'no compiled PDF', code: 'NO_PDF' })
+    res.set('Content-Type', 'image/png')
+    res.send(buf)
+  } catch (err) {
+    if (err.code === 'PAGE_OUT_OF_RANGE') {
+      return res.status(416).json({ error: 'page out of range', code: 'PAGE_OUT_OF_RANGE' })
+    }
+    next(err)
+  }
+}
+
+async function outputLog(req, res, next) {
+  const projectId = req.params.project_id
+  const userId = req.params.user_id ?? null
+  try {
+    const text = await CompileManager.promises.getOutputLog(projectId, userId)
+    if (text == null) return res.status(404).json({ error: 'no output.log found' })
+    res.set('Content-Type', 'text/plain')
+    res.send(text)
+  } catch (err) {
+    next(err)
+  }
+}
+
 export default {
   compile,
   stopCompile,
@@ -286,4 +331,7 @@ export default {
   wordcount,
   status,
   timeSinceLastSuccessfulCompile,
+  pdfInfo,
+  pdfPage,
+  outputLog,
 }

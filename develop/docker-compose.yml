@@ -18,6 +18,20 @@ services:
     env_file:
       - dev.env
 
+  llm-agent:
+    build:
+      context: ..
+      dockerfile: services/llm-agent/Dockerfile
+    env_file:
+      - dev.env
+    environment:
+      - PORTKEY_API_KEY
+      - PORTKEY_VIRTUAL_KEY
+      - PORTKEY_CONFIG
+      - PORTKEY_BASE_URL
+      - LLM_MODEL
+      - LLM_JUDGE_MODEL
+
   clsi:
     build:
       context: ..
@@ -29,9 +43,9 @@ services:
       - SANDBOXED_COMPILES=false
     user: root
     volumes:
-      - ${PWD}/compiles:/overleaf/services/clsi/compiles
-      - ${PWD}/output:/overleaf/services/clsi/output
-      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+      - ${PWD}/compiles:/overleaf/services/clsi/compiles:z
+      - ${PWD}/output:/overleaf/services/clsi/output:z
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock:z
       - clsi-cache:/overleaf/services/clsi/cache
 
   clsi-nginx:
@@ -42,8 +56,8 @@ services:
       - /var/cache/nginx
       - /run
     volumes:
-      - ${PWD}/output:/output:ro
-      - ../services/clsi/nginx.conf:/etc/nginx/conf.d/nginx.conf:ro
+      - ${PWD}/output:/output:ro,z
+      - ../services/clsi/nginx.conf:/etc/nginx/conf.d/nginx.conf:ro,z
 
   contacts:
     build:
@@ -102,7 +116,7 @@ services:
       - "127.0.0.1:27017:27017" # for debugging
     volumes:
       - mongo-data:/data/db
-      - ../bin/shared/mongodb-init-replica-set.js:/docker-entrypoint-initdb.d/mongodb-init-replica-set.js
+      - ../bin/shared/mongodb-init-replica-set.js:/docker-entrypoint-initdb.d/mongodb-init-replica-set.js:z
     environment:
       MONGO_INITDB_DATABASE: sharelatex
     extra_hosts:
@@ -166,6 +180,7 @@ services:
       - document-updater
       - filestore
       - history-v1
+      - llm-agent
       - notifications
       - project-history
       - real-time
@@ -180,4 +195,4 @@ services:
     ports:
       - "127.0.0.1:80:3808"
     volumes:
-      - ./webpack.config.dev-env.js:/overleaf/services/web/webpack.config.dev-env.js
+      - ./webpack.config.dev-env.js:/overleaf/services/web/webpack.config.dev-env.js:z

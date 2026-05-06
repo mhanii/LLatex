@@ -94,6 +94,7 @@ export class ShareJsDoc extends EventEmitter {
             update.meta = {}
           }
           update.meta.tc = this.track_changes_id_seeds.inflight
+          update.meta.source = 'user'
         }
         return this.socket.emit(
           'applyOtUpdate',

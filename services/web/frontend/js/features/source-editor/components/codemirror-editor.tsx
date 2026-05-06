@@ -25,6 +25,7 @@ import { useFeatureFlag } from '@/shared/context/split-test-context'
 import { useEditorOpenDocContext } from '@/features/ide-react/context/editor-open-doc-context'
 import { useEditorPropertiesContext } from '@/features/ide-react/context/editor-properties-context'
 import UpgradeTrackChangesModal from '@/features/review-panel/components/upgrade-track-changes-modal'
+import { InlineChangeActions } from '@/features/review-panel/components/inline-change-actions'
 
 // TODO: remove this when definitely no longer used
 export * from './codemirror-context'
@@ -105,6 +106,7 @@ function CodeMirrorEditorComponents({
       <EditorContextMenu />
       {features.trackChangesVisible && <ReviewTooltipMenu />}
       {features.trackChangesVisible && <ReviewPanelRoot />}
+      {features.trackChangesVisible && <InlineChangeActions />}
       {features.trackChangesVisible && <UpgradeTrackChangesModal />}
 
       {sourceEditorComponents.map(

@@ -27,6 +27,7 @@ export type Change<T extends AnyOperation = AnyOperation> = {
   metadata?: {
     user_id: UserId | null
     ts: Date
+    source?: string
   }
   op: T
 }
