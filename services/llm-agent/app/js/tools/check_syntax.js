@@ -6,18 +6,19 @@ import { webUrl, basicAuth } from './utils.js'
  */
 
 /**
- * Run structural analysis on project documents without compiling.
+ * Run editor-parity static analysis on project documents without compiling.
  *
- * Analysis is performed server-side by SyntaxChecker in the web module, which
- * uses Overleaf's own MetaHandler for label extraction (the same logic that
- * drives editor autocomplete), then adds ref-usage, \input, and \begin/\end
- * checks using custom regex where no equivalent Overleaf code exists.
+ * Two passes are performed server-side by SyntaxChecker in the web module:
+ *   1. Per-file CodeMirror linter (port of latex-linter.worker.ts) — same
+ *      tokenizer + interpreter the editor uses for the red-squiggle gutter
+ *      linter. Catches unbalanced environments, mismatched delimiters,
+ *      malformed args, etc.
+ *   2. Project-wide cross-file regex pass — duplicate \label{} definitions,
+ *      undefined \ref{} targets (when path is omitted), and \input{} /
+ *      \include{} pointing at files that are not in the project.
  *
- * Detects:
- *  - Undefined \ref{} targets (project-wide cross-file, when path is omitted)
- *  - Duplicate \label{} definitions
- *  - \input{} / \include{} referencing a file not in the project
- *  - Unbalanced \begin{} / \end{} pairs (with line numbers)
+ * Document content is read from document-updater (Redis) so edits are
+ * visible immediately — no flush to MongoDB required.
  *
  * @param {{ path?: string }} input
  *   If path is provided, analysis is scoped to that file (cross-file ref

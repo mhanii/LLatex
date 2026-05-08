@@ -498,6 +498,129 @@ async function main() {
       const dupAfterRestore = syntax4.issues.filter(i => i.message.includes('dup-label'))
       assert(dupAfterRestore.length === 0, `no duplicate-label warning after restore`)
 
+      // ── Steps 16a–16d: rapid edit / check_syntax loop — staleness regression ─
+      // Reproduces the agent-loop bug: agent edits, calls check_syntax to
+      // confirm, edits again, calls check_syntax again. Every check_syntax
+      // call must reflect the *current* doc state, no stale carryover.
+      step('16a · rapid edit/check_syntax loop — staleness regression')
+
+      // 16a: introduce env-mismatch + duplicate label in one edit
+      const loopBreak = await editFile(
+        {
+          path: NEW_FILE_PATH,
+          oldText: '\\section{Methodology}',
+          newText:
+            '\\subsection{Methodology}\n\\label{loop-a}\n\\label{loop-a}\n\\begin{equation}\n\\end{align}',
+        },
+        ctx
+      )
+      assert(loopBreak === 'Change applied.', `step 16a edit applied`)
+      const syntaxLoop1 = await checkSyntax({ path: NEW_FILE_PATH }, ctx)
+      const hasDupLoopA = syntaxLoop1.issues.some(i =>
+        i.message.includes('loop-a')
+      )
+      const hasEnvMismatch1 = syntaxLoop1.issues.some(
+        i => i.message.includes('equation') || i.message.includes('align')
+      )
+      assert(hasDupLoopA, `16a: detects duplicate \\label{loop-a}`)
+      assert(hasEnvMismatch1, `16a: detects equation/align mismatch`)
+
+      // 16b: fix the env mismatch — duplicate label still there
+      step('16b · fix mismatched env, re-check (dup label must remain visible)')
+      const loopFixEnv = await editFile(
+        {
+          path: NEW_FILE_PATH,
+          oldText: '\\begin{equation}\n\\end{align}',
+          newText: '\\begin{equation}\n\\end{equation}',
+        },
+        ctx
+      )
+      assert(loopFixEnv === 'Change applied.', `step 16b edit applied`)
+      const syntaxLoop2 = await checkSyntax({ path: NEW_FILE_PATH }, ctx)
+      const stillHasMismatch = syntaxLoop2.issues.some(
+        i => i.message.includes('align') && i.message.includes('equation')
+      )
+      const stillHasDupLoopA = syntaxLoop2.issues.some(i =>
+        i.message.includes('loop-a')
+      )
+      assert(!stillHasMismatch, `16b: env mismatch is gone (proves fresh read)`)
+      assert(stillHasDupLoopA, `16b: dup-label still detected (sanity)`)
+
+      // 16c: fix the duplicate label — issues must drop to zero
+      step('16c · fix dup label, re-check (must show zero issues for our edits)')
+      const loopFixLabel = await editFile(
+        {
+          path: NEW_FILE_PATH,
+          oldText:
+            '\\subsection{Methodology}\n\\label{loop-a}\n\\label{loop-a}\n\\begin{equation}\n\\end{equation}',
+          newText: '\\section{Methodology}',
+        },
+        ctx
+      )
+      assert(loopFixLabel === 'Change applied.', `step 16c edit applied`)
+      const syntaxLoop3 = await checkSyntax({ path: NEW_FILE_PATH }, ctx)
+      const stillHasDup = syntaxLoop3.issues.some(i =>
+        i.message.includes('loop-a')
+      )
+      const stillHasEnv = syntaxLoop3.issues.some(
+        i => i.message.includes('equation') || i.message.includes('align')
+      )
+      assert(!stillHasDup, `16c: duplicate label gone (proves fresh read)`)
+      assert(!stillHasEnv, `16c: no stale env errors`)
+
+      // 16d: same content, second call must be identical (idempotency)
+      step('16d · check_syntax is idempotent on unchanged content')
+      const syntaxLoop4 = await checkSyntax({ path: NEW_FILE_PATH }, ctx)
+      assert(
+        syntaxLoop4.issues.length === syntaxLoop3.issues.length,
+        `16d: same issue count on repeat (got ${syntaxLoop4.issues.length} vs ${syntaxLoop3.issues.length})`
+      )
+
+      // 16e: project-wide call (no path arg) must reflect latest edits too
+      step('16e · check_syntax with no path (project-wide) sees latest state')
+      const breakAgain = await editFile(
+        {
+          path: NEW_FILE_PATH,
+          oldText: '\\section{Methodology}',
+          newText: '\\section{Methodology}\n\\begin{quote}',
+        },
+        ctx
+      )
+      assert(breakAgain === 'Change applied.', `16e edit applied`)
+      const syntaxAll1 = await checkSyntax({}, ctx)
+      const detectedQuote = syntaxAll1.issues.some(
+        i => i.message.includes('quote') && i.file === NEW_FILE_PATH
+      )
+      assert(detectedQuote, `16e: project-wide check sees new \\begin{quote}`)
+      const fixAgain = await editFile(
+        {
+          path: NEW_FILE_PATH,
+          oldText: '\\section{Methodology}\n\\begin{quote}',
+          newText: '\\section{Methodology}',
+        },
+        ctx
+      )
+      assert(fixAgain === 'Change applied.', `16e fix applied`)
+      const syntaxAll2 = await checkSyntax({}, ctx)
+      const stillHasQuote = syntaxAll2.issues.some(
+        i => i.message.includes('quote') && i.file === NEW_FILE_PATH
+      )
+      assert(!stillHasQuote, `16e: project-wide check sees the fix (no stale)`)
+
+      // 16f: check_syntax called 5x in tight loop on unchanged content —
+      // must return the same issue count every time. Reproduces the agent's
+      // repeated polling pattern.
+      step('16f · 5x check_syntax on unchanged content — must be consistent')
+      const repeated = []
+      for (let i = 0; i < 5; i++) {
+        repeated.push((await checkSyntax({ path: NEW_FILE_PATH }, ctx)).issues.length)
+      }
+      const allEqual = repeated.every(n => n === repeated[0])
+      assert(
+        allEqual,
+        `16f: counts equal across 5 calls (got [${repeated.join(', ')}])`
+      )
+
       // ── Step 17: fix broken \begin{table} and recompile — sync/cache check ───
       // Reverses step 11. If the previous broken errors stick around, that
       // means the parser is reading a stale build's output.log. Also pauses

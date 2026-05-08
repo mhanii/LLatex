@@ -210,6 +210,71 @@ describe('SyntaxChecker', function () {
     })
   })
 
+  describe('Redis-vs-Mongo freshness (regression)', function () {
+    // BUG: doc-updater rejects fromVersion=0 with OpRangeNotAvailableError
+    // (HTTP 422) for any doc whose Redis op-list starts at version > 0
+    // (typical after a flush from MongoDB). SyntaxChecker silently caught
+    // that and used `doc.lines` from the docstore (MongoDB) — which is
+    // stale by definition. The agent's edits looked invisible.
+    //
+    // Fix: pass fromVersion=-1 ("just give me current content, no ops").
+    // doc-updater always returns lines + version in that case. We assert
+    // the call signature and that fresh Redis content wins over Mongo
+    // content, even when the two disagree.
+
+    it('uses fromVersion=-1 to avoid OpRangeNotAvailableError', async function () {
+      ProjectEntityHandler.promises.getAllDocs.mockResolvedValue(
+        singleDoc('/main.tex', 'doc1', ['STALE FROM MONGO'])
+      )
+      DocumentUpdaterHandler.promises.getDocument.mockResolvedValue({
+        lines: ['FRESH FROM REDIS'],
+        version: 18,
+      })
+
+      await SyntaxChecker.check('proj1', null)
+
+      const call =
+        DocumentUpdaterHandler.promises.getDocument.mock.calls[0]
+      expect(call[2]).toBe(-1)
+    })
+
+    it('uses Redis content when Redis and Mongo disagree', async function () {
+      // Mongo says \begin{equation} unclosed; Redis (post-edit) says it is closed.
+      ProjectEntityHandler.promises.getAllDocs.mockResolvedValue(
+        singleDoc('/main.tex', 'doc1', ['\\begin{equation}'])
+      )
+      DocumentUpdaterHandler.promises.getDocument.mockResolvedValue({
+        lines: ['\\begin{equation}', '\\end{equation}'],
+        version: 18,
+      })
+
+      const { issues } = await SyntaxChecker.check('proj1', null)
+
+      // Editor-parity linter sees the closed env from Redis → no error.
+      expect(issues).toHaveLength(0)
+    })
+
+    it('does NOT silently fall back to Mongo when doc-updater errors out', async function () {
+      // If we DID fall back to Mongo here, the agent would see stale
+      // pre-edit content and loop forever. Better to surface the linter's
+      // best-effort view (which is "no issues, didn't see the doc") than
+      // to lie about the file's state.
+      ProjectEntityHandler.promises.getAllDocs.mockResolvedValue(
+        singleDoc('/main.tex', 'doc1', ['\\begin{equation}'])
+      )
+      DocumentUpdaterHandler.promises.getDocument.mockRejectedValue(
+        new Error('doc-updater unreachable')
+      )
+
+      const { issues } = await SyntaxChecker.check('proj1', null)
+
+      // Should NOT report the Mongo-only "unclosed equation" — that would
+      // be stale relative to whatever's in Redis right now.
+      const stale = issues.filter(i => i.message.includes('equation'))
+      expect(stale).toHaveLength(0)
+    })
+  })
+
   describe('scopePath filtering', function () {
     it('only checks the scoped file', async function () {
       setupDocs([

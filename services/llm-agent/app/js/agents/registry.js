@@ -38,7 +38,7 @@ export const AGENT_REGISTRY = {
       'compile_and_check',
       'get_pdf_page',
     ],
-    maxSteps: 20,
+    maxSteps: 25,
   },
 
   readonly: {

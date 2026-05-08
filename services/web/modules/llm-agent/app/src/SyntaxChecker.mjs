@@ -68,15 +68,29 @@ async function check(projectId, scopePath) {
   await Promise.all(
     entries.map(async ([rawPath, doc]) => {
       try {
+        // fromVersion=-1 means "give me the current lines, no op range".
+        // Any other value (incl. 0) makes doc-updater try to return ops
+        // since that version, which throws OpRangeNotAvailableError → 422
+        // for any doc loaded into Redis at version > 0 (i.e. nearly every
+        // doc that's ever been flushed). Falling back to docstore.lines
+        // here would silently use stale MongoDB content, masking the
+        // agent's edits and triggering verify-loops in the LLM.
         const docData = await DocumentUpdaterHandler.promises.getDocument(
           projectId,
           doc._id.toString(),
-          '0'
+          -1
         )
-        docContents.set(doc._id.toString(), { lines: docData.lines })
+        if (Array.isArray(docData?.lines)) {
+          docContents.set(doc._id.toString(), { lines: docData.lines })
+          return
+        }
+        // Unexpected shape — skip this doc rather than serve stale content.
       } catch {
-        // Doc not yet in Redis (e.g. freshly created), fall back to Mongo lines.
-        docContents.set(doc._id.toString(), { lines: doc.lines })
+        // doc-updater unreachable / errored. We deliberately do NOT fall
+        // back to docstore.lines: stale data here makes the agent loop
+        // (the original bug). Skipping the doc means check_syntax may
+        // report fewer issues than reality, but it never reports
+        // already-fixed ones as still-broken.
       }
     })
   )

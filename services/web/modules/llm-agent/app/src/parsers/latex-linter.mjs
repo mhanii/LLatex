@@ -2312,6 +2312,4 @@ result)
   return result.tokens !== undefined;
 }
 
-let latestLintResult = null;
-
 export { Parse }
