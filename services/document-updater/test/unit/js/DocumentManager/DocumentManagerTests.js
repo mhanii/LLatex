@@ -865,6 +865,220 @@ describe('DocumentManager', function () {
     })
   })
 
+  describe('agentReplace', function () {
+    beforeEach(function () {
+      // Re-load DocumentManager with a stubbed RangesTracker so we can predict
+      // the seed used when constructing consolidated change ids.
+      this.RangesTracker = { generateIdSeed: sinon.stub().returns('seed') }
+      this.DocumentManager = SandboxedModule.require(modulePath, {
+        requires: {
+          './RedisManager': this.RedisManager,
+          './ProjectHistoryRedisManager': this.ProjectHistoryRedisManager,
+          './PersistenceManager': this.PersistenceManager,
+          './HistoryManager': this.HistoryManager,
+          './Metrics': this.Metrics,
+          './DiffCodec': this.DiffCodec,
+          './UpdateManager': this.UpdateManager,
+          './HistoryOTUpdateManager': this.HistoryOTUpdateManager,
+          './RangesManager': this.RangesManager,
+          './Errors': Errors,
+          '@overleaf/settings': this.Settings,
+          '@overleaf/ranges-tracker': this.RangesTracker,
+        },
+      })
+    })
+
+    it('returns 404 when oldText is not found in the doc', async function () {
+      this.DocumentManager.promises.getDoc = sinon.stub().resolves({
+        lines: ['no match here'],
+        version: 5,
+        ranges: { changes: [], comments: [] },
+      })
+
+      const result = await this.DocumentManager.promises.agentReplace(
+        this.project_id,
+        this.doc_id,
+        'missing',
+        'whatever',
+        this.user_id
+      )
+
+      expect(result).to.deep.include({ status: 404 })
+      this.UpdateManager.promises.applyUpdate.called.should.equal(false)
+    })
+
+    describe('with no overlapping tracked changes', function () {
+      beforeEach(async function () {
+        // BEFORE: clean doc, no agent ranges
+        // AFTER: doc-updater applied the OT update; we don't care what ranges
+        //        look like because we'll skip consolidation entirely.
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['hello world'],
+            version: 5,
+            ranges: { changes: [], comments: [] },
+          })
+
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'hello',
+          'goodbye',
+          this.user_id
+        )
+      })
+
+      it('applies the OT update via UpdateManager', function () {
+        this.UpdateManager.promises.applyUpdate.calledWith(
+          this.project_id,
+          this.doc_id,
+          sinon.match({
+            v: 5,
+            op: [
+              { p: 0, d: 'hello' },
+              { p: 0, i: 'goodbye' },
+            ],
+            meta: sinon.match({ source: 'agent', user_id: this.user_id }),
+          })
+        ).should.equal(true)
+      })
+
+      it('does NOT touch RedisManager.updateDocument (no consolidation needed)', function () {
+        this.RedisManager.promises.updateDocument.called.should.equal(false)
+      })
+    })
+
+    describe('with overlapping prior agent insert (double-change)', function () {
+      // Setup: a previous agent edit already produced a tracked pair
+      //   visible: "intermediate-text"
+      //   ranges:  insert "intermediate-text" at 0, delete "old-text" at 17
+      // The new edit replaces "intermediate-text" with "final-text". The
+      // ranges-tracker will absorb the insert in messy ways, but consolidation
+      // must collapse the result to: insert "final-text" + delete "old-text".
+      beforeEach(async function () {
+        this.beforeRanges = {
+          changes: [
+            {
+              id: 'prev-i',
+              op: { p: 0, i: 'intermediate-text' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'prev-d',
+              op: { p: 17, d: 'old-text' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+          ],
+          comments: [],
+        }
+        // Suppose after applying the OT update, the ranges-tracker produced
+        // some messy state (we don't model the exact mess here — the point is
+        // consolidation overwrites whatever it produced).
+        this.afterRanges = {
+          changes: [
+            {
+              id: 'mess-i',
+              op: { p: 0, i: 'final-text' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'mess-d',
+              op: { p: 10, d: 'intermediate-text' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+          ],
+          comments: [],
+        }
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['intermediate-text'],
+            version: 5,
+            ranges: this.beforeRanges,
+          })
+          .onSecondCall()
+          .resolves({
+            lines: ['final-text'],
+            version: 6,
+            ranges: this.afterRanges,
+          })
+
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'intermediate-text',
+          'final-text',
+          this.user_id
+        )
+      })
+
+      it('writes consolidated ranges via RedisManager.updateDocument', function () {
+        this.RedisManager.promises.updateDocument.called.should.equal(true)
+      })
+
+      it('produces ONE clean (insert NEWEST, delete OLDEST) pair for the region', function () {
+        const call = this.RedisManager.promises.updateDocument.lastCall
+        const ranges = call.args[5]
+        // Only our two consolidated changes (no leftovers from afterRanges)
+        expect(ranges.changes).to.have.lengthOf(2)
+        const insert = ranges.changes.find(c => c.op.i != null)
+        const del = ranges.changes.find(c => c.op.d != null)
+        expect(insert.op).to.deep.equal({ p: 0, i: 'final-text' })
+        // delete sits right after the insert, per canAggregate convention
+        expect(del.op).to.deep.equal({ p: 10, d: 'old-text' })
+        expect(insert.metadata.source).to.equal('agent')
+        expect(del.metadata.source).to.equal('agent')
+      })
+
+      it('writes via updateDocument with empty ops (visible content already correct)', function () {
+        const call = this.RedisManager.promises.updateDocument.lastCall
+        // args: projectId, docId, lines, version, appliedOps, ranges, updateMeta
+        expect(call.args[4]).to.deep.equal([])
+      })
+    })
+
+    describe('with overlapping USER tracked change', function () {
+      beforeEach(async function () {
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['hello world'],
+            version: 5,
+            ranges: {
+              changes: [
+                {
+                  id: 'user-i',
+                  op: { p: 0, i: 'hello' },
+                  metadata: { user_id: 'human', source: 'user' },
+                },
+              ],
+              comments: [],
+            },
+          })
+
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'hello',
+          'hi',
+          this.user_id
+        )
+      })
+
+      it('applies the OT update', function () {
+        this.UpdateManager.promises.applyUpdate.called.should.equal(true)
+      })
+
+      it('does NOT consolidate (never overwrites a user change)', function () {
+        this.RedisManager.promises.updateDocument.called.should.equal(false)
+      })
+    })
+  })
+
   describe('getComment', function () {
     beforeEach(function () {
       this.ranges.comments = [

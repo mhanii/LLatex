@@ -724,6 +724,196 @@ const DocumentManager = {
     )
   },
 
+  // Apply an agent edit (replace `oldText` with `newText`), then collapse the
+  // resulting tracked changes for the affected region into a single
+  // (insert NEWEST, delete OLDEST) pair.
+  //
+  // Why this exists: the ranges-tracker silently absorbs overlap when a delete
+  // crosses a previously tracked insert — it strips the overlapping content
+  // from the new delete's `d` field but keeps the position. Stored ops end up
+  // with content that doesn't match the document anywhere (the misalignment
+  // we observed). By capturing BEFORE state's ranges (where the original text
+  // is still recoverable), reconstructing the region's original text, and
+  // overwriting any agent-sourced tracked changes in the affected region with
+  // a single clean pair, the live ranges always show one (oldest → newest)
+  // diff per touched region — like git diff.
+  //
+  // Mixed regions (containing user-sourced tracked changes) are left to the
+  // standard OT path; we never rewrite a user's change.
+  //
+  // Returns { status, error?, code? }. 204 = applied; 404 = oldText not found.
+  async agentReplace(projectId, docId, oldText, newText, userId) {
+    const UpdateManager = require('./UpdateManager')
+    const RangesTracker = require('@overleaf/ranges-tracker')
+
+    // 1. Read BEFORE state. The original text in the affected region is only
+    //    recoverable here — once the OT update absorbs an existing tracked
+    //    insert into a new delete, that information is gone.
+    const before = await DocumentManager.getDoc(projectId, docId)
+    if (before.lines == null || before.version == null) {
+      throw new Errors.NotFoundError(`document not found: ${docId}`)
+    }
+    const beforeContent = before.lines.join('\n')
+    const pos = beforeContent.indexOf(oldText)
+    if (pos === -1) {
+      return { status: 404, error: 'old_text not found' }
+    }
+    const opEnd = pos + oldText.length
+
+    // 2. Find AGENT tracked changes that overlap the edit. Expand region to
+    //    engulf them. If a USER change overlaps, mark the region mixed and
+    //    skip consolidation later — we never overwrite user changes.
+    let regionStart = pos
+    let regionEnd = opEnd
+    const agentChangesInRegion = []
+    let mixedWithUser = false
+    for (const c of before.ranges?.changes ?? []) {
+      const cStart = c.op.p
+      const isInsert = c.op.i != null
+      const cEnd = isInsert ? cStart + c.op.i.length : cStart
+      const overlaps = isInsert
+        ? cStart < opEnd && cEnd > pos
+        : cStart >= pos && cStart <= opEnd
+      if (!overlaps) continue
+      if (c.metadata?.source === 'agent') {
+        agentChangesInRegion.push(c)
+        if (cStart < regionStart) regionStart = cStart
+        if (cEnd > regionEnd) regionEnd = cEnd
+      } else {
+        mixedWithUser = true
+      }
+    }
+
+    // 3. Reconstruct OLDEST text for the region from BEFORE state. Walk the
+    //    visible content, splice in tracked-delete content at its position,
+    //    skip over tracked-insert content (it wasn't originally there).
+    //    We do this BEFORE applying the OT op so absorbed inserts are still
+    //    available.
+    let oldVersionText = ''
+    if (agentChangesInRegion.length > 0 && !mixedWithUser) {
+      const sorted = agentChangesInRegion.slice().sort((a, b) => {
+        if (a.op.p !== b.op.p) return a.op.p - b.op.p
+        // Same position: emit delete first (it's the original-content slot)
+        if (a.op.d != null && b.op.i != null) return -1
+        if (a.op.i != null && b.op.d != null) return 1
+        return 0
+      })
+      let visiblePos = regionStart
+      for (const c of sorted) {
+        if (c.op.p > visiblePos) {
+          oldVersionText += beforeContent.slice(visiblePos, c.op.p)
+          visiblePos = c.op.p
+        }
+        if (c.op.d != null) {
+          oldVersionText += c.op.d
+          // tracked delete has zero visible width
+        } else if (c.op.i != null) {
+          visiblePos += c.op.i.length
+        }
+      }
+      if (visiblePos < regionEnd) {
+        oldVersionText += beforeContent.slice(visiblePos, regionEnd)
+      }
+    }
+
+    // 4. Apply the OT update normally. This produces correct visible content;
+    //    its ranges may be messy if there was overlap.
+    const tcSeed = RangesTracker.generateIdSeed()
+    await UpdateManager.promises.applyUpdate(projectId, docId, {
+      doc: docId,
+      v: before.version,
+      op: [
+        { p: pos, d: oldText },
+        { p: pos, i: newText },
+      ],
+      meta: { user_id: userId, tc: tcSeed, source: 'agent' },
+    })
+
+    // 5. No overlap with prior agent changes (or mixed with user) → standard
+    //    OT path is already clean. Nothing to consolidate.
+    if (agentChangesInRegion.length === 0 || mixedWithUser) {
+      return { status: 204 }
+    }
+
+    // 6. Read AFTER state and extract the NEWEST text for the region. The
+    //    region's right boundary shifts by (newText.length - oldText.length).
+    const after = await DocumentManager.getDoc(projectId, docId)
+    const afterContent = after.lines.join('\n')
+    const newRegionEnd = regionEnd + (newText.length - oldText.length)
+    const newVersionText = afterContent.slice(regionStart, newRegionEnd)
+
+    // 7. Drop every agent tracked change inside the (post-update) region —
+    //    these are the messy ones plus whatever the standard OT path just
+    //    created. Keep everything else verbatim. Append a clean consolidated
+    //    pair iff oldest !== newest.
+    const cleanChanges = []
+    for (const c of after.ranges?.changes ?? []) {
+      if (c.metadata?.source !== 'agent') {
+        cleanChanges.push(c)
+        continue
+      }
+      const cStart = c.op.p
+      const isInsert = c.op.i != null
+      const cEnd = isInsert ? cStart + c.op.i.length : cStart
+      const inRegion = isInsert
+        ? cStart < newRegionEnd && cEnd > regionStart
+        : cStart >= regionStart && cStart <= newRegionEnd
+      if (!inRegion) cleanChanges.push(c)
+    }
+
+    if (oldVersionText !== newVersionText) {
+      const ts = new Date()
+      // Insert first, delete after — matches the canAggregate convention the
+      // frontend uses to pair them as one block-level chip.
+      if (newVersionText.length > 0) {
+        cleanChanges.push({
+          id: tcSeed + '-i',
+          op: { p: regionStart, i: newVersionText },
+          metadata: { user_id: userId, ts, source: 'agent' },
+        })
+      }
+      if (oldVersionText.length > 0) {
+        cleanChanges.push({
+          id: tcSeed + '-d',
+          op: { p: regionStart + newVersionText.length, d: oldVersionText },
+          metadata: { user_id: userId, ts, source: 'agent' },
+        })
+      }
+    }
+
+    cleanChanges.sort((a, b) => {
+      if (a.op.p !== b.op.p) return a.op.p - b.op.p
+      if (a.op.i != null && b.op.d != null) return -1
+      if (a.op.d != null && b.op.i != null) return 1
+      return 0
+    })
+
+    // 8. Write back with empty ops (visible content already correct from step 4).
+    await RedisManager.promises.updateDocument(
+      projectId,
+      docId,
+      after.lines,
+      after.version,
+      [],
+      { changes: cleanChanges, comments: after.ranges?.comments ?? [] },
+      {}
+    )
+
+    return { status: 204 }
+  },
+
+  async agentReplaceWithLock(projectId, docId, oldText, newText, userId) {
+    const UpdateManager = require('./UpdateManager')
+    return await UpdateManager.promises.lockUpdatesAndDo(
+      DocumentManager.agentReplace,
+      projectId,
+      docId,
+      oldText,
+      newText,
+      userId
+    )
+  },
+
   async rejectChangesWithLock(projectId, docId, changeIds, userId) {
     const UpdateManager = require('./UpdateManager')
     return await UpdateManager.promises.lockUpdatesAndDo(
