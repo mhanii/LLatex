@@ -1,0 +1,1 @@
+Read lines from a LaTeX file. fromLine/toLine are 1-indexed and inclusive.

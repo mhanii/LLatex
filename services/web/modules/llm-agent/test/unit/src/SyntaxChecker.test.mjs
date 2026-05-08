@@ -120,7 +120,12 @@ describe('SyntaxChecker', function () {
     })
   })
 
-  describe('unbalanced environment detection', function () {
+  describe('unbalanced environment detection (editor-parity linter)', function () {
+    // Note: severities and messages now mirror the editor's CodeMirror linter
+    // (services/web/frontend/js/features/source-editor/languages/latex/linter/).
+    // Unclosed \begin is an "error" (not a "warning" like the old regex
+    // checker), matching the red squiggle the user sees.
+
     it('reports an \\end without matching \\begin', async function () {
       setupDoc('/main.tex', 'doc1', ['\\end{figure}'])
       const { issues } = await SyntaxChecker.check('proj1', null)
@@ -137,7 +142,7 @@ describe('SyntaxChecker', function () {
       const { issues } = await SyntaxChecker.check('proj1', null)
       expect(issues).toContainEqual(
         expect.objectContaining({
-          type: 'warning',
+          type: 'error',
           message: expect.stringContaining('\\begin{figure}'),
         })
       )
@@ -149,12 +154,15 @@ describe('SyntaxChecker', function () {
         '\\end{table}',
       ])
       const { issues } = await SyntaxChecker.check('proj1', null)
-      expect(issues).toContainEqual(
-        expect.objectContaining({
-          type: 'error',
-          message: expect.stringContaining('\\end{table}'),
-        })
-      )
+      // Linter emits a more specific message about the mismatch.
+      expect(
+        issues.some(
+          i =>
+            i.type === 'error' &&
+            i.message.includes('\\end{table}') &&
+            i.message.includes('\\begin{figure}')
+        )
+      ).toBe(true)
     })
 
     it('does not report balanced environments', async function () {
@@ -164,6 +172,36 @@ describe('SyntaxChecker', function () {
       ])
       const { issues } = await SyntaxChecker.check('proj1', null)
       expect(issues).toHaveLength(0)
+    })
+
+    it('attaches a 1-indexed line number to per-file linter issues', async function () {
+      setupDoc('/main.tex', 'doc1', [
+        '% comment',
+        '',
+        '\\end{figure}',
+      ])
+      const { issues } = await SyntaxChecker.check('proj1', null)
+      const issue = issues.find(i => i.message.includes('\\end{figure}'))
+      expect(issue).toBeDefined()
+      expect(issue.line).toBe(3)
+      expect(issue.file).toBe('main.tex')
+    })
+
+    it('reports repeated same-message linter issues at distinct positions', async function () {
+      setupDoc('/main.tex', 'doc1', [
+        '\\begin{figure}',
+        'first',
+        '\\begin{figure}',
+        'second',
+      ])
+
+      const { issues } = await SyntaxChecker.check('proj1', null)
+      const unclosedFigures = issues.filter(
+        i => i.message.includes('\\begin{figure}') && i.type === 'error'
+      )
+
+      expect(unclosedFigures).toHaveLength(2)
+      expect(unclosedFigures.map(i => i.line)).toEqual([1, 3])
     })
   })
 
@@ -186,6 +224,71 @@ describe('SyntaxChecker', function () {
       ])
       const { issues } = await SyntaxChecker.check('proj1', null)
       expect(issues.filter(i => i.message.includes('chapter'))).toHaveLength(0)
+    })
+  })
+
+  describe('Redis-vs-Mongo freshness (regression)', function () {
+    // BUG: doc-updater rejects fromVersion=0 with OpRangeNotAvailableError
+    // (HTTP 422) for any doc whose Redis op-list starts at version > 0
+    // (typical after a flush from MongoDB). SyntaxChecker silently caught
+    // that and used `doc.lines` from the docstore (MongoDB) — which is
+    // stale by definition. The agent's edits looked invisible.
+    //
+    // Fix: pass fromVersion=-1 ("just give me current content, no ops").
+    // doc-updater always returns lines + version in that case. We assert
+    // the call signature and that fresh Redis content wins over Mongo
+    // content, even when the two disagree.
+
+    it('uses fromVersion=-1 to avoid OpRangeNotAvailableError', async function () {
+      ProjectEntityHandler.promises.getAllDocs.mockResolvedValue(
+        singleDoc('/main.tex', 'doc1', ['STALE FROM MONGO'])
+      )
+      DocumentUpdaterHandler.promises.getDocument.mockResolvedValue({
+        lines: ['FRESH FROM REDIS'],
+        version: 18,
+      })
+
+      await SyntaxChecker.check('proj1', null)
+
+      const call =
+        DocumentUpdaterHandler.promises.getDocument.mock.calls[0]
+      expect(call[2]).toBe(-1)
+    })
+
+    it('uses Redis content when Redis and Mongo disagree', async function () {
+      // Mongo says \begin{equation} unclosed; Redis (post-edit) says it is closed.
+      ProjectEntityHandler.promises.getAllDocs.mockResolvedValue(
+        singleDoc('/main.tex', 'doc1', ['\\begin{equation}'])
+      )
+      DocumentUpdaterHandler.promises.getDocument.mockResolvedValue({
+        lines: ['\\begin{equation}', '\\end{equation}'],
+        version: 18,
+      })
+
+      const { issues } = await SyntaxChecker.check('proj1', null)
+
+      // Editor-parity linter sees the closed env from Redis → no error.
+      expect(issues).toHaveLength(0)
+    })
+
+    it('does NOT silently fall back to Mongo when doc-updater errors out', async function () {
+      // If we DID fall back to Mongo here, the agent would see stale
+      // pre-edit content and loop forever. Better to surface the linter's
+      // best-effort view (which is "no issues, didn't see the doc") than
+      // to lie about the file's state.
+      ProjectEntityHandler.promises.getAllDocs.mockResolvedValue(
+        singleDoc('/main.tex', 'doc1', ['\\begin{equation}'])
+      )
+      DocumentUpdaterHandler.promises.getDocument.mockRejectedValue(
+        new Error('doc-updater unreachable')
+      )
+
+      const { issues } = await SyntaxChecker.check('proj1', null)
+
+      // Should NOT report the Mongo-only "unclosed equation" — that would
+      // be stale relative to whatever's in Redis right now.
+      const stale = issues.filter(i => i.message.includes('equation'))
+      expect(stale).toHaveLength(0)
     })
   })
 

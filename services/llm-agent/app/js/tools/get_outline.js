@@ -12,7 +12,8 @@ const OUTLINE_RE =
 export async function getOutline({ path }, ctx) {
   const { docId } = resolveFile(path, ctx)
   const res = await fetch(
-    `${docUpdaterUrl()}/project/${ctx.projectId}/doc/${docId}/peek`
+    `${docUpdaterUrl()}/project/${ctx.projectId}/doc/${docId}/peek`,
+    { signal: AbortSignal.timeout(30_000) } // 30s timeout
   )
   if (res.status === 404) {
     return `"${path}" is not loaded yet — try listing files first.`

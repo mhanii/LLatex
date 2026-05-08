@@ -373,6 +373,26 @@ describe('LlmAgentController', function () {
       }
     }
 
+    function streamingResponse(text) {
+      // Minimal Response shape that LogParser.fetchFileWithSizeLimit understands
+      // (it prefers .body.getReader() over .text()).
+      return {
+        ok: true,
+        body: {
+          getReader() {
+            let done = false
+            return {
+              async read() {
+                if (done) return { value: undefined, done: true }
+                done = true
+                return { value: new TextEncoder().encode(text), done: false }
+              },
+            }
+          },
+        },
+      }
+    }
+
     it('returns success:true and pageCount when compile succeeds', async function () {
       fetchMock = vi.fn().mockResolvedValue({
         ok: true,
@@ -387,19 +407,34 @@ describe('LlmAgentController', function () {
       expect(body.success).toBe(true)
       expect(body.status).toBe('success')
       expect(body.errors).toEqual([])
+      expect(body.warnings).toEqual([])
+      expect(body.typesetting).toEqual([])
       expect(body.pageCount).toBe(3)
     })
 
-    it('returns success:false and errors parsed from output-log on failure', async function () {
-      const logContent = `./main.tex:5: Undefined control sequence.\n! Emergency stop.\n`
+    it('parses structured errors and warnings from outputFiles output.log', async function () {
+      // First line of an output.log is always the TeX banner — both the
+      // upstream parser and our port treat lines[0] as a header and start
+      // iterating from lines[1]. The warning has to come before the error
+      // because parser's STATE.ERROR consumes following non-blank lines as
+      // part of the error's content.
+      const logContent =
+        'This is pdfTeX, Version 3.141592653\n' +
+        'LaTeX Warning: Reference `fig:1\' on page 1 undefined on input line 7.\n' +
+        '\n' +
+        './main.tex:5: Undefined control sequence.\n' +
+        'l.5 \\badcommand\n'
       CompileManager.promises.compile.mockResolvedValueOnce({
         status: 'failure',
-        outputFiles: [],
+        outputFiles: [
+          {
+            path: 'output.log',
+            url: '/project/p/user/u/build/b/output/output.log',
+            build: 'b',
+          },
+        ],
       })
-      fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        text: async () => logContent,
-      })
+      fetchMock = vi.fn().mockResolvedValue(streamingResponse(logContent))
       vi.stubGlobal('fetch', fetchMock)
 
       const res = makeRes()
@@ -407,22 +442,31 @@ describe('LlmAgentController', function () {
 
       const body = JSON.parse(res.body)
       expect(body.success).toBe(false)
-      expect(body.errors).toEqual([
-        './main.tex:5: Undefined control sequence.',
-        'Emergency stop.',
-      ])
-      // Verify it called the output-log CLSI route
+      expect(body.errors.length).toBeGreaterThanOrEqual(1)
+      expect(body.errors[0]).toMatchObject({
+        level: 'error',
+        file: './main.tex',
+        message: expect.stringContaining('Undefined control sequence'),
+      })
+      // Has the upstream HumanReadableLogs ruleId stamped on it.
+      expect(body.errors[0].ruleId).toBe('hint_undefined_control_sequence')
+      expect(body.warnings.length).toBeGreaterThanOrEqual(1)
+      expect(body.warnings[0]).toMatchObject({
+        level: 'warning',
+        message: expect.stringContaining('Reference'),
+      })
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/output-log')
+        expect.stringContaining('/output/output.log'),
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
       )
     })
 
-    it('returns errors:[] when output-log route returns 404', async function () {
+    it('returns empty entries when outputFiles is empty', async function () {
       CompileManager.promises.compile.mockResolvedValueOnce({
         status: 'failure',
         outputFiles: [],
       })
-      fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404 })
+      fetchMock = vi.fn()
       vi.stubGlobal('fetch', fetchMock)
 
       const res = makeRes()
@@ -430,12 +474,21 @@ describe('LlmAgentController', function () {
 
       const body = JSON.parse(res.body)
       expect(body.errors).toEqual([])
+      expect(body.warnings).toEqual([])
+      expect(body.typesetting).toEqual([])
+      expect(fetchMock).not.toHaveBeenCalled()
     })
 
-    it('returns errors:[] when fetching output-log fails', async function () {
+    it('returns empty entries when fetching output.log fails', async function () {
       CompileManager.promises.compile.mockResolvedValueOnce({
         status: 'failure',
-        outputFiles: [],
+        outputFiles: [
+          {
+            path: 'output.log',
+            url: '/project/p/user/u/build/b/output/output.log',
+            build: 'b',
+          },
+        ],
       })
       fetchMock = vi.fn().mockRejectedValue(new Error('network error'))
       vi.stubGlobal('fetch', fetchMock)
@@ -445,6 +498,32 @@ describe('LlmAgentController', function () {
 
       const body = JSON.parse(res.body)
       expect(body.errors).toEqual([])
+      expect(body.warnings).toEqual([])
+    })
+
+    it('parses *.blg BibTeX errors alongside output.log', async function () {
+      const blgContent =
+        'This is BibTeX, Version 0.99d (TeX Live)\n' +
+        'A bad cross reference---entry "foo"\nrefers to entry "bar", which doesn\'t exist\n'
+      CompileManager.promises.compile.mockResolvedValueOnce({
+        status: 'failure',
+        outputFiles: [
+          {
+            path: 'output.blg',
+            url: '/project/p/user/u/build/b/output/output.blg',
+            build: 'b',
+          },
+        ],
+      })
+      fetchMock = vi.fn().mockResolvedValue(streamingResponse(blgContent))
+      vi.stubGlobal('fetch', fetchMock)
+
+      const res = makeRes()
+      await LlmAgentController.internalCompile(makeCompileReq(), res, vi.fn())
+
+      const body = JSON.parse(res.body)
+      expect(body.errors.length).toBeGreaterThanOrEqual(1)
+      expect(body.errors[0].message.startsWith('BibTeX:')).toBe(true)
     })
 
     it('returns 400 when userId is missing', async function () {

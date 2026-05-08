@@ -30,6 +30,7 @@
  * @property {string} userMessage
  * @property {Selection} [selection]
  * @property {ProjectContext} [context]
+ * @property {{path: string, docId: string}} [currentFile]  - file the user has open; takes precedence over selection.docId only as a fallback
  */
 
 /**

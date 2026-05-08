@@ -31,6 +31,7 @@ export async function editFile({ path, oldText, newText }, ctx) {
         new_text: newText,
         user_id: ctx.userId,
       }),
+      signal: AbortSignal.timeout(30_000), // 30s timeout
     }
   )
   if (res.ok) {

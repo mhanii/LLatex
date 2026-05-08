@@ -15,7 +15,7 @@ import ProjectEntityHandler from '../../../../app/src/Features/Project/ProjectEn
 import Settings from '@overleaf/settings'
 import SyntaxChecker from './SyntaxChecker.mjs'
 import LlmAgentApiHandler from './LlmAgentApiHandler.mjs'
-import { parseLatexLog } from './LatexLogParser.mjs'
+import { parseCompileLogs } from './parsers/LogParser.mjs'
 
 function normalizeProjectPath(path) {
   return path.startsWith('/') ? path.slice(1) : path
@@ -259,33 +259,56 @@ function clsiUrl(projectId, userId, action) {
   return `${base}${prefix}/${action}`
 }
 
-async function fetchCompileErrors(projectId, userId) {
+/**
+ * Base URL for fetching CLSI output files (output.log, *.blg, etc.) — the
+ * same target web's _proxyToClsiWithLimits hits for non-zip output.
+ *
+ * Defensive fallback: develop/dev.env sets DOWNLOAD_HOST to a full URL
+ * because services/clsi/config/settings.defaults.cjs treats it that way.
+ * services/web's settings template (settings.defaults.js:248) instead
+ * expects a hostname and re-wraps it as `http://${DOWNLOAD_HOST}:8080`,
+ * producing `http://http://clsi-nginx:8080:8080` in dev. The frontend never
+ * notices because webpack proxies /build/* to clsi-nginx directly. We need
+ * a real URL on the backend, so detect the malformed case and fall back to
+ * the raw env value.
+ */
+function clsiOutputBaseUrl() {
+  const v = Settings.apis.clsi.downloadHost
   try {
-    const logRes = await fetch(clsiUrl(projectId, userId, 'output-log'))
-    if (!logRes.ok) return []
-    return parseLatexLog(await logRes.text())
+    const parsed = new URL(v)
+    // node's URL is permissive: 'http://http://clsi-nginx:8080:8080' parses
+    // as host='http', pathname='//clsi-nginx:8080:8080'. Reject the case
+    // where the host itself looks like a scheme.
+    if (/^https?$/i.test(parsed.host)) throw new Error('malformed')
+    return v
   } catch {
-    return []
+    return process.env.DOWNLOAD_HOST || v
   }
 }
 
 async function internalCompile(req, res) {
   const { project_id: projectId } = req.params
-  const { userId, rootDoc_id } = req.body
+  const { userId, rootDoc_id, stopOnFirstError } = req.body
   if (!userId) {
     return res.status(400).json({ error: 'userId required' })
   }
   const compileOptions = { isAutoCompile: false, fileLineErrors: true }
   if (rootDoc_id) compileOptions.rootDoc_id = rootDoc_id
+  if (stopOnFirstError) compileOptions.stopOnFirstError = true
   const result = await CompileManager.promises.compile(
     projectId,
     userId,
     compileOptions
   )
-  const { status } = result
+  const { status, outputFiles = [] } = result
 
-  const errors =
-    status !== 'success' ? await fetchCompileErrors(projectId, userId) : []
+  // Parse logs the same way the editor does — same parsers, same byte stream
+  // (output.log + every *.blg) — so the LLM sees what the user sees.
+  const { errors, warnings, typesetting } = await parseCompileLogs(
+    outputFiles,
+    clsiOutputBaseUrl(),
+    { stoppedOnFirstError: status === 'stopped-on-first-error' }
+  )
 
   let pageCount = null
   if (status === 'success') {
@@ -300,7 +323,14 @@ async function internalCompile(req, res) {
     }
   }
 
-  res.json({ success: status === 'success', status, errors, pageCount })
+  res.json({
+    success: status === 'success',
+    status,
+    errors,
+    warnings,
+    typesetting,
+    pageCount,
+  })
 }
 
 async function agentPdfPage(req, res) {

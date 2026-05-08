@@ -8,6 +8,7 @@ docker-compose.override.yml
 # project-local dev notes (not for upstream)
 CLAUDE.md
 doc/
+.codex
 
 # npm workspaces — root and per-service node_modules
 node_modules/

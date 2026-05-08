@@ -2,18 +2,17 @@
 
 import ProjectEntityHandler from '../../../../app/src/Features/Project/ProjectEntityHandler.mjs'
 import DocumentUpdaterHandler from '../../../../app/src/Features/DocumentUpdater/DocumentUpdaterHandler.mjs'
+import { Parse } from './parsers/latex-linter.mjs'
 
 // Label extraction regexes — same as MetaHandler.mjs (keeps comment-stripping
 // and edge-case handling consistent with Overleaf's editor autocomplete).
 const LABEL_RE = /\\label{(.{0,80}?)}/g
 const LABEL_OPTION_RE = /\blabel={?(.{0,80}?)[\s},\]]/g
 
-// Structural analysis regexes
+// Project-level structural regexes (single-file linter doesn't see other files)
 const REF_RE =
   /\\(?:ref|eqref|pageref|autoref|cref|Cref|vref|vpageref)\*?\{([^}]{1,80})\}/g
 const INPUT_RE = /\\(?:input|include)\s*\{([^}]{1,100})\}/g
-const BEGIN_RE = /\\begin\{([^}]{1,80})\}/g
-const END_RE = /\\end\{([^}]{1,80})\}/g
 
 const norm = p => (p.startsWith('/') ? p.slice(1) : p)
 
@@ -23,21 +22,44 @@ function stripComment(rawLine) {
 }
 
 /**
- * Run structural analysis on a project's documents without compiling.
+ * Convert a 0-indexed character offset into a 1-indexed line number.
+ * @param {string} text
+ * @param {number} pos
+ * @returns {number}
+ */
+function offsetToLine(text, pos) {
+  if (pos <= 0) return 1
+  let line = 1
+  const cap = Math.min(pos, text.length)
+  for (let i = 0; i < cap; i++) if (text.charCodeAt(i) === 10) line++
+  return line
+}
+
+/**
+ * Run editor-parity static analysis on a project's documents without
+ * compiling. Two passes:
  *
- * Reads document content from document-updater (Redis) so edits are visible
- * immediately — no flush to MongoDB required. Label extraction uses the same
- * regexes as MetaHandler, keeping behaviour consistent with the editor.
+ *   1. **Per-file** — run the ported CodeMirror 6 LaTeX linter (`Parse`) on
+ *      each doc. Same tokenizer + interpreter the editor uses for the
+ *      red-squiggle gutter linter, so we catch the same structural issues:
+ *      unbalanced environments, malformed args, mismatched delimiters,
+ *      bracket / brace problems, etc.
+ *
+ *   2. **Cross-file** — duplicate `\label{}` definitions, undefined `\ref{}`
+ *      targets (project-wide), and `\input{}`/`\include{}` files that aren't
+ *      in the project. The single-file linter can't see across files so we
+ *      keep this layer on top.
+ *
+ * Document content is fetched from document-updater (Redis) so edits are
+ * visible immediately — no flush to MongoDB required.
  *
  * @param {string} projectId
  * @param {string | null} scopePath  Normalised file path, or null for all files.
- * @returns {Promise<{ issues: Array<{type: string, message: string, file?: string}> }>}
+ * @returns {Promise<{ issues: Array<{type: string, message: string, file?: string, line?: number}> }>}
  */
 async function check(projectId, scopePath) {
-  // Project structure from MongoDB (docIds → paths, cheap metadata query).
   const allDocs = await ProjectEntityHandler.promises.getAllDocs(projectId)
 
-  // Fetch actual line content from Redis (document-updater) — parallel.
   /** @type {Map<string, {lines: string[]}>} */
   const docContents = new Map()
   const entries = Object.entries(allDocs).filter(
@@ -46,20 +68,33 @@ async function check(projectId, scopePath) {
   await Promise.all(
     entries.map(async ([rawPath, doc]) => {
       try {
+        // fromVersion=-1 means "give me the current lines, no op range".
+        // Any other value (incl. 0) makes doc-updater try to return ops
+        // since that version, which throws OpRangeNotAvailableError → 422
+        // for any doc loaded into Redis at version > 0 (i.e. nearly every
+        // doc that's ever been flushed). Falling back to docstore.lines
+        // here would silently use stale MongoDB content, masking the
+        // agent's edits and triggering verify-loops in the LLM.
         const docData = await DocumentUpdaterHandler.promises.getDocument(
           projectId,
           doc._id.toString(),
-          '0'
+          -1
         )
-        docContents.set(doc._id.toString(), { lines: docData.lines })
+        if (Array.isArray(docData?.lines)) {
+          docContents.set(doc._id.toString(), { lines: docData.lines })
+          return
+        }
+        // Unexpected shape — skip this doc rather than serve stale content.
       } catch {
-        // Doc not yet in Redis (e.g. freshly created), fall back to Mongo lines.
-        docContents.set(doc._id.toString(), { lines: doc.lines })
+        // doc-updater unreachable / errored. We deliberately do NOT fall
+        // back to docstore.lines: stale data here makes the agent loop
+        // (the original bug). Skipping the doc means check_syntax may
+        // report fewer issues than reality, but it never reports
+        // already-fixed ones as still-broken.
       }
     })
   )
 
-  // Build docId → normalised path mapping.
   const docIdToPath = new Map()
   for (const [rawPath, doc] of Object.entries(allDocs)) {
     docIdToPath.set(doc._id.toString(), norm(rawPath))
@@ -68,7 +103,7 @@ async function check(projectId, scopePath) {
   const projectPaths = new Set(Object.keys(allDocs).map(norm))
   const issues = []
 
-  // ── 1. Extract labels (same logic as MetaHandler.extractMetaFromDoc) ───────
+  // ── 1. Cross-file label inventory (same logic as MetaHandler) ─────────────
   /** @type {Map<string, string[]>} label → list of files where defined */
   const labelDefs = new Map()
   for (const [docId, content] of docContents) {
@@ -93,7 +128,6 @@ async function check(projectId, scopePath) {
     }
   }
 
-  // Emit duplicate-label warnings
   for (const [label, files] of labelDefs) {
     if (files.length > 1) {
       const uniq = [...new Set(files)]
@@ -112,10 +146,38 @@ async function check(projectId, scopePath) {
     const filePath = docIdToPath.get(docId) ?? docId
     if (scopePath && filePath !== scopePath) continue
 
-    const { lines } = content
-    const text = lines.join('\n')
+    const text = content.lines.join('\n')
 
-    // Undefined \ref targets
+    // Editor-parity structural lint (replaces the old begin/end regex pass).
+    let lintErrors = []
+    try {
+      lintErrors = Parse(text).errors
+    } catch {
+      // Parse can throw on pathological input (>100k tokens, infinite loop
+      // detection). Skip cleanly — cross-file checks below still run.
+    }
+    // De-dupe exact duplicate linter errors only. The editor merges diagnostics
+    // by overlapping source ranges, not by message text; repeated structural
+    // errors with the same message but different positions are all actionable.
+    const seenLintDiagnostics = new Set()
+    for (const e of lintErrors) {
+      const key = `${e.text}:${e.startPos}:${e.endPos}`
+      if (seenLintDiagnostics.has(key)) continue
+      seenLintDiagnostics.add(key)
+      issues.push({
+        type:
+          e.type === 'error'
+            ? 'error'
+            : e.type === 'warning'
+              ? 'warning'
+              : 'info',
+        message: e.text,
+        file: filePath,
+        line: offsetToLine(text, e.startPos),
+      })
+    }
+
+    // Project-wide undefined-ref check (linter can't see other files).
     if (checkRefs) {
       for (const m of text.matchAll(REF_RE)) {
         const label = m[1].trim()
@@ -129,7 +191,8 @@ async function check(projectId, scopePath) {
       }
     }
 
-    // Missing \input / \include files
+    // Missing \input / \include files (linter sees the command but can't
+    // verify the referenced file exists in the project tree).
     for (const m of text.matchAll(INPUT_RE)) {
       const raw = m[1].trim()
       const ref = raw.includes('.') ? raw : raw + '.tex'
@@ -143,42 +206,6 @@ async function check(projectId, scopePath) {
           file: filePath,
         })
       }
-    }
-
-    // Unbalanced \begin / \end
-    /** @type {Array<{env: string, line: number}>} */
-    const stack = []
-    for (let i = 0; i < lines.length; i++) {
-      const noComment = stripComment(lines[i])
-      for (const m of noComment.matchAll(BEGIN_RE)) {
-        stack.push({ env: m[1], line: i + 1 })
-      }
-      for (const m of noComment.matchAll(END_RE)) {
-        const env = m[1]
-        if (stack.length === 0) {
-          issues.push({
-            type: 'error',
-            message: `\\end{${env}} without matching \\begin at line ${i + 1}`,
-            file: filePath,
-          })
-        } else if (stack[stack.length - 1].env !== env) {
-          const open = stack.pop()
-          issues.push({
-            type: 'error',
-            message: `\\end{${env}} at line ${i + 1} doesn't match \\begin{${open?.env}} at line ${open?.line}`,
-            file: filePath,
-          })
-        } else {
-          stack.pop()
-        }
-      }
-    }
-    for (const { env, line } of stack) {
-      issues.push({
-        type: 'warning',
-        message: `Unclosed \\begin{${env}} at line ${line}`,
-        file: filePath,
-      })
     }
   }
 

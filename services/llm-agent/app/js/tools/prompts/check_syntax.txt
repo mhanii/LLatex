@@ -1,0 +1,9 @@
+PRE-COMPILE static analysis. Fast — no CLSI round-trip. Runs the same CodeMirror linter the editor uses for the red-squiggle gutter, plus project-wide cross-file checks. Use this BEFORE compiling, or as a quick sanity pass after edits.
+
+Detects:
+- Per-file structural issues (editor-parity): unbalanced \begin/\end, mismatched delimiters, malformed command arguments, etc.
+- Cross-file: duplicate \label{}, undefined \ref{}, \input{}/\include{} pointing at files not in the project.
+
+Does NOT detect runtime issues (missing packages, BibTeX errors, expansion errors, missing graphics) — those only surface during a compile. For those, use compile_and_check.
+
+Returns: { issues: [{ type: 'error'|'warning'|'info', message, file?, line? }] }.
