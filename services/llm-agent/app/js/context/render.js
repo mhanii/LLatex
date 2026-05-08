@@ -12,7 +12,7 @@ import { docUpdaterUrl } from '../tools/utils.js'
  */
 async function fetchFileContent(projectId, ref) {
   const url = `${docUpdaterUrl()}/project/${projectId}/doc/${ref.docId}/peek`
-  const res = await fetch(url)
+  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) })
   if (!res.ok) {
     return `<file path="${ref.path}" error="HTTP ${res.status}"/>`
   }

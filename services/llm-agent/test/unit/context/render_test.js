@@ -53,9 +53,10 @@ describe('context/render', function () {
 
   it('fetches current_file content fresh from docUpdater on every render', async function () {
     let calls = 0
-    stubFetch(async url => {
+    stubFetch(async (url, opts) => {
       calls++
       expect(String(url)).to.match(/\/project\/p1\/doc\/doc-x\/peek$/)
+      expect(opts.signal).to.be.instanceOf(AbortSignal)
       return fakeResponse(200, { lines: ['line1', 'line2'] })
     })
     const items = [

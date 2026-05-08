@@ -156,15 +156,21 @@ async function check(projectId, scopePath) {
       // Parse can throw on pathological input (>100k tokens, infinite loop
       // detection). Skip cleanly — cross-file checks below still run.
     }
-    // De-dupe linter errors that share a message (the linter occasionally
-    // emits both "unclosed X" and "unclosed X found at Y" for the same root
-    // cause; mirror the editor's mergeCompatibleOverlappingDiagnostics behaviour).
-    const seenLintMessages = new Set()
+    // De-dupe exact duplicate linter errors only. The editor merges diagnostics
+    // by overlapping source ranges, not by message text; repeated structural
+    // errors with the same message but different positions are all actionable.
+    const seenLintDiagnostics = new Set()
     for (const e of lintErrors) {
-      if (seenLintMessages.has(e.text)) continue
-      seenLintMessages.add(e.text)
+      const key = `${e.text}:${e.startPos}:${e.endPos}`
+      if (seenLintDiagnostics.has(key)) continue
+      seenLintDiagnostics.add(key)
       issues.push({
-        type: e.type === 'info' ? 'info' : e.type, // 'error' | 'warning' | 'info'
+        type:
+          e.type === 'error'
+            ? 'error'
+            : e.type === 'warning'
+              ? 'warning'
+              : 'info',
         message: e.text,
         file: filePath,
         line: offsetToLine(text, e.startPos),

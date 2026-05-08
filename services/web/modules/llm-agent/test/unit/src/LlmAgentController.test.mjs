@@ -455,6 +455,10 @@ describe('LlmAgentController', function () {
         level: 'warning',
         message: expect.stringContaining('Reference'),
       })
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/output/output.log'),
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      )
     })
 
     it('returns empty entries when outputFiles is empty', async function () {

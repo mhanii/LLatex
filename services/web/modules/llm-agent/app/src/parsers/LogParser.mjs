@@ -34,10 +34,9 @@ function normalizeFilePath(path) {
 }
 
 async function fetchFileWithSizeLimit(url, maxSize) {
-  const controller = new AbortController()
   let result = ''
   try {
-    const response = await fetch(url, { signal: controller.signal })
+    const response = await fetch(url, { signal: AbortSignal.timeout(30_000) })
     if (!response.ok) {
       return ''
     }
@@ -52,7 +51,7 @@ async function fetchFileWithSizeLimit(url, maxSize) {
       if (done) break
       result += decoder.decode(value, { stream: true })
       if (result.length > maxSize) {
-        controller.abort()
+        await reader.cancel()
         break
       }
     }

@@ -186,6 +186,23 @@ describe('SyntaxChecker', function () {
       expect(issue.line).toBe(3)
       expect(issue.file).toBe('main.tex')
     })
+
+    it('reports repeated same-message linter issues at distinct positions', async function () {
+      setupDoc('/main.tex', 'doc1', [
+        '\\begin{figure}',
+        'first',
+        '\\begin{figure}',
+        'second',
+      ])
+
+      const { issues } = await SyntaxChecker.check('proj1', null)
+      const unclosedFigures = issues.filter(
+        i => i.message.includes('\\begin{figure}') && i.type === 'error'
+      )
+
+      expect(unclosedFigures).toHaveLength(2)
+      expect(unclosedFigures.map(i => i.line)).toEqual([1, 3])
+    })
   })
 
   describe('missing \\input file detection', function () {
