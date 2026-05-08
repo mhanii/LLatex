@@ -743,6 +743,13 @@ const DocumentManager = {
   //
   // Returns { status, error?, code? }. 204 = applied; 404 = oldText not found.
   async agentReplace(projectId, docId, oldText, newText, userId) {
+    // No-op guard: identical old/new produces no diff. Lives here (not just at
+    // the HTTP layer) so direct callers also skip the wasted version bump and
+    // history op that delete-then-reinsert-same-content would generate.
+    if (oldText === newText) {
+      return { status: 204 }
+    }
+
     const UpdateManager = require('./UpdateManager')
     const RangesTracker = require('@overleaf/ranges-tracker')
 
@@ -760,27 +767,61 @@ const DocumentManager = {
     }
     const opEnd = pos + oldText.length
 
-    // 2. Find AGENT tracked changes that overlap the edit. Expand region to
-    //    engulf them. If a USER change overlaps, mark the region mixed and
-    //    skip consolidation later — we never overwrite user changes.
+    // 2. Find AGENT tracked changes associated with the edit's region. Two
+    //    passes:
+    //      a) direct overlap with [pos, opEnd) — inserts that overlap the
+    //         interval, deletes strictly inside (NOT at opEnd, which is the
+    //         boundary AFTER the edit and belongs to the next region).
+    //      b) paired pickup — a tracked delete sitting exactly at
+    //         insert.p + insert.length (canAggregate convention) is the
+    //         OLDEST half of an already-included insert. Include it so the
+    //         original text reconstruction below sees the full pair, even
+    //         when the paired delete lands at the right boundary (opEnd).
+    //
+    //    If a USER change overlaps, mark mixed and skip consolidation —
+    //    we never overwrite user changes.
+    const beforeChanges = before.ranges?.changes ?? []
     let regionStart = pos
     let regionEnd = opEnd
+    const includedIds = new Set()
     const agentChangesInRegion = []
     let mixedWithUser = false
-    for (const c of before.ranges?.changes ?? []) {
+
+    for (const c of beforeChanges) {
       const cStart = c.op.p
       const isInsert = c.op.i != null
       const cEnd = isInsert ? cStart + c.op.i.length : cStart
       const overlaps = isInsert
         ? cStart < opEnd && cEnd > pos
-        : cStart >= pos && cStart <= opEnd
+        : cStart >= pos && cStart < opEnd
       if (!overlaps) continue
       if (c.metadata?.source === 'agent') {
         agentChangesInRegion.push(c)
+        includedIds.add(c.id)
         if (cStart < regionStart) regionStart = cStart
         if (cEnd > regionEnd) regionEnd = cEnd
       } else {
         mixedWithUser = true
+      }
+    }
+
+    // Paired pickup: agent tracked deletes paired with an already-included
+    // insert (canAggregate: delete.p === insert.p + insert.length, same user).
+    for (const c of beforeChanges) {
+      if (includedIds.has(c.id)) continue
+      if (c.op.d == null) continue
+      if (c.metadata?.source !== 'agent') continue
+      const paired = beforeChanges.find(
+        o =>
+          includedIds.has(o.id) &&
+          o.op.i != null &&
+          o.op.p + o.op.i.length === c.op.p &&
+          o.metadata?.user_id === c.metadata?.user_id
+      )
+      if (paired) {
+        agentChangesInRegion.push(c)
+        includedIds.add(c.id)
+        if (c.op.p > regionEnd) regionEnd = c.op.p
       }
     }
 
@@ -841,6 +882,13 @@ const DocumentManager = {
     const afterContent = after.lines.join('\n')
     const newRegionEnd = regionEnd + (newText.length - oldText.length)
     const newVersionText = afterContent.slice(regionStart, newRegionEnd)
+    // A delete sitting at exactly newRegionEnd is "inside" if it was part of
+    // the agent region (includedIds: we want to replace it with the clean pair)
+    // or is OT-generated (new ID, not in beforeChanges: messy artifact to drop).
+    // It is "outside" only when it's a pre-existing change that was NOT part of
+    // the region — i.e., an unrelated delete that happened to shift to the right
+    // boundary.  Use strict < only for that case (Greptile P1 fix).
+    const beforeChangeIds = new Set(beforeChanges.map(c => c.id))
 
     // 7. Drop every agent tracked change inside the (post-update) region —
     //    these are the messy ones plus whatever the standard OT path just
@@ -855,9 +903,12 @@ const DocumentManager = {
       const cStart = c.op.p
       const isInsert = c.op.i != null
       const cEnd = isInsert ? cStart + c.op.i.length : cStart
+      const isUnrelatedPreExisting =
+        beforeChangeIds.has(c.id) && !includedIds.has(c.id)
       const inRegion = isInsert
         ? cStart < newRegionEnd && cEnd > regionStart
-        : cStart >= regionStart && cStart <= newRegionEnd
+        : cStart >= regionStart &&
+          (isUnrelatedPreExisting ? cStart < newRegionEnd : cStart <= newRegionEnd)
       if (!inRegion) cleanChanges.push(c)
     }
 

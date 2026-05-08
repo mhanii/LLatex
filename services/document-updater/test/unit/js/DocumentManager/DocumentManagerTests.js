@@ -1040,6 +1040,73 @@ describe('DocumentManager', function () {
       })
     })
 
+    describe('with a tracked delete at exactly opEnd (boundary)', function () {
+      // Greptile P1 regression: a tracked delete with cStart === opEnd is at
+      // the boundary AFTER the edit (between the last deleted char and the
+      // first non-edited char) and belongs to the NEXT region. It must NOT
+      // count as overlapping; consolidation should be skipped so the unrelated
+      // delete is preserved untouched.
+      beforeEach(async function () {
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['hello world'],
+            version: 5,
+            ranges: {
+              changes: [
+                {
+                  id: 'boundary-d',
+                  op: { p: 5, d: 'X' }, // 5 === pos(0) + 'hello'.length(5) = opEnd
+                  metadata: { user_id: 'other-agent-run', source: 'agent' },
+                },
+              ],
+              comments: [],
+            },
+          })
+
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'hello',
+          'howdy',
+          this.user_id
+        )
+      })
+
+      it('does NOT consolidate (boundary delete is not overlapping)', function () {
+        // No overlap → standard OT path → no consolidation write.
+        this.RedisManager.promises.updateDocument.called.should.equal(false)
+      })
+    })
+
+    describe('returns 204 without delegating when oldText === newText', function () {
+      // Greptile P2 regression: the no-op guard must live in agentReplace
+      // itself, not just the HTTP layer.
+      beforeEach(async function () {
+        this.DocumentManager.promises.getDoc = sinon.stub() // would throw if called
+        this.result = await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'same',
+          'same',
+          this.user_id
+        )
+      })
+
+      it('returns 204 immediately', function () {
+        expect(this.result).to.deep.equal({ status: 204 })
+      })
+
+      it('does not even read the doc', function () {
+        this.DocumentManager.promises.getDoc.called.should.equal(false)
+      })
+
+      it('does not call applyUpdate', function () {
+        this.UpdateManager.promises.applyUpdate.called.should.equal(false)
+      })
+    })
+
     describe('with overlapping USER tracked change', function () {
       beforeEach(async function () {
         this.DocumentManager.promises.getDoc = sinon
