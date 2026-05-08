@@ -106,6 +106,9 @@ async function agentReplace(req, res) {
   if (!oldText || newText == null || !userId) {
     return res.status(400).json({ error: 'old_text, new_text, user_id required' })
   }
+  if (oldText === newText) {
+    return res.sendStatus(204)
+  }
   // Lazy requires to avoid circular dependency (same pattern used throughout DocumentManager)
   const UpdateManager = require('./UpdateManager')
   const RangesTracker = require('@overleaf/ranges-tracker')
