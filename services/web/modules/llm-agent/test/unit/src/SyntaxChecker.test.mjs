@@ -120,7 +120,12 @@ describe('SyntaxChecker', function () {
     })
   })
 
-  describe('unbalanced environment detection', function () {
+  describe('unbalanced environment detection (editor-parity linter)', function () {
+    // Note: severities and messages now mirror the editor's CodeMirror linter
+    // (services/web/frontend/js/features/source-editor/languages/latex/linter/).
+    // Unclosed \begin is an "error" (not a "warning" like the old regex
+    // checker), matching the red squiggle the user sees.
+
     it('reports an \\end without matching \\begin', async function () {
       setupDoc('/main.tex', 'doc1', ['\\end{figure}'])
       const { issues } = await SyntaxChecker.check('proj1', null)
@@ -137,7 +142,7 @@ describe('SyntaxChecker', function () {
       const { issues } = await SyntaxChecker.check('proj1', null)
       expect(issues).toContainEqual(
         expect.objectContaining({
-          type: 'warning',
+          type: 'error',
           message: expect.stringContaining('\\begin{figure}'),
         })
       )
@@ -149,12 +154,15 @@ describe('SyntaxChecker', function () {
         '\\end{table}',
       ])
       const { issues } = await SyntaxChecker.check('proj1', null)
-      expect(issues).toContainEqual(
-        expect.objectContaining({
-          type: 'error',
-          message: expect.stringContaining('\\end{table}'),
-        })
-      )
+      // Linter emits a more specific message about the mismatch.
+      expect(
+        issues.some(
+          i =>
+            i.type === 'error' &&
+            i.message.includes('\\end{table}') &&
+            i.message.includes('\\begin{figure}')
+        )
+      ).toBe(true)
     })
 
     it('does not report balanced environments', async function () {
@@ -164,6 +172,19 @@ describe('SyntaxChecker', function () {
       ])
       const { issues } = await SyntaxChecker.check('proj1', null)
       expect(issues).toHaveLength(0)
+    })
+
+    it('attaches a 1-indexed line number to per-file linter issues', async function () {
+      setupDoc('/main.tex', 'doc1', [
+        '% comment',
+        '',
+        '\\end{figure}',
+      ])
+      const { issues } = await SyntaxChecker.check('proj1', null)
+      const issue = issues.find(i => i.message.includes('\\end{figure}'))
+      expect(issue).toBeDefined()
+      expect(issue.line).toBe(3)
+      expect(issue.file).toBe('main.tex')
     })
   })
 

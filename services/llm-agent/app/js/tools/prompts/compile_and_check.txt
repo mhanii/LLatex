@@ -1,1 +1,11 @@
-Compile the project and return the structured LaTeX log entries the editor shows the user (errors, warnings, typesetting). Each entry has level/file/line/message/ruleId. Call after edits to verify the document still compiles.
+POST-COMPILE log analysis. Slower — actually runs LaTeX through CLSI. Returns the structured log entries the editor displays: errors, warnings, typesetting (overfull/underfull boxes). Same parsers as the editor's compile-log panel, including BibTeX errors from .blg files. Use this AFTER edits to verify the document still produces the expected PDF.
+
+Detects (things that only surface at compile time):
+- Runtime LaTeX errors (undefined commands at expansion, missing packages, missing graphics, math-mode misuse, file-not-found from \input).
+- Package/Class warnings, hbox/vbox typesetting issues.
+- BibTeX/Biber errors from each .blg file.
+- pageCount of the produced PDF on success — needed before calling get_pdf_page.
+
+Does NOT detect pure structural issues fast — for unbalanced environments, undefined cross-file refs, or missing project files, use check_syntax instead (no compile needed).
+
+Returns: { success, status, errors[], warnings[], typesetting[], pageCount }. Each entry has level/file/line/message/ruleId.
