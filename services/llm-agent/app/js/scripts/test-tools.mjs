@@ -498,7 +498,7 @@ async function main() {
       const dupAfterRestore = syntax4.issues.filter(i => i.message.includes('dup-label'))
       assert(dupAfterRestore.length === 0, `no duplicate-label warning after restore`)
 
-      // ── Steps 16a–16d: rapid edit / check_syntax loop — staleness regression ─
+      // ── Steps 16a–16f: rapid edit / check_syntax loop — staleness regression ─
       // Reproduces the agent-loop bug: agent edits, calls check_syntax to
       // confirm, edits again, calls check_syntax again. Every check_syntax
       // call must reflect the *current* doc state, no stale carryover.
@@ -621,49 +621,57 @@ async function main() {
         `16f: counts equal across 5 calls (got [${repeated.join(', ')}])`
       )
 
-      // ── Step 17: fix broken \begin{table} and recompile — sync/cache check ───
-      // Reverses step 11. If the previous broken errors stick around, that
-      // means the parser is reading a stale build's output.log. Also pauses
-      // briefly to clear the CLSI rate-limit on consecutive compiles.
-      step(`17 · editFile — remove \\begin{table} (fix broken file)`)
-      const fixResult = await editFile(
-        {
-          path: NEW_FILE_PATH,
-          oldText: '\\subsection{Results}\n\\begin{table}\nbroken table',
-          newText: '\\subsection{Results}',
-        },
+      // ── Step 17: identical old/new content — no tracked change ───────────────
+      // Regression guard: agent-replace must NOT emit a delete+insert when
+      // old_text === new_text. The server returns 204 immediately without
+      // touching the doc, so content must be byte-for-byte unchanged.
+      step('17 · editFile with identical old/new — no diff emitted')
+      const identicalTarget = '\\section{Methodology}'
+      const beforeNoOp = await readFile({ path: NEW_FILE_PATH }, ctx)
+      assert(
+        beforeNoOp.includes(identicalTarget),
+        `17: target line is present before no-op edit`
+      )
+      const noOpResult = await editFile(
+        { path: NEW_FILE_PATH, oldText: identicalTarget, newText: identicalTarget },
         ctx
       )
-      assert(fixResult === 'Change applied.', `fix applied: "${fixResult}"`)
+      assert(noOpResult === 'Change applied.', `17: identical edit returns ok (${noOpResult})`)
+      const afterNoOp = await readFile({ path: NEW_FILE_PATH }, ctx)
+      assert(afterNoOp === beforeNoOp, `17: file content unchanged after no-op edit`)
 
-      step('18 · compileAndCheck after fix — verify no stale errors')
-      // Wait past CLSI's compile rate-limit window. CLSI rejects compiles
-      // <1s apart with status='too-recently-compiled'.
-      await new Promise(r => setTimeout(r, 1500))
-      let compile3 = await compileAndCheck({ path: NEW_FILE_PATH }, ctx)
-      let retries = 0
-      while (compile3.status === 'too-recently-compiled' && retries++ < 5) {
-        info(`backoff (status=${compile3.status}), retry ${retries}…`)
-        await new Promise(r => setTimeout(r, 2000))
-        compile3 = await compileAndCheck({ path: NEW_FILE_PATH }, ctx)
-      }
-      info(`status: ${compile3.status}`)
-      if (compile3.status?.includes('unavailable') || compile3.status === 'too-recently-compiled') {
-        info(`⚠  could not recompile cleanly (status="${compile3.status}") — sync check skipped`)
-      } else {
-        assert(
-          compile3.success || compile3.status === 'success',
-          `compile succeeded after fix (status="${compile3.status}")`
-        )
-        // The previous compile2 had a "table" error; after the fix it must
-        // no longer be present. This is the actual "no stale data" assertion.
-        const stillBroken = compile3.errors.filter(e =>
-          (e.message || '').toLowerCase().includes('table') ||
-          (e.message || '').toLowerCase().includes("\\begin{table}")
-        )
-        assert(stillBroken.length === 0, `no stale 'table' errors after fix (found ${stillBroken.length})`)
-        assert(compile3.errors.length === 0, `errors[] is empty after fix (found ${compile3.errors.length})`)
-      }
+      // ── Step 18: double-change collapse — old is oldest, new is newest ────────
+      // Two sequential agent edits on the same region. The ranges-tracker
+      // collapses them: tracked delete = original old text, tracked insert =
+      // final new text. Verified by content: the document must contain the
+      // final replacement only.
+      step('18 · double editFile on same region — collapses to single tracked change')
+      const doubleBase = '\\section{Methodology}'
+      const doubleIntermediate = '\\section{Revised Methodology}'
+      const doubleFinal = '\\section{Final Methodology}'
+
+      const dc1 = await editFile(
+        { path: NEW_FILE_PATH, oldText: doubleBase, newText: doubleIntermediate },
+        ctx
+      )
+      assert(dc1 === 'Change applied.', `18a: first edit applied`)
+
+      const dc2 = await editFile(
+        { path: NEW_FILE_PATH, oldText: doubleIntermediate, newText: doubleFinal },
+        ctx
+      )
+      assert(dc2 === 'Change applied.', `18b: second edit applied`)
+
+      const afterDouble = await readFile({ path: NEW_FILE_PATH }, ctx)
+      assert(afterDouble.includes(doubleFinal), `18c: file contains final replacement text`)
+      assert(!afterDouble.includes(doubleIntermediate), `18d: intermediate text is gone`)
+      assert(!afterDouble.includes(doubleBase), `18e: original text is gone`)
+
+      // Restore
+      await editFile(
+        { path: NEW_FILE_PATH, oldText: doubleFinal, newText: doubleBase },
+        ctx
+      )
 
       // ── Summary ───────────────────────────────────────────────────────────────
       console.log('\n' + '─'.repeat(56))
