@@ -488,6 +488,58 @@ async function main() {
       const dupAfterRestore = syntax4.issues.filter(i => i.message.includes('dup-label'))
       assert(dupAfterRestore.length === 0, `no duplicate-label warning after restore`)
 
+      // ── Step 17: identical old/new content — no tracked change ───────────────
+      // Regression guard: agent-replace must NOT emit a delete+insert when
+      // old_text === new_text. The server returns 204 immediately without
+      // touching the doc, so content must be byte-for-byte unchanged.
+      step('17 · editFile with identical old/new — no diff emitted')
+      const identicalTarget = '\\section{Methodology}'
+      const beforeNoOp = await readFile({ path: NEW_FILE_PATH }, ctx)
+      assert(
+        beforeNoOp.includes(identicalTarget),
+        `17: target line is present before no-op edit`
+      )
+      const noOpResult = await editFile(
+        { path: NEW_FILE_PATH, oldText: identicalTarget, newText: identicalTarget },
+        ctx
+      )
+      assert(noOpResult === 'Change applied.', `17: identical edit returns ok (${noOpResult})`)
+      const afterNoOp = await readFile({ path: NEW_FILE_PATH }, ctx)
+      assert(afterNoOp === beforeNoOp, `17: file content unchanged after no-op edit`)
+
+      // ── Step 18: double-change collapse — old is oldest, new is newest ────────
+      // Two sequential agent edits on the same region. The ranges-tracker
+      // collapses them: tracked delete = original old text, tracked insert =
+      // final new text. Verified by content: the document must contain the
+      // final replacement only.
+      step('18 · double editFile on same region — collapses to single tracked change')
+      const doubleBase = '\\section{Methodology}'
+      const doubleIntermediate = '\\section{Revised Methodology}'
+      const doubleFinal = '\\section{Final Methodology}'
+
+      const dc1 = await editFile(
+        { path: NEW_FILE_PATH, oldText: doubleBase, newText: doubleIntermediate },
+        ctx
+      )
+      assert(dc1 === 'Change applied.', `18a: first edit applied`)
+
+      const dc2 = await editFile(
+        { path: NEW_FILE_PATH, oldText: doubleIntermediate, newText: doubleFinal },
+        ctx
+      )
+      assert(dc2 === 'Change applied.', `18b: second edit applied`)
+
+      const afterDouble = await readFile({ path: NEW_FILE_PATH }, ctx)
+      assert(afterDouble.includes(doubleFinal), `18c: file contains final replacement text`)
+      assert(!afterDouble.includes(doubleIntermediate), `18d: intermediate text is gone`)
+      assert(!afterDouble.includes(doubleBase), `18e: original text is gone`)
+
+      // Restore
+      await editFile(
+        { path: NEW_FILE_PATH, oldText: doubleFinal, newText: doubleBase },
+        ctx
+      )
+
       // ── Summary ───────────────────────────────────────────────────────────────
       console.log('\n' + '─'.repeat(56))
       console.log('  All tool steps completed.')

@@ -29,6 +29,7 @@ describe('HttpController.agentReplace', function () {
     this.DocumentManager = {
       promises: {
         getDocWithLock: sinon.stub(),
+        agentReplaceWithLock: sinon.stub().resolves({ status: 204 }),
       },
     }
     this.UpdateManager = {
@@ -64,35 +65,39 @@ describe('HttpController.agentReplace', function () {
     })
   })
 
-  it('returns 409 when old_text matches multiple locations', async function () {
-    this.DocumentManager.promises.getDocWithLock.resolves({
-      lines: ['target line', 'other', 'target line'],
-      version: 5,
-    })
+  it('returns 204 without delegating when old_text === new_text', async function () {
+    this.req.body.new_text = this.req.body.old_text // identical
+    await this.HttpController.agentReplace(this.req, this.res, sinon.stub())
+
+    sinon.assert.calledWith(this.res.sendStatus, 204)
+    sinon.assert.notCalled(this.DocumentManager.promises.agentReplaceWithLock)
+  })
+
+  it('delegates to agentReplaceWithLock and returns 204 on success', async function () {
+    this.DocumentManager.promises.agentReplaceWithLock.resolves({ status: 204 })
 
     await this.HttpController.agentReplace(this.req, this.res, sinon.stub())
 
-    sinon.assert.calledWith(this.res.status, 409)
-    sinon.assert.calledWithMatch(this.res.json, {
-      error: 'old_text matched multiple locations',
-      code: 'AMBIGUOUS_OLD_TEXT',
-    })
-    sinon.assert.notCalled(this.UpdateManager.promises.applyUpdate)
+    sinon.assert.calledWith(
+      this.DocumentManager.promises.agentReplaceWithLock,
+      this.projectId,
+      this.docId,
+      'target',
+      'replacement',
+      'user-1'
+    )
+    sinon.assert.calledWith(this.res.sendStatus, 204)
   })
 
-  it('returns 404 with a stable code when old_text is not found', async function () {
-    this.DocumentManager.promises.getDocWithLock.resolves({
-      lines: ['no match here'],
-      version: 5,
+  it('returns 404 when agentReplaceWithLock reports old_text not found', async function () {
+    this.DocumentManager.promises.agentReplaceWithLock.resolves({
+      status: 404,
+      error: 'old_text not found',
     })
 
     await this.HttpController.agentReplace(this.req, this.res, sinon.stub())
 
     sinon.assert.calledWith(this.res.status, 404)
-    sinon.assert.calledWithMatch(this.res.json, {
-      error: 'old_text not found',
-      code: 'OLD_TEXT_NOT_FOUND',
-    })
-    sinon.assert.notCalled(this.UpdateManager.promises.applyUpdate)
+    sinon.assert.calledWithMatch(this.res.json, { error: 'old_text not found' })
   })
 })

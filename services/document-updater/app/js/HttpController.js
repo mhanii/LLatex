@@ -99,55 +99,33 @@ async function getComment(req, res) {
   res.json(comment)
 }
 
-// return the doc from redis if present, but don't load it from mongo
+// Apply an agent edit and consolidate the resulting tracked changes into a
+// single (oldest → newest) pair per affected region. Implementation lives in
+// DocumentManager.agentReplace.
 async function agentReplace(req, res) {
   const { project_id: projectId, doc_id: docId } = req.params
   const { old_text: oldText, new_text: newText, user_id: userId } = req.body
   if (!oldText || newText == null || !userId) {
     return res.status(400).json({ error: 'old_text, new_text, user_id required' })
   }
-  // Lazy requires to avoid circular dependency (same pattern used throughout DocumentManager)
-  const UpdateManager = require('./UpdateManager')
-  const RangesTracker = require('@overleaf/ranges-tracker')
-  const { lines, version } =
-    await DocumentManager.promises.getDocWithLock(projectId, docId)
-  const content = lines.join('\n')
-  const pos = content.indexOf(oldText)
-  if (pos === -1) {
-    logger.warn(
-      { projectId, docId, oldText, contentStart: content.substring(0, 500), linesCount: lines.length },
-      'agent-replace: old_text not found'
-    )
-    return res.status(404).json({
-      error: 'old_text not found',
-      code: 'OLD_TEXT_NOT_FOUND',
-    })
+  if (oldText === newText) {
+    return res.sendStatus(204)
   }
-  const duplicatePos = content.indexOf(oldText, pos + oldText.length)
-  if (duplicatePos !== -1) {
+  const result = await DocumentManager.promises.agentReplaceWithLock(
+    projectId,
+    docId,
+    oldText,
+    newText,
+    userId
+  )
+  if (result.status === 404) {
     logger.warn(
       { projectId, docId, oldText },
-      'agent-replace: old_text is ambiguous (multiple matches)'
+      'agent-replace: old_text not found'
     )
-    return res.status(409).json({
-      error: 'old_text matched multiple locations',
-      code: 'AMBIGUOUS_OLD_TEXT',
-    })
+    return res.status(404).json({ error: result.error })
   }
-  await UpdateManager.promises.applyUpdate(projectId, docId, {
-    doc: docId,
-    v: version,
-    op: [
-      { p: pos, d: oldText },
-      { p: pos, i: newText },
-    ],
-    meta: {
-      user_id: userId,
-      tc: RangesTracker.generateIdSeed(),
-      source: 'agent',
-    },
-  })
-  res.sendStatus(204)
+  res.sendStatus(result.status)
 }
 
 async function peekDoc(req, res) {
