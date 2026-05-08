@@ -3,6 +3,7 @@ const RedisManager = require('./RedisManager')
 const ProjectHistoryRedisManager = require('./ProjectHistoryRedisManager')
 const PersistenceManager = require('./PersistenceManager')
 const DiffCodec = require('./DiffCodec')
+const DMP = require('diff-match-patch')
 const logger = require('@overleaf/logger')
 const Metrics = require('./Metrics')
 const HistoryManager = require('./HistoryManager')
@@ -14,6 +15,63 @@ const Settings = require('@overleaf/settings')
 const { StringFileData } = require('overleaf-editor-core')
 
 const MAX_UNFLUSHED_AGE = Settings.maxUnflushedAgeMs // document should be flushed to mongo this time after a change
+
+/**
+ * Compute the minimal set of line-level change hunks between oldText and
+ * newText. Each hunk covers a contiguous run of differing lines and carries
+ * the exact old/new strings plus the byte offset of the hunk within oldText.
+ *
+ * Result is in document order (top → bottom). Apply bottom-up to preserve
+ * positions when making sequential edits.
+ *
+ * @returns {{ hunkOld: string, hunkNew: string, oldOffset: number }[]}
+ */
+function computeLineHunks(oldText, newText) {
+  const dmp = new DMP()
+  const { chars1, chars2, lineArray } = dmp.diff_linesToChars_(oldText, newText)
+  const diffs = dmp.diff_main(chars1, chars2, false)
+  dmp.diff_charsToLines_(diffs, lineArray)
+
+  const hunks = []
+  let oldOffset = 0
+
+  for (let i = 0; i < diffs.length; ) {
+    const [type, content] = diffs[i]
+    if (type === 0) {
+      oldOffset += content.length
+      i++
+      continue
+    }
+
+    let hunkOld = ''
+    let hunkNew = ''
+    const hunkStart = oldOffset
+
+    while (i < diffs.length && diffs[i][0] !== 0) {
+      const [t, c] = diffs[i]
+      if (t === -1) {
+        hunkOld += c
+        oldOffset += c.length
+      } else {
+        hunkNew += c
+      }
+      i++
+    }
+
+    if (hunkOld === hunkNew) continue
+
+    // Strip a shared trailing newline so the tracked change shows clean line
+    // content rather than "line\n" → "line\n".
+    if (hunkOld.endsWith('\n') && hunkNew.endsWith('\n')) {
+      hunkOld = hunkOld.slice(0, -1)
+      hunkNew = hunkNew.slice(0, -1)
+    }
+
+    hunks.push({ hunkOld, hunkNew, oldOffset: hunkStart })
+  }
+
+  return hunks
+}
 
 const DocumentManager = {
   /**
@@ -742,7 +800,10 @@ const DocumentManager = {
   // standard OT path; we never rewrite a user's change.
   //
   // Returns { status, error?, code? }. 204 = applied; 404 = oldText not found.
-  async agentReplace(projectId, docId, oldText, newText, userId) {
+  // posHint: absolute position of oldText in the document, supplied by
+  // agentReplaceWithLock when it has already located the text.  When absent,
+  // indexOf is used (safe for single-hunk / direct callers).
+  async agentReplace(projectId, docId, oldText, newText, userId, posHint) {
     // No-op guard: identical old/new produces no diff. Lives here (not just at
     // the HTTP layer) so direct callers also skip the wasted version bump and
     // history op that delete-then-reinsert-same-content would generate.
@@ -761,8 +822,9 @@ const DocumentManager = {
       throw new Errors.NotFoundError(`document not found: ${docId}`)
     }
     const beforeContent = before.lines.join('\n')
-    const pos = beforeContent.indexOf(oldText)
-    if (pos === -1) {
+    const pos =
+      posHint !== undefined ? posHint : beforeContent.indexOf(oldText)
+    if (pos < 0 || beforeContent.slice(pos, pos + oldText.length) !== oldText) {
       return { status: 404, error: 'old_text not found' }
     }
     const opEnd = pos + oldText.length
@@ -955,13 +1017,45 @@ const DocumentManager = {
 
   async agentReplaceWithLock(projectId, docId, oldText, newText, userId) {
     const UpdateManager = require('./UpdateManager')
+    if (oldText === newText) return { status: 204 }
+
+    // Split old→new into minimal line-level hunks (git-diff style). Each hunk
+    // becomes its own tracked change so reviewers see exactly what changed.
+    const hunks = computeLineHunks(oldText, newText)
+    if (hunks.length === 0) return { status: 204 }
+
     return await UpdateManager.promises.lockUpdatesAndDo(
-      DocumentManager.agentReplace,
+      async (projectId, docId) => {
+        // Find oldText once so every hunk posHint is anchored to the same
+        // document position — avoids indexOf finding the wrong occurrence when
+        // a hunk's content is not unique in the file.
+        const root = await DocumentManager.getDoc(projectId, docId)
+        if (root.lines == null) {
+          throw new Errors.NotFoundError(`document not found: ${docId}`)
+        }
+        const rootContent = root.lines.join('\n')
+        const basePos = rootContent.indexOf(oldText)
+        if (basePos === -1) {
+          return { status: 404, error: 'old_text not found' }
+        }
+
+        // Apply bottom-up so each hunk's position is unaffected by hunks below.
+        for (let i = hunks.length - 1; i >= 0; i--) {
+          const { hunkOld, hunkNew, oldOffset } = hunks[i]
+          const result = await DocumentManager.agentReplace(
+            projectId,
+            docId,
+            hunkOld,
+            hunkNew,
+            userId,
+            basePos + oldOffset
+          )
+          if (result.status === 404) return result
+        }
+        return { status: 204 }
+      },
       projectId,
-      docId,
-      oldText,
-      newText,
-      userId
+      docId
     )
   },
 

@@ -362,6 +362,80 @@ async function freshCtx(mongo, label) {
   }
 }
 
+async function scenario8_multiLineBlockOneLineDiff(ctx) {
+  step(
+    'Scenario 8 · multi-line block, one line differs → one small tracked pair'
+  )
+  const seed =
+    'line one\nline two\nline three\nline four\nline five'
+  await seedDoc(ctx.projectId, ctx.docId, seed)
+
+  // Agent passes the whole 5-line block; only line three changes.
+  await editFile(
+    {
+      path: 'main.tex',
+      oldText: 'line one\nline two\nline three\nline four\nline five',
+      newText: 'line one\nline two\nLINE THREE\nline four\nline five',
+    },
+    ctx
+  )
+
+  const after = await fetchDoc(ctx.projectId, ctx.docId)
+  assert(
+    after.lines.join('\n') ===
+      'line one\nline two\nLINE THREE\nline four\nline five',
+    `visible content correct`
+  )
+  const pairs = pairAgentChanges(pickAgentChanges(after.ranges))
+  assert(
+    pairs.length === 1,
+    `exactly one tracked pair — not the whole block (got ${pairs.length})`
+  )
+  assert(pairs[0].insert?.op.i === 'LINE THREE', `insert = "LINE THREE"`)
+  assert(pairs[0].del?.op.d === 'line three', `delete = "line three"`)
+}
+
+async function scenario9_multiLineBlockTwoLineDiffs(ctx) {
+  step(
+    'Scenario 9 · multi-line block, two non-adjacent lines differ → two tracked pairs'
+  )
+  const seed =
+    'line one\nline two\nline three\nline four\nline five'
+  await seedDoc(ctx.projectId, ctx.docId, seed)
+
+  // Agent passes the whole block; lines two and four change.
+  await editFile(
+    {
+      path: 'main.tex',
+      oldText: 'line one\nline two\nline three\nline four\nline five',
+      newText: 'line one\nLINE TWO\nline three\nLINE FOUR\nline five',
+    },
+    ctx
+  )
+
+  const after = await fetchDoc(ctx.projectId, ctx.docId)
+  assert(
+    after.lines.join('\n') ===
+      'line one\nLINE TWO\nline three\nLINE FOUR\nline five',
+    `visible content correct`
+  )
+  const pairs = pairAgentChanges(pickAgentChanges(after.ranges))
+  assert(
+    pairs.length === 2,
+    `two separate tracked pairs — one per changed line (got ${pairs.length})`
+  )
+  const inserts = pairs.map(p => p.insert?.op.i).sort()
+  const deletes = pairs.map(p => p.del?.op.d).sort()
+  assert(
+    JSON.stringify(inserts) === JSON.stringify(['LINE FOUR', 'LINE TWO']),
+    `inserts LINE TWO, LINE FOUR`
+  )
+  assert(
+    JSON.stringify(deletes) === JSON.stringify(['line four', 'line two']),
+    `deletes line two, line four`
+  )
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
   console.log(`\nTarget: WEB=${WEB_URL}  DOCUP=${DOCUP_URL}\n`)
@@ -380,6 +454,8 @@ async function main() {
     await scenario5_largeEditEngulfsTwo(await freshCtx(mongo, 's5'))
     await scenario6_noOpDropped(await freshCtx(mongo, 's6'))
     await scenario7_collapseToNoOp(await freshCtx(mongo, 's7'))
+    await scenario8_multiLineBlockOneLineDiff(await freshCtx(mongo, 's8'))
+    await scenario9_multiLineBlockTwoLineDiffs(await freshCtx(mongo, 's9'))
 
     console.log(`\n${'─'.repeat(60)}\n  All track-changes scenarios passed.\n`)
   } finally {
