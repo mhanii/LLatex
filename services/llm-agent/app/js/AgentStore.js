@@ -21,6 +21,7 @@ export async function createRun(projectId, input) {
       context: input.context ?? null,
     },
     steps: [],
+    contextItems: [],
     output: null,
     finishedAt: null,
     durationMs: null,
@@ -37,6 +38,37 @@ export async function appendStep(runId, step) {
   await db.agentRuns.updateOne(
     { _id: new ObjectId(runId) },
     { $push: { steps: step } }
+  )
+}
+
+/**
+ * @param {string} runId
+ * @param {import('./context/types.js').ContextItem} item
+ */
+export async function appendContextItem(runId, item) {
+  await db.agentRuns.updateOne(
+    { _id: new ObjectId(runId) },
+    { $push: { contextItems: item } }
+  )
+}
+
+/**
+ * Mark a singleton item as replaced. Chains stay on disk for trace.
+ *
+ * @param {string} runId
+ * @param {string} oldId
+ * @param {string} newId
+ * @param {Date} when
+ */
+export async function markContextItemReplaced(runId, oldId, newId, when) {
+  await db.agentRuns.updateOne(
+    { _id: new ObjectId(runId), 'contextItems.id': oldId },
+    {
+      $set: {
+        'contextItems.$.replacedBy': newId,
+        'contextItems.$.replacedAt': when,
+      },
+    }
   )
 }
 

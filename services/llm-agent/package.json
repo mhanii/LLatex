@@ -12,6 +12,7 @@
     "test:acceptance:_run": "mocha --require test/setup.js --recursive --timeout 15000 --exit test/acceptance"
   },
   "dependencies": {
+    "@ai-sdk/deepseek": "^2.0.34",
     "@ai-sdk/openai": "^3.0.41",
     "@overleaf/logger": "*",
     "@overleaf/metrics": "*",

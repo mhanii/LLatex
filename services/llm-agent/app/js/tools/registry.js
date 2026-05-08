@@ -1,5 +1,8 @@
 // @ts-check
 
+import { readFileSync } from 'fs'
+import { dirname, join } from 'path'
+import { fileURLToPath } from 'url'
 import { z } from 'zod'
 import { listFiles } from './list_files.js'
 import { readFile } from './read_file.js'
@@ -12,6 +15,16 @@ import { checkSyntax } from './check_syntax.js'
 import { compileAndCheck } from './compile_and_check.js'
 import { getPdfPage } from './get_pdf_page.js'
 
+const __dirname = dirname(fileURLToPath(import.meta.url))
+
+/**
+ * @param {string} name
+ * @returns {string}
+ */
+function loadPrompt(name) {
+  return readFileSync(join(__dirname, 'prompts', `${name}.txt`), 'utf8').trim()
+}
+
 /**
  * @typedef {Object} ToolDefinition
  * @property {string} description
@@ -20,21 +33,20 @@ import { getPdfPage } from './get_pdf_page.js'
  */
 
 /**
- * Canonical catalog of all tools. Single source of truth — no caller defines
- * descriptions or schemas anywhere else. Agents reference tools by name.
+ * Canonical catalog of all tools. Single source of truth — descriptions live
+ * in tools/prompts/<name>.txt, schemas + execute functions are wired here.
  *
  * @type {Record<string, ToolDefinition>}
  */
 export const TOOL_REGISTRY = {
   list_files: {
-    description: 'List all files in the project.',
+    description: loadPrompt('list_files'),
     inputSchema: z.object({}),
     execute: listFiles,
   },
 
   read_file: {
-    description:
-      'Read lines from a LaTeX file. fromLine/toLine are 1-indexed and inclusive.',
+    description: loadPrompt('read_file'),
     inputSchema: z.object({
       path: z.string().describe('File path relative to project root'),
       fromLine: z
@@ -54,7 +66,7 @@ export const TOOL_REGISTRY = {
   },
 
   create_file: {
-    description: 'Create a new file in the project.',
+    description: loadPrompt('create_file'),
     inputSchema: z.object({
       path: z.string().describe('File path relative to project root'),
       content: z.string().optional().describe('Initial file content'),
@@ -63,8 +75,7 @@ export const TOOL_REGISTRY = {
   },
 
   edit_file: {
-    description:
-      'Replace exact text in a file as a tracked change. Re-read the file first to get exact text. Prefer small, targeted replacements over rewriting whole sections.',
+    description: loadPrompt('edit_file'),
     inputSchema: z.object({
       path: z.string().describe('File path'),
       oldText: z.string().describe('Exact text to replace (must match verbatim)'),
@@ -74,7 +85,7 @@ export const TOOL_REGISTRY = {
   },
 
   delete_file: {
-    description: 'Delete a file from the project.',
+    description: loadPrompt('delete_file'),
     inputSchema: z.object({
       path: z.string().describe('File path to delete'),
     }),
@@ -82,7 +93,7 @@ export const TOOL_REGISTRY = {
   },
 
   move_file: {
-    description: 'Rename or move a file within the project.',
+    description: loadPrompt('move_file'),
     inputSchema: z.object({
       oldPath: z.string().describe('Current file path'),
       newPath: z.string().describe('New file path'),
@@ -91,8 +102,7 @@ export const TOOL_REGISTRY = {
   },
 
   get_outline: {
-    description:
-      'Get the structural outline (sections, subsections, environments) of a LaTeX file.',
+    description: loadPrompt('get_outline'),
     inputSchema: z.object({
       path: z.string().describe('File path'),
     }),
@@ -100,8 +110,7 @@ export const TOOL_REGISTRY = {
   },
 
   check_syntax: {
-    description:
-      'Run structural analysis on project documents without compiling. Detects undefined refs, duplicate labels, missing includes, and unbalanced environments.',
+    description: loadPrompt('check_syntax'),
     inputSchema: z.object({
       path: z
         .string()
@@ -112,8 +121,7 @@ export const TOOL_REGISTRY = {
   },
 
   compile_and_check: {
-    description:
-      'Compile the project and return structured LaTeX errors. Call after edits to verify the document still compiles.',
+    description: loadPrompt('compile_and_check'),
     inputSchema: z.object({
       path: z
         .string()
@@ -124,8 +132,7 @@ export const TOOL_REGISTRY = {
   },
 
   get_pdf_page: {
-    description:
-      'Return a page of the most recently compiled PDF as a base64-encoded PNG. Call compile_and_check first to ensure an up-to-date PDF exists.',
+    description: loadPrompt('get_pdf_page'),
     inputSchema: z.object({
       page: z.number().int().positive().describe('1-indexed page number'),
     }),

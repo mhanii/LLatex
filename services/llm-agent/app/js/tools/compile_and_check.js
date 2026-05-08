@@ -32,6 +32,7 @@ export async function compileAndCheck({ path } = {}, ctx) {
         Authorization: basicAuth(),
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(240_000), // 240s: 180s compile + 60s buffer
     }
   )
   if (!res.ok) {

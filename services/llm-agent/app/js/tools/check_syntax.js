@@ -34,6 +34,7 @@ export async function checkSyntax({ path } = {}, ctx) {
 
   const res = await fetch(url.toString(), {
     headers: { Authorization: basicAuth() },
+    signal: AbortSignal.timeout(30_000), // 30s timeout
   })
   if (!res.ok) {
     return { issues: [{ type: 'error', message: `HTTP ${res.status}` }] }

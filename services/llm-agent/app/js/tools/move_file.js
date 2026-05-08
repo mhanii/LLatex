@@ -18,6 +18,7 @@ export async function moveFile({ oldPath, newPath }, ctx) {
         Authorization: basicAuth(),
       },
       body: JSON.stringify({ oldPath, newPath, userId: ctx.userId }),
+      signal: AbortSignal.timeout(30_000), // 30s timeout
     }
   )
   if (res.status === 404) {

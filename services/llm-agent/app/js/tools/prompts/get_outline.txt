@@ -1,0 +1,1 @@
+Get the structural outline (sections, subsections, environments) of a LaTeX file.

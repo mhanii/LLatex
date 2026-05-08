@@ -1,0 +1,1 @@
+Run structural analysis on project documents without compiling. Detects undefined refs, duplicate labels, missing includes, and unbalanced environments.
