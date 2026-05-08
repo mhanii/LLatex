@@ -18,6 +18,7 @@ export async function createFile({ path, content }, ctx) {
         Authorization: basicAuth(),
       },
       body: JSON.stringify({ path, content: content ?? '', userId: ctx.userId }),
+      signal: AbortSignal.timeout(30_000), // 30s timeout
     }
   )
   if (!res.ok) {
