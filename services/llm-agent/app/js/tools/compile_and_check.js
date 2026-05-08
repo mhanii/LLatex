@@ -2,11 +2,32 @@
 import { webUrl, basicAuth } from './utils.js'
 
 /**
- * @typedef {{ success: boolean, status: string, errors: string[], pageCount: number | null }} CompileResult
+ * @typedef {{
+ *   level: 'error' | 'warning' | 'typesetting',
+ *   file?: string,
+ *   line?: number | string | null,
+ *   message: string,
+ *   ruleId?: string,
+ *   command?: string,
+ * }} LogEntry
+ *
+ * @typedef {{
+ *   success: boolean,
+ *   status: string,
+ *   errors: LogEntry[],
+ *   warnings: LogEntry[],
+ *   typesetting: LogEntry[],
+ *   pageCount: number | null
+ * }} CompileResult
  */
 
 /**
- * Compile the project and return structured LaTeX errors.
+ * Compile the project and return the structured log entries the editor itself
+ * shows the user. Errors / warnings / typesetting are produced by the same
+ * parsers (LaTeX log parser + HumanReadableLogs ruleset + BibTeX/.blg parser)
+ * the Overleaf frontend uses, so the agent and the user are looking at the
+ * same view of the compile.
+ *
  * Call this after edits to verify the document still compiles.
  *
  * @param {{ path?: string }} input  Optional path to compile as the root document.
@@ -19,7 +40,14 @@ export async function compileAndCheck({ path } = {}, ctx) {
   if (path) {
     const file = ctx.context?.files?.find(f => f.path === path)
     if (!file) {
-      return { success: false, status: `file not found: ${path}`, errors: [] }
+      return {
+        success: false,
+        status: `file not found: ${path}`,
+        errors: [],
+        warnings: [],
+        typesetting: [],
+        pageCount: null,
+      }
     }
     body.rootDoc_id = file.docId
   }
@@ -35,7 +63,14 @@ export async function compileAndCheck({ path } = {}, ctx) {
     }
   )
   if (!res.ok) {
-    return { success: false, status: `HTTP ${res.status}`, errors: [] }
+    return {
+      success: false,
+      status: `HTTP ${res.status}`,
+      errors: [],
+      warnings: [],
+      typesetting: [],
+      pageCount: null,
+    }
   }
   return /** @type {CompileResult} */ (await res.json())
 }

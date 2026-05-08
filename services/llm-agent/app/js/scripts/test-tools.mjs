@@ -371,7 +371,12 @@ async function main() {
           compile1.success || compile1.status === 'success',
           `compile succeeded (status="${compile1.status}")`
         )
-        if (compile1.errors?.length) info(`warnings: ${compile1.errors.join('; ')}`)
+        assert(Array.isArray(compile1.warnings), `warnings is an array`)
+        assert(Array.isArray(compile1.typesetting), `typesetting is an array`)
+        assert(compile1.errors.length === 0, `no errors on clean project (got ${compile1.errors.length})`)
+        if (compile1.warnings.length) {
+          info(`warnings: ${compile1.warnings.length}; first: ${JSON.stringify(compile1.warnings[0])}`)
+        }
       }
 
       // ── Step 10: getPdfPage ───────────────────────────────────────────────────
@@ -429,22 +434,27 @@ async function main() {
       assert(tableIssue.length > 0, `detected unclosed \\begin{table}`)
       ok(`issues on broken file: ${syntax2.issues.length} (includes unclosed table)`)
 
-      // ── Step 14: compileAndCheck returns non-empty errors[] on failure ────────
-      // Verifies the log-parser path introduced in the P1 fix: when compilation
-      // fails, output.log is fetched from CLSI and parsed into actionable strings.
-      step('14 · compileAndCheck errors[] are non-empty on failure')
+      // ── Step 14: compileAndCheck errors[] match the editor's view ────────────
+      // Verifies the ported log-parser pipeline: each error is the same
+      // structured entry the editor renders (level/file/line/message/ruleId).
+      // Also implicitly verifies no sync/cache lag — the broken edit from
+      // step 11 must show up in this compile's errors.
+      step('14 · compileAndCheck errors carry the editor-shape and are sync-fresh')
       if (compile2.status === 'too-recently-compiled' || compile2.status?.includes('unavailable')) {
         info(`skipped (compile2 status="${compile2.status}")`)
       } else if (!compile2.success) {
-        assert(
-          Array.isArray(compile2.errors),
-          `errors field is an array`
-        )
-        assert(
-          compile2.errors.length > 0,
-          `errors[] is non-empty (got ${compile2.errors.length} error(s))`
-        )
-        info(`first error: ${compile2.errors[0]}`)
+        assert(Array.isArray(compile2.errors), `errors field is an array`)
+        assert(compile2.errors.length > 0, `errors[] non-empty (got ${compile2.errors.length})`)
+        const first = compile2.errors[0]
+        assert(typeof first === 'object' && first !== null, `errors[0] is an object`)
+        assert(first.level === 'error', `errors[0].level === 'error' (got "${first.level}")`)
+        assert(typeof first.message === 'string' && first.message.length > 0, `errors[0].message is non-empty string`)
+        const anyWithFile = compile2.errors.some(e => e.file && e.file.includes('new.tex'))
+        assert(anyWithFile, `at least one error references new.tex (proves edit propagated to CLSI)`)
+        const anyWithRuleId = compile2.errors.some(e => e.ruleId)
+        assert(anyWithRuleId, `at least one error has a ruleId (proves HumanReadableLogs ran)`)
+        info(`first error: ${JSON.stringify(first)}`)
+        info(`warnings: ${compile2.warnings.length}, typesetting: ${compile2.typesetting.length}`)
       } else {
         info(`skipped — compile2 unexpectedly succeeded`)
       }
@@ -487,6 +497,50 @@ async function main() {
       const syntax4 = await checkSyntax({ path: NEW_FILE_PATH }, ctx)
       const dupAfterRestore = syntax4.issues.filter(i => i.message.includes('dup-label'))
       assert(dupAfterRestore.length === 0, `no duplicate-label warning after restore`)
+
+      // ── Step 17: fix broken \begin{table} and recompile — sync/cache check ───
+      // Reverses step 11. If the previous broken errors stick around, that
+      // means the parser is reading a stale build's output.log. Also pauses
+      // briefly to clear the CLSI rate-limit on consecutive compiles.
+      step(`17 · editFile — remove \\begin{table} (fix broken file)`)
+      const fixResult = await editFile(
+        {
+          path: NEW_FILE_PATH,
+          oldText: '\\subsection{Results}\n\\begin{table}\nbroken table',
+          newText: '\\subsection{Results}',
+        },
+        ctx
+      )
+      assert(fixResult === 'Change applied.', `fix applied: "${fixResult}"`)
+
+      step('18 · compileAndCheck after fix — verify no stale errors')
+      // Wait past CLSI's compile rate-limit window. CLSI rejects compiles
+      // <1s apart with status='too-recently-compiled'.
+      await new Promise(r => setTimeout(r, 1500))
+      let compile3 = await compileAndCheck({ path: NEW_FILE_PATH }, ctx)
+      let retries = 0
+      while (compile3.status === 'too-recently-compiled' && retries++ < 5) {
+        info(`backoff (status=${compile3.status}), retry ${retries}…`)
+        await new Promise(r => setTimeout(r, 2000))
+        compile3 = await compileAndCheck({ path: NEW_FILE_PATH }, ctx)
+      }
+      info(`status: ${compile3.status}`)
+      if (compile3.status?.includes('unavailable') || compile3.status === 'too-recently-compiled') {
+        info(`⚠  could not recompile cleanly (status="${compile3.status}") — sync check skipped`)
+      } else {
+        assert(
+          compile3.success || compile3.status === 'success',
+          `compile succeeded after fix (status="${compile3.status}")`
+        )
+        // The previous compile2 had a "table" error; after the fix it must
+        // no longer be present. This is the actual "no stale data" assertion.
+        const stillBroken = compile3.errors.filter(e =>
+          (e.message || '').toLowerCase().includes('table') ||
+          (e.message || '').toLowerCase().includes("\\begin{table}")
+        )
+        assert(stillBroken.length === 0, `no stale 'table' errors after fix (found ${stillBroken.length})`)
+        assert(compile3.errors.length === 0, `errors[] is empty after fix (found ${compile3.errors.length})`)
+      }
 
       // ── Summary ───────────────────────────────────────────────────────────────
       console.log('\n' + '─'.repeat(56))

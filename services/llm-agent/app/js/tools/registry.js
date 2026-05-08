@@ -113,7 +113,7 @@ export const TOOL_REGISTRY = {
 
   compile_and_check: {
     description:
-      'Compile the project and return structured LaTeX errors. Call after edits to verify the document still compiles.',
+      'Compile the project and return the structured LaTeX log entries the editor shows the user (errors, warnings, typesetting). Each entry has level/file/line/message/ruleId. Call after edits to verify the document still compiles.',
     inputSchema: z.object({
       path: z
         .string()
