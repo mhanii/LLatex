@@ -45,6 +45,34 @@ The payload that enters the agent loop. Assembled by the web module before calli
  */
 ```
 
+## ContextItem
+
+A single, individually-traceable input in the model's context window. Managed by `ContextManager`. Persisted via `$push` to `agentRuns.contextItems[]`. Replaced singletons stay in the array with `replacedBy/replacedAt` set; only items without `replacedBy` are "active".
+
+```js
+/**
+ * @typedef {'system_prompt'|'current_file'|'selection'|
+ *           'user_message'|'assistant_message'|
+ *           'tool_call'|'tool_output'|
+ *           'chat_history_message'} ContextItemKind
+ *
+ * @typedef {Object} ContextItem
+ * @property {string} id              - uuid; stable across the run
+ * @property {ContextItemKind} kind
+ * @property {'system'|'user'|'assistant'|'tool'} role
+ * @property {{kind: string, ref?: string}} source
+ * @property {string|object|null} content   - inline content; null when ref carries the data
+ * @property {{path: string, docId: string}} [ref]  - reference-mode payload (current_file)
+ * @property {Date} addedAt
+ * @property {string} addedBy         - seed:<name> | tool:<name> | llm:assistant | user
+ * @property {string} [replacedBy]    - id of the item that superseded this one
+ * @property {Date}   [replacedAt]
+ * @property {Object} [meta]          - {bytes, toolCallId, stepIndex, ...}
+ */
+```
+
+Singleton kinds (`system_prompt`, `current_file`, `selection`) replace the prior active item instead of duplicating. All other kinds append normally.
+
 ## RunContext
 
 Context injected into every tool execution. Keeps tools stateless — they receive everything they need here.
@@ -199,13 +227,24 @@ The actual MongoDB document stored in the `agent_runs` collection:
     "selection": { "docId": "...", "fromLine": 0, "toLine": 5, "content": "..." },
     "context": { "projectName": "...", "compiler": "pdflatex", "files": [...] }
   },
+  "contextItems": [
+    {
+      "id": "uuid",
+      "kind": "system_prompt",
+      "role": "system",
+      "source": { "kind": "agent", "ref": "default" },
+      "content": "You are a LaTeX editing assistant...",
+      "addedAt": ISODate,
+      "addedBy": "seed:system_prompt"
+    }
+  ],
   "steps": [
     {
       "name": "llm-call",
       "startedAt": ISODate,
       "finishedAt": ISODate,
-      "input": { "system": "...", "messages": [...], "tools": [...] },
-      "output": { "text": "...", "toolCalls": [...] },
+      "input": { "messages": [...], "tools": [...] },
+      "output": { "text": "...", "toolCalls": [...], "toolResults": [...] },
       "metadata": { "model": "gpt-4o", "inputTokens": 142, "outputTokens": 287, "latencyMs": 1843 }
     }
   ],

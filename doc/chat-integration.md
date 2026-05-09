@@ -39,21 +39,21 @@
 
 ### `ChatManager.mjs` — User Enrichment
 
-Currently batch-fetches real users by ID to inject `{first_name, last_name, email}` into messages. Agent messages have no MongoDB user document. Add a branch: if `user_id` matches a known agent ID, inject agent metadata instead `{name: "Agent", avatar: "...", isAgent: true}`.
+Batch-fetches real users by ID to inject `{first_name, last_name, email}` into messages. Agent messages have no MongoDB user document. Added a branch: if `user_id` matches the configured agent ID, inject agent metadata instead `{name: "Agent", avatar: "...", isAgent: true}`.
 
 *Change: ~15 lines in one existing function.*
 
-### `ChatController.mjs` — New `sendAgentMessage` Handler
+### `LlmAgentController.mjs` — Agent Message Handler
 
-The current `sendMessage` handler stores the message and broadcasts it. We need a variant that also triggers the LLM pipeline. This is a new handler, not a modification of the existing one.
+`POST /project/:pid/agent/message` handles the full flow: validate auth, save user message to chat, emit via WebSocket, kick off `AgentManager.run()` asynchronously, and return HTTP 202 immediately. This is a new handler in the web module, not a modification of the existing chat `sendMessage`.
 
-*New function: ~30 lines.*
+*New function: ~60 lines in web module.*
 
-### Frontend `ChatContext` — Agent Conversation Thread
+### Frontend `AgentChatContext`
 
-Currently hardcoded to the global thread. For agent chat we target a specific `thread_id` (the conversation ID). Fork `ChatContext` into `AgentChatContext` that parameterizes on `conversationId` and adds a `pending` state for in-flight LLM responses.
+Forked from `ChatContext` to parameterize on `conversationId` and add a `pending` state for in-flight LLM responses. Manages optimistic user message display and spinner clearing when the agent reply arrives via `new-chat-message` WebSocket event.
 
-*Fork + extend: ~80 lines of new context code.*
+*Fork + extend: ~80 lines of new context code in web module frontend.*
 
 ## The Main Entrypoint: `POST /project/:pid/agent/message`
 
@@ -82,8 +82,9 @@ User types message → MessageInput → POST /project/:pid/agent/message
                     ▼
   AgentManager.run()
     1. Load conversation history from chat service
-    2. Call LlmProvider.complete(...)
-    3. For each tool call: execute, record step in Run document
+    2. Build model via `createModel(agent.model)`, tools via `buildTools(runCtx, agent.allowedTools)`
+    3. Call Vercel AI SDK `generateText({ model, tools, messages })` in a loop up to `agent.maxSteps`
+    4. For each tool call: execute, record step in Run document
     4. When response ready:
        POST chat:3010/project/:pid/thread/:conversationId/messages
        { content: agentResponse, user_id: AGENT_USER_ID }

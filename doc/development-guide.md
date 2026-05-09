@@ -2,7 +2,7 @@
 
 ## Implementation Status
 
-### Completed (Steps 1–4)
+### Completed (Steps 1–11)
 
 | Step | What was built | Verified by |
 |---|---|---|
@@ -10,6 +10,13 @@
 | 2 | `AgentStore` (createRun/appendStep/finalizeRun) + `agent_runs` MongoDB collection | run doc appears with `status: done` after POST |
 | 3 | `AgentManager.run()` stub — immediately finalizes run as `{ type: 'text', content: 'stub' }` | durationMs recorded, output.type = 'text' |
 | 4 | Web module gateway — `POST /project/:pid/agent/message` with auth, chat storage, WebSocket emit | HTTP 202 + `{ runId, messageId, conversationId }` |
+| 5 | Provider interface — `vercelPortkey.js` with `@ai-sdk/openai`/`deepseek` routed through Portkey | `generateText()` returns structured result with tokens |
+| 6 | Real agent response — `AgentManager.run()` calls LLM via Vercel AI SDK, stores reply in chat | Agent reply appears in chat panel via WebSocket |
+| 7 | `agent-replace` endpoint on `document-updater` with consolidation + per-line hunks | E2E script: 18 steps, track-changes script: 9 scenarios |
+| 8 | Tool loop — 10 registered tools, agent registry (`default` + `readonly`), `buildTools()` | `verify-registry.mjs` Phase 1+2 pass |
+| 9 | Rail sidebar — `chatbot-panel` component mounted via `railEntries` module slot | Chatbot tab visible in left sidebar |
+| 10 | CM6 selection — selected text forwarded to agent panel | Selection appears in context window |
+| 11 | End-to-end — user message in → agent reply appears in panel via WebSocket | Full `test-tools.mjs` + `e2e-agents.mjs` pass |
 
 ### Development Sequence
 
@@ -17,13 +24,13 @@
 2. Run storage — `AgentStore` + MongoDB. ✅ done
 3. Web module backend — auth route + `POST /project/:pid/agent/message`. ✅ done
 4. `AgentManager` stub — run finalizes immediately as done. ✅ done
-5. Provider interface — `LlmProvider.js` with one real provider.
-6. Real agent response — `AgentManager.run()` calls the LLM, stores reply in chat.
-7. `agent-replace` endpoint on `document-updater`.
-8. Tool loop — agent calls `get-outline`, `read-file`, `compile-and-check` in sequence.
-9. Rail sidebar — `AgentPanel` with `AgentChatContext` forked from `ChatContext`.
-10. CM6 selection — selected text arrives in the sidebar panel.
-11. End-to-end — user message in → agent reply appears in panel via WebSocket.
+5. Provider interface — `vercelPortkey.js` with `@ai-sdk/openai`/`deepseek`. ✅ done
+6. Real agent response — `AgentManager.run()` calls LLM, stores reply in chat. ✅ done
+7. `agent-replace` endpoint on `document-updater` with consolidation + per-line hunks. ✅ done
+8. Tool loop — 10 registered tools, agent registry, `buildTools()`. ✅ done
+9. Rail sidebar — `chatbot-panel` component. ✅ done
+10. CM6 selection — selected text arrives in the sidebar panel. ✅ done
+11. End-to-end — user message in → agent reply appears in panel via WebSocket. ✅ done
 
 ## How to Add a New Service
 
@@ -150,35 +157,53 @@ export default {
 
 ## How to Add the `agent-replace` Endpoint to Document-Updater
 
-Two files, both additive:
+Three files, all additive:
 
 **`services/document-updater/app.js`** — one line:
 ```js
 app.post('/project/:project_id/doc/:doc_id/agent-replace', HttpController.agentReplace)
 ```
 
-**`services/document-updater/app/js/HttpController.js`** — one new function:
+**`services/document-updater/app/js/HttpController.js`** — delegates to `DocumentManager.agentReplaceWithLock`:
 ```js
 async function agentReplace(req, res) {
   const { project_id: projectId, doc_id: docId } = req.params
-  const { old_text, new_text, user_id } = req.body
-
-  const { lines, version } = await DocumentManager.getDocWithLock(projectId, docId)
-  const content = lines.join('\n')
-  const p = content.indexOf(old_text)
-
-  if (p === -1) return res.status(404).json({ error: 'old_text not found' })
-
-  const op = [{ p, d: old_text }, { p, i: new_text }]
-  const update = {
-    doc: docId, op, v: version,
-    meta: { user_id, tc: new ObjectId().toString(), source: 'llm-agent' }
+  const { old_text: oldText, new_text: newText, user_id: userId } = req.body
+  if (!oldText || newText == null || !userId) {
+    return res.status(400).json({ error: 'old_text, new_text, user_id required' })
   }
-
-  await UpdateManager.promises.applyUpdate(projectId, docId, update)
-  res.sendStatus(204)
+  if (oldText === newText) {
+    return res.sendStatus(204)
+  }
+  const result = await DocumentManager.promises.agentReplaceWithLock(
+    projectId, docId, oldText, newText, userId
+  )
+  if (result.status === 404) {
+    return res.status(404).json({ error: result.error })
+  }
+  res.sendStatus(result.status)
 }
 ```
+
+**`services/document-updater/app/js/DocumentManager.js`** — two new functions:
+
+`agentReplaceWithLock` splits the edit into per-line hunks using `computeLineHunks()` (DMP line-mode diff), locks the document, finds `oldText` once for a stable `posHint`, then applies each hunk bottom-up so earlier positions stay stable. Each hunk calls `agentReplace()`:
+
+```js
+async agentReplaceWithLock(projectId, docId, oldText, newText, userId) {
+  const hunks = computeLineHunks(oldText, newText)
+  // ... lock document, find basePos, apply hunks bottom-up
+}
+```
+
+`agentReplace` (called per-hunk) performs a consolidation pass that:
+1. Captures BEFORE-state ranges (where original text is still recoverable).
+2. Reconstructs the region's OLDEST text by walking visible content + tracked deletes, skipping tracked inserts.
+3. Applies the OT update normally.
+4. Reads AFTER state and extracts the region's NEWEST text.
+5. Drops every agent tracked change inside the post-update region and writes a single clean (insert NEWEST, delete OLDEST) pair.
+
+Mixed regions (containing user-sourced tracked changes) are left to the standard OT path — we never overwrite a user's change. No-op edits (`oldText === newText`) are skipped at both HTTP and DocumentManager layers.
 
 ## The `meta.tc` Flag
 
@@ -251,3 +276,35 @@ Defined in `services/clsi/config/settings.defaults.cjs`:
 ### Stale-Read Risk
 
 The LLM reads the document, processes for 2–10 seconds, then posts the edit. If another user edited the same span during that window, `old_text` won't be found → clean 404. The agent layer handles this by retrying with a fresh document read. No corruption is possible.
+
+### DeepSeek Requires Dedicated Provider (Bug #3 — fixed)
+
+**Problem:** DeepSeek V4 flash/pro 400s on the second tool-call turn when routed through `@ai-sdk/openai`.
+
+**Root cause:** DeepSeek's `reasoning_content` field must be round-tripped on every follow-up turn. The generic OpenAI adapter silently drops it, so the API rejects the request.
+
+**Fix:** `createModel()` in `vercelPortkey.js` detects `@deepseek/...` slugs and uses `@ai-sdk/deepseek`'s dedicated provider, which preserves `reasoning_content`. All other models still use `@ai-sdk/openai`.
+
+### Linter Dedup Swallows Repeated Issues (Bug #4 — fixed)
+
+**Problem:** `SyntaxChecker` used to key deduplication by message text only, so two identical messages at different positions (e.g. two undefined refs) were collapsed into one.
+
+**Fix:** Deduplication key is now `message + position` so every distinct occurrence is reported.
+
+### `editFile` Must Handle Ambiguous `oldText` (Bug #5)
+
+**Problem:** If `oldText` appears multiple times in a document, `indexOf` finds the first occurrence, which may be the wrong one.
+
+**Fix:** `agentReplaceWithLock` computes a `basePos` once and passes `posHint = basePos + hunkOffset` to each hunk's `agentReplace` call. If the text is still ambiguous, `editFile` returns a 409 `AMBIGUOUS_OLD_TEXT` error with a human-readable message for the LLM.
+
+### Timeout on Large File Fetches (Bug #6 — fixed)
+
+**Problem:** `render.js` fetching large document content from document-updater could hang indefinitely.
+
+**Fix:** All `fetch` calls in tool implementations and `render.js` use `AbortSignal.timeout(30_000)` (30 seconds).
+
+### Vercel SDK Requires Paired `tool_result` for Every `tool_call` (Bug #7)
+
+**Problem:** If a tool throws or times out, the Vercel AI SDK rejects the next `generateText` call because a `tool_call` lacks a matching `tool_result`.
+
+**Fix:** `AgentManager.run()` synthesizes an error `tool_output` for any `tool_call` that did not get paired with a result, with a message telling the model to try a smaller request or call the tool alone instead of in parallel.

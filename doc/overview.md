@@ -1,6 +1,6 @@
 # LLM Agent — Architecture Overview
 
-> **Status: Steps 1–4 complete.** Backend infrastructure is running and verified end-to-end. See [Development Guide](./development-guide.md) for implementation status.
+> **Status: Steps 1–11 complete.** Backend infrastructure, tool loop, and frontend rail are running and verified end-to-end. See [Development Guide](./development-guide.md) for implementation status.
 
 ## Goal
 
@@ -15,8 +15,9 @@ This is simultaneously a **research project** (swap models freely, log everythin
 - **Document input**: snapshot at call time. Simpler, sufficient for text amendment.
 - **Conversation scope**: per project. All collaborators share a conversation thread.
 - **Pipeline steps**: not decided — that is the research.
-- **Document edits**: surgical `{old_text, new_text}` replacement via a new endpoint on `document-updater`. Never full-document replacement.
+- **Document edits**: surgical `{old_text, new_text}` replacement via a new endpoint on `document-updater`. Never full-document replacement. Edits are split into per-line hunks and consolidated into clean (oldest→newest) tracked-change pairs. See [Track Changes](./track-changes.md).
 - **Change tracking**: all agent edits go through `meta.tc` → tracked changes pipeline. Users accept/reject individually. See [Track Changes](./track-changes.md).
+- **Agent loop**: Vercel AI SDK `generateText` with tool calling, managed by `ContextManager` which tracks every input item (system prompt, chat history, current file, selection, user message, tool calls, tool outputs) as individually-traceable context items. See [Development Guide](./development-guide.md).
 
 ## Architecture: Two Layers
 
@@ -33,8 +34,9 @@ This separation means: research iteration happens entirely in Layer 1. Commercia
 | Concern | Where it lives | How to iterate |
 |---|---|---|
 | New pipeline step | `services/llm-agent/AgentManager.js` | Edit, `bin/dev llm-agent` hot-reloads |
-| Swap LLM provider | `services/llm-agent/LlmProvider.js` | One file change + env var |
-| Inspect a run | `GET /admin/agent/runs/:runId` | Returns full run doc with all steps |
+| Swap LLM provider | `services/llm-agent/providers/vercelPortkey.js` | One file change + env var |
+| Change context window | `services/llm-agent/context/ContextManager.js` + `seeders.js` | Add a seeder, edit `render.js` |
+| Inspect a run | `GET /admin/agent/runs/:runId` | Returns full run doc with all steps and context items |
 | Replay a run | Call agent service directly with saved `input` | Bypass web module entirely |
 | Rate limiting | `AiFeatureUsageRateLimiter` in web module | Extend existing class |
 | Subscription gating | Add feature flag to existing subscription system | Follow `aiErrorAssistant` pattern |
@@ -89,10 +91,10 @@ See [Capabilities](./capabilities.md) for the full list of unique Overleaf capab
 
 The module macro reads `settings.overleafModuleImports` at webpack build time. **Restart webpack after any change to `settings.defaults.js`.**
 
-| Slot | Purpose | Reference |
-|---|---|---|
-| `railEntries` | Sidebar tab + panel | `rail.tsx` → `moduleRailEntries` |
-| `sourceEditorExtensions` | CM6 selection watcher + decorations | `extensions/selection-listener.ts` |
-| `rootContextProviders` | Agent React context wrapping the IDE | any existing provider |
+| Slot | Purpose | Status | Reference |
+|---|---|---|---|
+| `railEntries` | Sidebar tab + panel | ✅ Live | `rail.tsx` → `moduleRailEntries` |
+| `sourceEditorExtensions` | CM6 selection watcher + decorations | ✅ Live | `extensions/selection-listener.ts` |
+| `rootContextProviders` | Agent React context wrapping the IDE | ✅ Live | `agent-chat-context.tsx` |
 
-**Text amendments must go through the tracked-changes pipeline** — not applied directly to CM6. Agent returns `{old_text, new_text}` → web module calls `agent-replace` endpoint → tracked change created → pushed via `emitToRoom` → `updateRangesEffect` fires in frontend. The accept/reject UI from `review-panel` works for free. See `extensions/ranges.ts` and `ranges-context.tsx`.
+**Text amendments must go through the tracked-changes pipeline** — not applied directly to CM6. Agent returns `{old_text, new_text}` → web module calls `agent-replace` endpoint → tracked change created (split into per-line hunks, consolidated into a single clean pair per region) → pushed via `emitToRoom` → `updateRangesEffect` fires in frontend. The accept/reject UI from `review-panel` works for free. See `extensions/ranges.ts` and `ranges-context.tsx`.

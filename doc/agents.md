@@ -34,7 +34,15 @@ services/llm-agent/app/js/
  */
 ```
 
-There is no `Agent.run()` method. Agents are interpreted by the runtime (e.g. `AgentManager.js` once wired) — one runtime today, possibly multiple later (ReAct, Self-Refine, HITL). Keeping agents as data lets each runtime decide how to consume them and lets future config-driven loading come for free.
+There is no `Agent.run()` method. Agents are pure data consumed by `AgentManager.run()` in `services/llm-agent/app/js/AgentManager.js`:
+
+1. Resolve agent via `getAgent(opts.agentName) ?? defaultAgent()`.
+2. Seed context items (`systemPrompt`, chat history, current file, selection, user message) via `ContextManager`.
+3. Build tools via `buildTools(runCtx, agent.allowedTools)`.
+4. Create model via `createModel(agent.model)`.
+5. Run Vercel AI SDK `generateText()` loop up to `agent.maxSteps` iterations.
+
+This keeps agents as data so future runtimes (ReAct, Self-Refine, HITL) can consume the same registry without code changes.
 
 ## Built-in agents
 

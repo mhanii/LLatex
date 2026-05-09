@@ -1,55 +1,50 @@
 # LLM Providers
 
-Hide the LLM provider behind one module. All pipeline steps call this; none import a provider SDK directly. Swapping providers means changing this one file.
+The provider layer builds Vercel AI SDK model instances routed through Portkey's unified gateway. `AgentManager.run()` calls `generateText({ model, tools, messages, ... })` directly — there is no hand-written `complete()` wrapper. The `model` object is the only thing that changes when swapping providers.
 
-## LlmProvider (Abstract Base)
+## `createModel(modelSlug?)`
 
-Located at `services/llm-agent/app/js/providers/LlmProvider.js`.
-
-```js
-class LlmProvider {
-  async complete({ system, messages, model, temperature, maxTokens, tools })
-    → { text, inputTokens, outputTokens, model, latencyMs, toolCalls, finishReason, reasoningText, rawResponse }
-}
-```
-
-All methods throw if called directly — must be subclassed.
-
-## PortkeyProvider
-
-Located at `services/llm-agent/app/js/providers/PortkeyProvider.js`.
-
-Wraps Portkey's unified gateway (OpenAI-compatible chat completions). Model selection and underlying provider routing live in Portkey config — the request shape from this module is the same regardless of which model Portkey forwards to.
+Located at `services/llm-agent/app/js/providers/vercelPortkey.js`.
 
 ```js
-new PortkeyProvider({ apiKey, virtualKey, config, baseURL })
+import { createModel } from './providers/vercelPortkey.js'
+const model = createModel('@gemini/gemini-3.1-pro-preview')
+const result = await generateText({ model, tools, messages })
 ```
+
+Returns a Vercel AI SDK model instance. Routing config (provider, fallbacks, etc.) lives in Portkey; the code here only picks the right SDK adapter.
 
 | Parameter | Required | Notes |
 |---|---|---|
-| `apiKey` | yes | Portkey gateway API key (`PORTKEY_API_KEY`) |
-| `virtualKey` | one of | Routes to a Portkey-configured underlying provider |
-| `config` | one of | Alternative: full Portkey config id |
-| `baseURL` | no | Self-hosted Portkey gateway URL |
+| `modelSlug` | no | Defaults to `settings.llm.defaultModel` |
 
-With Portkey you typically don't need a virtual key — just pass the `@provider/model` id (e.g. `@gemini/gemini-3.1-pro-preview`) and Portkey routes it.
+## DeepSeek Adapter
 
-## Provider Factory
+DeepSeek slugs (`@deepseek/...`) use `@ai-sdk/deepseek` instead of `@ai-sdk/openai`:
 
-`providerFromEnv()` in `services/llm-agent/app/js/providers/index.js` builds the provider configured for the current environment.
+- **Why:** DeepSeek V4 flash/pro require the `reasoning_content` field to be round-tripped on every follow-up turn. The generic OpenAI adapter silently drops it, causing the API to 400 on the second tool-call turn.
+- **How:** `createModel()` detects `slug.toLowerCase().includes('deepseek')` and uses `createDeepSeek({ baseURL, apiKey })`.
 
-```js
-import { providerFromEnv } from './providers/index.js'
-const provider = providerFromEnv()
-const result = await provider.complete({ system: "...", messages: [...], model: "gpt-4o" })
-```
+All other models use `@ai-sdk/openai` pointed at Portkey's base URL.
+
+## Configuration
+
+Set in environment / `develop/.env`:
+
+| Var | Required | Notes |
+|---|---|---|
+| `PORTKEY_API_KEY` | yes | Portkey gateway API key |
+| `PORTKEY_VIRTUAL_KEY` | no | Routes to a Portkey-configured underlying provider |
+| `PORTKEY_CONFIG` | no | Full Portkey config id |
+| `PORTKEY_BASE_URL` | no | Self-hosted Portkey gateway URL (default: `https://api.portkey.ai/v1`) |
+| `LLM_MODEL` | no | Default model slug when `--model` is omitted |
 
 ## Adding a New Provider
 
-1. Create `providers/MyProvider.js` extending `LlmProvider`.
-2. Implement `complete(request)` returning a `CompletionResult`.
-3. Register in `providers/index.js` — add to `providerFromEnv()` logic.
+1. Create `providers/MyAdapter.js` that returns a Vercel AI SDK model instance (e.g. via `@ai-sdk/anthropic`, `@ai-sdk/google`, etc.).
+2. Add detection logic in `createModel()` — check the slug prefix and return the appropriate adapter.
+3. The registry, tool loop, and `AgentManager` require no changes.
 
 ## Reasoning Models
 
-Reasoning models (DeepSeek-R1 family, some Anthropic/OpenAI variants) expose their chain-of-thought on a separate field. Field name varies by provider — `PortkeyProvider` captures whichever is present (`reasoning_content` or `reasoning`) for debugging only. It is not used by callers.
+Reasoning models (DeepSeek-R1 family, some Anthropic/OpenAI variants) expose chain-of-thought on a separate field. `AgentManager.run()` captures `result.reasoning` (if present) in the run step's `output.reasoningText` for debugging. It is not sent to the user or used by callers.

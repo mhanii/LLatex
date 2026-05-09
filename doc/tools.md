@@ -83,7 +83,13 @@ Replace exact text in a file as a tracked change via `agent-replace` endpoint.
 editFile({ path: "main.tex", oldText: "...", newText: "..." }, ctx) → "Change applied."
 ```
 
-Re-reads the file first to get exact text. If `old_text` is not found, re-read and retry. Returns human-readable error messages for the LLM to act on.
+Uses `AbortSignal.timeout(30_000)` (30s). Returns human-readable error messages for the LLM to act on:
+- 200/204 → `"Change applied."`
+- 404 → `"\"<oldText>\" not found in <path> — re-read the file and retry."`
+- 409 `AMBIGUOUS_OLD_TEXT` → `"The target text appears multiple times in <path> — re-read and provide a more specific oldText snippet."`
+- Other 409 → `"Edit conflict in <path>; re-read and retry with a more specific target."`
+
+The underlying `agentReplaceWithLock` splits the edit into per-line hunks (via DMP line-mode diff) and applies each as a separate tracked change, then consolidates each region into a single clean (oldest→newest) pair. See [Track Changes](./track-changes.md) for details.
 
 ### `createFile`
 
@@ -188,6 +194,10 @@ getPdfPage({ page: 1 }, ctx) → { imageBase64: "...", mimeType: "image/png" }
 
 Call `compileAndCheck` first to ensure an up-to-date PDF exists and to find out the total page count. Page number is 1-indexed.
 
+## Tool Prompts
+
+Every tool carries a concise natural-language description loaded from `services/llm-agent/app/js/tools/prompts/<tool_name>.txt`. These are concatenated into the tool's `description` field in `TOOL_REGISTRY` so the LLM sees both the structured Zod schema and a human-readable explanation of what the tool does. When adding a new tool, create the prompt file and reference it in `registry.js`.
+
 ## Tool Registry
 
 Single source of truth: `services/llm-agent/app/js/tools/registry.js`. Each tool is registered as a `ToolDefinition`:
@@ -268,7 +278,7 @@ Skips Phase 2 cleanly if `PORTKEY_API_KEY` is unset; reports "skipped" with the 
 
 ### Full tool-chain integration script (requires Docker)
 
-`services/llm-agent/app/js/scripts/test-tools.mjs` runs 13 steps against a live Docker stack (web, document-updater, CLSI, Mongo). Calls each raw tool function directly — does **not** go through the registry, so it is purely a check that the underlying tools still work:
+`services/llm-agent/app/js/scripts/test-tools.mjs` runs 18 steps against a live Docker stack (web, document-updater, CLSI, Mongo). Calls each raw tool function directly — does **not** go through the registry, so it is purely a check that the underlying tools still work:
 
 1. `listFiles` — verifies project file tree
 2. `readFile(main.tex)` — reads initial document
@@ -283,6 +293,12 @@ Skips Phase 2 cleanly if `PORTKEY_API_KEY` is unset; reports "skipped" with the 
 11. `editFile` — introduces `\begin{table}` without `\end`
 12. `compileAndCheck` — expects compile failure
 13. `checkSyntax` (broken) — detects unclosed environment
+14. `compileAndCheck` — errors carry editor-shape and are sync-fresh
+15. `checkSyntax` — detects duplicate `\label{}`
+16. `editFile` — removes duplicate label (restore)
+16a–16f. Rapid edit/check_syntax loop — staleness regression, idempotency, project-wide scope
+17. `editFile` with identical old/new — no diff emitted
+18. Double `editFile` on same region — collapses to single tracked change
 
 **Run:**
 ```bash

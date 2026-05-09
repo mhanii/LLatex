@@ -146,14 +146,20 @@ Surgical edit via `{old_text, new_text}`. The primary editing primitive.
 **Responses:**
 | Status | Meaning |
 |---|---|
-| 204 | Change applied successfully |
+| 204 | Change applied successfully (or no-op when `old_text === new_text`) |
+| 400 | `old_text`, `new_text`, or `user_id` missing |
 | 404 | `old_text` not found in document |
-| 409 `AMBIGUOUS_OLD_TEXT` | `old_text` appears multiple times |
-| 409 | Edit conflict; re-read and retry |
 
-**Server logic:** Fetch current lines from Redis → join as string → find `old_text` offset → build op `[{p, d: old_text}, {p, i: new_text}]` → call `UpdateManager.applyUpdate()` with `meta.tc` set.
+**Server logic:**
+1. `HttpController.agentReplace` validates input and no-op guard (`oldText === newText`).
+2. Delegates to `DocumentManager.agentReplaceWithLock()`.
+3. `agentReplaceWithLock` splits `oldText → newText` into per-line hunks via `computeLineHunks()` (DMP line-mode diff).
+4. Locks the document, finds `oldText` once for a stable `basePos`, then applies each hunk bottom-up with `posHint = basePos + hunkOffset`.
+5. Each hunk calls `agentReplace()`, which performs the consolidation pass: captures BEFORE-state ranges, reconstructs OLDEST text, applies OT update, captures AFTER state, drops messy agent changes in the region, and writes a single clean (insert NEWEST, delete OLDEST) pair. Mixed regions (containing user-sourced tracked changes) skip consolidation.
 
-Failure mode: `old_text` not found → 404. Clean, detectable, not a silent corruption. Indicates the document changed during the LLM call.
+Failure mode: `old_text` not found → 404. Clean, detectable, not a silent corruption. Indicates the document changed during the LLM call or the hunk is ambiguous.
+
+**Implementation note:** `agentReplace` accepts an optional `posHint` parameter (absolute byte position of `oldText` in the document). When supplied by `agentReplaceWithLock`, it avoids ambiguous `indexOf` when a hunk's content is not unique in the file.
 
 ## Internal Endpoints (CLSI)
 

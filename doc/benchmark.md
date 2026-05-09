@@ -99,7 +99,7 @@ If the dataset lives on HuggingFace, add a `scripts/download-<name>.mjs` that fe
 
 ## Adding a New Provider
 
-The provider abstraction lives at `services/llm-agent/app/js/providers/`. Add a new file extending `LlmProvider` and register it in `providers/index.js`. Today only `PortkeyProvider` is wired up — Portkey itself is the unified gateway, so most model swaps are Portkey config changes rather than new providers.
+The provider abstraction lives at `services/llm-agent/app/js/providers/`. The live agent service uses `vercelPortkey.js` which returns Vercel AI SDK model instances routed through Portkey. Most model swaps are Portkey config changes rather than new provider files. If you need a non-Portkey provider, add a new adapter file that returns a Vercel `LanguageModel` and wire it into `createModel()`.
 
 ## Environment
 
