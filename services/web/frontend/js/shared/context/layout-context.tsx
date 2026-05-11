@@ -31,6 +31,11 @@ export type IdeView = 'editor' | 'file' | 'pdf' | 'history'
 export type LayoutContextOwnStates = {
   view: IdeView | null
   chatIsOpen: boolean
+  chatDockSide: 'left' | 'right'
+  chatDockDragging: boolean
+  chatDockDragOffset: number
+  chatPanelSizeLeft: number
+  chatPanelSizeRight: number
   reviewPanelOpen: boolean
   miniReviewPanelVisible: boolean
   leftMenuShown: boolean
@@ -49,6 +54,11 @@ export type LayoutContextValue = LayoutContextOwnStates & {
   changeLayout: (newLayout: IdeLayout, newView?: IdeView) => void
   setView: (view: IdeView | null) => void
   setChatIsOpen: Dispatch<SetStateAction<LayoutContextValue['chatIsOpen']>>
+  setChatDockSide: Dispatch<SetStateAction<LayoutContextValue['chatDockSide']>>
+  setChatDockDragging: Dispatch<SetStateAction<boolean>>
+  setChatDockDragOffset: Dispatch<SetStateAction<number>>
+  setChatPanelSizeLeft: Dispatch<SetStateAction<number>>
+  setChatPanelSizeRight: Dispatch<SetStateAction<number>>
   setReviewPanelOpen: Dispatch<
     SetStateAction<LayoutContextValue['reviewPanelOpen']>
   >
@@ -139,6 +149,22 @@ export const LayoutProvider: FC<React.PropsWithChildren> = ({ children }) => {
   const [chatIsOpen, setChatIsOpen] = usePersistedState<boolean>(
     'ui.chatOpen',
     true
+  )
+
+  const [chatDockSide, setChatDockSide] = usePersistedState<'left' | 'right'>(
+    'ui.chatDockSide',
+    'left'
+  )
+  const [chatDockDragging, setChatDockDragging] = useState(false)
+  const [chatDockDragOffset, setChatDockDragOffset] = useState(0)
+
+  const [chatPanelSizeLeft, setChatPanelSizeLeft] = usePersistedState(
+    'ui.chatPanelSize.left',
+    20
+  )
+  const [chatPanelSizeRight, setChatPanelSizeRight] = usePersistedState(
+    'ui.chatPanelSize.right',
+    20
   )
 
   // whether the review pane is open
@@ -336,6 +362,11 @@ export const LayoutProvider: FC<React.PropsWithChildren> = ({ children }) => {
       detachRole,
       changeLayout,
       chatIsOpen,
+      chatDockSide,
+      chatDockDragging,
+      chatDockDragOffset,
+      chatPanelSizeLeft,
+      chatPanelSizeRight,
       leftMenuShown,
       openFile,
       pdfLayout,
@@ -346,6 +377,11 @@ export const LayoutProvider: FC<React.PropsWithChildren> = ({ children }) => {
       miniReviewPanelVisible,
       loadingStyleSheet,
       setChatIsOpen,
+      setChatDockSide,
+      setChatDockDragging,
+      setChatDockDragOffset,
+      setChatPanelSizeLeft,
+      setChatPanelSizeRight,
       setLeftMenuShown,
       setOpenFile,
       setPdfLayout,
@@ -367,6 +403,11 @@ export const LayoutProvider: FC<React.PropsWithChildren> = ({ children }) => {
       detachRole,
       changeLayout,
       chatIsOpen,
+      chatDockSide,
+      chatDockDragging,
+      chatDockDragOffset,
+      chatPanelSizeLeft,
+      chatPanelSizeRight,
       leftMenuShown,
       openFile,
       pdfLayout,
@@ -377,6 +418,11 @@ export const LayoutProvider: FC<React.PropsWithChildren> = ({ children }) => {
       miniReviewPanelVisible,
       loadingStyleSheet,
       setChatIsOpen,
+      setChatDockSide,
+      setChatDockDragging,
+      setChatDockDragOffset,
+      setChatPanelSizeLeft,
+      setChatPanelSizeRight,
       setLeftMenuShown,
       setOpenFile,
       setPdfLayout,

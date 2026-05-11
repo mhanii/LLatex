@@ -17,7 +17,7 @@ export default function RailPanel({
   isHistoryView: boolean
   railTabs: RailElement[]
 }) {
-  const { selectedTab, panelRef, handlePaneExpand, handlePaneCollapse } =
+  const { selectedTab, panelRef, handlePaneCollapse, isOpen } =
     useRailContext()
 
   const prevTab = usePreviousValue(selectedTab)
@@ -35,7 +35,7 @@ export default function RailPanel({
   return (
     <Panel
       id={`ide-redesign-sidebar-panel-${isHistoryView ? 'file-tree' : selectedTab}`}
-      className={classNames({ hidden: isReviewPanelOpen })}
+      className={classNames({ hidden: isReviewPanelOpen || !isOpen })}
       order={1}
       defaultSize={selectedTab === 'workbench' ? 20 : 15}
       minSize={5}
