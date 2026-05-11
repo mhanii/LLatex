@@ -7,8 +7,8 @@ docker-compose.override.yml
 
 # project-local dev notes (not for upstream)
 CLAUDE.md
-doc/
 .codex
+doc/Memoria_Beca_Hani.pdf
 
 # npm workspaces — root and per-service node_modules
 node_modules/

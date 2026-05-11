@@ -27,5 +27,10 @@ export async function deleteFile({ path }, ctx) {
   if (!res.ok) {
     return `Delete failed: HTTP ${res.status}`
   }
+  const files = ctx.context?.files
+  if (files) {
+    const idx = files.findIndex(f => f.path === path)
+    if (idx !== -1) files.splice(idx, 1)
+  }
   return 'Deleted.'
 }

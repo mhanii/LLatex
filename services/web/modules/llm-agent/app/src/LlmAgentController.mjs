@@ -374,6 +374,9 @@ async function agentCreateProject(req, res) {
   if (!userId || !projectName) {
     return res.status(400).json({ error: 'userId and projectName required' })
   }
+  if (docLines != null && !Array.isArray(docLines)) {
+    return res.status(400).json({ error: 'docLines must be an array of strings' })
+  }
   const lines = docLines ?? ['\\documentclass{article}', '\\begin{document}', '\\end{document}']
   const project = await ProjectCreationHandler.promises.createProjectFromSnippet(
     userId,

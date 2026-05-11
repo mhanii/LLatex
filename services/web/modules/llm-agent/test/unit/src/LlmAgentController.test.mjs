@@ -16,6 +16,7 @@ let ProjectLocator
 let EditorController
 let EditorRealTimeController
 let LlmAgentApiHandler
+let ProjectCreationHandler
 let LlmAgentController
 
 describe('LlmAgentController', function () {
@@ -153,6 +154,18 @@ describe('LlmAgentController', function () {
     vi.doMock('../../../app/src/LlmAgentApiHandler.mjs', () => ({
       default: LlmAgentApiHandler,
     }))
+
+    ProjectCreationHandler = {
+      promises: {
+        createProjectFromSnippet: vi.fn().mockResolvedValue({
+          _id: { toString: () => PROJECT_ID },
+        }),
+      },
+    }
+    vi.doMock(
+      '../../../../../app/src/Features/Project/ProjectCreationHandler.mjs',
+      () => ({ default: ProjectCreationHandler })
+    )
 
     // Import after mocks are registered
     ;({ default: LlmAgentController } = await import(
@@ -646,6 +659,99 @@ describe('LlmAgentController', function () {
         vi.fn()
       )
       expect(res.statusCode).toBe(400)
+    })
+  })
+
+  describe('agentCreateProject', function () {
+    function makeCreateReq(body) {
+      return { params: {}, body, session: {} }
+    }
+
+    it('creates a project and returns the new projectId on success', async function () {
+      const res = makeRes()
+      await LlmAgentController.agentCreateProject(
+        makeCreateReq({
+          userId: USER_ID,
+          projectName: 'e2e-test',
+          docLines: ['\\documentclass{article}', '\\begin{document}', '\\end{document}'],
+        }),
+        res,
+        vi.fn()
+      )
+      expect(res.body).toBeDefined()
+      const body = JSON.parse(res.body)
+      expect(body.projectId).toBe(PROJECT_ID)
+      expect(
+        ProjectCreationHandler.promises.createProjectFromSnippet
+      ).toHaveBeenCalledOnce()
+    })
+
+    it('returns 400 when userId is missing', async function () {
+      const res = makeRes()
+      await LlmAgentController.agentCreateProject(
+        makeCreateReq({ projectName: 'x' }),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('returns 400 when projectName is missing', async function () {
+      const res = makeRes()
+      await LlmAgentController.agentCreateProject(
+        makeCreateReq({ userId: USER_ID }),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('returns 400 when docLines is a string (not an array)', async function () {
+      const res = makeRes()
+      await LlmAgentController.agentCreateProject(
+        makeCreateReq({
+          userId: USER_ID,
+          projectName: 'x',
+          docLines: '\\documentclass{article}',
+        }),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(400)
+      expect(
+        ProjectCreationHandler.promises.createProjectFromSnippet
+      ).not.toHaveBeenCalled()
+    })
+
+    it('returns 400 when docLines is an object (not an array)', async function () {
+      const res = makeRes()
+      await LlmAgentController.agentCreateProject(
+        makeCreateReq({
+          userId: USER_ID,
+          projectName: 'x',
+          docLines: { lines: ['a'] },
+        }),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(400)
+      expect(
+        ProjectCreationHandler.promises.createProjectFromSnippet
+      ).not.toHaveBeenCalled()
+    })
+
+    it('accepts omitted docLines and uses a sensible default', async function () {
+      const res = makeRes()
+      await LlmAgentController.agentCreateProject(
+        makeCreateReq({ userId: USER_ID, projectName: 'x' }),
+        res,
+        vi.fn()
+      )
+      const body = JSON.parse(res.body)
+      expect(body.projectId).toBe(PROJECT_ID)
+      const passedLines =
+        ProjectCreationHandler.promises.createProjectFromSnippet.mock.calls[0][2]
+      expect(Array.isArray(passedLines)).toBe(true)
     })
   })
 })

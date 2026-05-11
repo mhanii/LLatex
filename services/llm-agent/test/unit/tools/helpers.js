@@ -31,6 +31,23 @@ export const CTX = {
   },
 }
 
+/** Fresh, deep-cloned RunContext — use when a test mutates ctx.context.files. */
+export function makeCtx() {
+  return {
+    projectId: 'proj123',
+    userId: 'user123',
+    runId: 'run123',
+    context: {
+      projectName: 'Test Project',
+      compiler: 'pdflatex',
+      files: [
+        { path: 'main.tex', docId: 'doc111' },
+        { path: 'chapters/intro.tex', docId: 'doc222' },
+      ],
+    },
+  }
+}
+
 let savedFetch
 
 export function stubFetch(handler) {

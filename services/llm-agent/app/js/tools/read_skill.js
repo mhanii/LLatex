@@ -28,8 +28,14 @@ export async function readSkill({ name, template }, _ctx) {
   const templatesDir = join(skillDir, 'templates')
 
   if (template) {
-    // Sanitize: allow letters, digits, underscores, hyphens, dots (for .tex extension)
+    // Sanitize: allow letters, digits, underscores, hyphens, dots (for .tex extension).
+    // After this, slashes can't survive, so multi-segment traversal is impossible —
+    // but `.` and `..` still resolve to directories under join(), which would
+    // crash readFileSync with EISDIR. Reject them (and the empty result) outright.
     const safeTemplate = template.replace(/[^a-z0-9_.-]/gi, '')
+    if (!safeTemplate || safeTemplate === '.' || safeTemplate === '..') {
+      return `Invalid template name "${template}". Call read_skill without a template argument to see the available templates for \`${name}\`.`
+    }
     const templatePath = join(templatesDir, safeTemplate)
 
     if (existsSync(templatePath)) {

@@ -27,7 +27,11 @@ import { db, mongoClient } from '../mongodb.js'
 import { run as agentRun } from '../AgentManager.js'
 import { createRun } from '../AgentStore.js'
 
-const ADMIN_EMAIL = process.env.E2E_USER_EMAIL ?? 'mohamedhani590@gmail.com'
+const ADMIN_EMAIL = process.env.E2E_USER_EMAIL
+if (!ADMIN_EMAIL) {
+  console.error('E2E_USER_EMAIL is required (set to the seed admin user email).')
+  process.exit(2)
+}
 
 // ── Seed: one near-empty file ─────────────────────────────────────────────────
 
