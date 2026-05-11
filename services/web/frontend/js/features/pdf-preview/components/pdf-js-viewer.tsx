@@ -19,6 +19,10 @@ import { PDFJS } from '../util/pdf-js'
 import { PDFFile } from '@ol-types/compile'
 import { useLayoutContext } from '@/shared/context/layout-context'
 import { emitChatbotPrefill } from '@/features/ide-react/components/chatbot/chatbot-prefill-events'
+import {
+  buildSynctexReferenceLines,
+  extractSynctexReferenceLine,
+} from '../util/synctex-reference'
 
 type PdfJsViewerProps = {
   url: string
@@ -35,8 +39,14 @@ function PdfJsViewer({ url, pdfFile }: PdfJsViewerProps) {
   const { projectId } = useProjectContext()
   const { setChatIsOpen } = useLayoutContext()
 
-  const { setError, firstRenderDone, highlights, position, setPosition } =
-    useCompileContext()
+  const {
+    clsiServerId,
+    setError,
+    firstRenderDone,
+    highlights,
+    position,
+    setPosition,
+  } = useCompileContext()
 
   const { setLoadingError } = usePdfPreviewContext()
 
@@ -171,7 +181,7 @@ function PdfJsViewer({ url, pdfFile }: PdfJsViewerProps) {
 
                 try {
                   const data = await getJSON(`/project/${projectId}/sync/pdf?${params}`)
-                  return data?.code?.[0]?.line
+                  return extractSynctexReferenceLine(data)
                 } catch (err) {
                   return null
                 }
@@ -180,12 +190,7 @@ function PdfJsViewer({ url, pdfFile }: PdfJsViewerProps) {
               const startLine = await fetchLine(startPos)
               const endLine = await fetchLine(endPos)
 
-              if (typeof startLine === 'number' && typeof endLine === 'number') {
-                referenceLines = {
-                  start: Math.min(startLine, endLine),
-                  end: Math.max(startLine, endLine),
-                }
-              }
+              referenceLines = buildSynctexReferenceLines(startLine, endLine)
             }
           }
         }
@@ -194,10 +199,16 @@ function PdfJsViewer({ url, pdfFile }: PdfJsViewerProps) {
       }
 
       emitChatbotPrefill('', { referenceText: selectedText, referenceLines })
-      clearRewriteSelectionButton()
-      window.getSelection()?.removeAllRanges()
     })()
-  }, [rewriteSelectionButton, setChatIsOpen, clearRewriteSelectionButton])
+  }, [
+    rewriteSelectionButton,
+    setChatIsOpen,
+    pdfJsWrapper,
+    projectId,
+    pdfFile.build,
+    pdfFile.editorId,
+    clsiServerId,
+  ])
 
   const handlePageChange = useCallback(
     (newPage: number) => {
