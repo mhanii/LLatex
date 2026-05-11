@@ -12,6 +12,7 @@ export const ExpandableContent = memo<{
   checkNewLines?: boolean
   inline?: boolean
   translate?: 'yes' | 'no'
+  lineNumbers?: string
 }>(function ExpandableContent({
   content,
   className,
@@ -20,6 +21,7 @@ export const ExpandableContent = memo<{
   checkNewLines = true,
   inline = false,
   translate,
+  lineNumbers,
 }) {
   const { t } = useTranslation()
   const contentRef = useRef<HTMLDivElement>(null)
@@ -49,6 +51,11 @@ export const ExpandableContent = memo<{
 
   return (
     <>
+      {lineNumbers && (
+        <div className="review-panel-expandable-content-line-numbers">
+          {lineNumbers}
+        </div>
+      )}
       <div
         ref={contentRef}
         className={classNames('review-panel-expandable-content', className)}

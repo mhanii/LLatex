@@ -11,19 +11,29 @@ import { useDetachCompileContext as useCompileContext } from '../../../shared/co
 import { captureException } from '../../../infrastructure/error-reporter'
 import { getPdfCachingMetrics } from '../util/metrics'
 import { debugConsole } from '@/utils/debugging'
+import { getJSON } from '../../../infrastructure/fetch-json'
 import { usePdfPreviewContext } from '@/features/pdf-preview/components/pdf-preview-provider'
 import usePresentationMode from '../hooks/use-presentation-mode'
 import useMouseWheelZoom from '../hooks/use-mouse-wheel-zoom'
 import { PDFJS } from '../util/pdf-js'
 import { PDFFile } from '@ol-types/compile'
+import { useLayoutContext } from '@/shared/context/layout-context'
+import { emitChatbotPrefill } from '@/features/ide-react/components/chatbot/chatbot-prefill-events'
 
 type PdfJsViewerProps = {
   url: string
   pdfFile: PDFFile
 }
 
+type RewriteSelectionButtonState = {
+  text: string
+  top: number
+  left: number
+}
+
 function PdfJsViewer({ url, pdfFile }: PdfJsViewerProps) {
   const { projectId } = useProjectContext()
+  const { setChatIsOpen } = useLayoutContext()
 
   const { setError, firstRenderDone, highlights, position, setPosition } =
     useCompileContext()
@@ -41,10 +51,153 @@ function PdfJsViewer({ url, pdfFile }: PdfJsViewerProps) {
   const [rawScale, setRawScale] = useState<number | null>(null)
   const [page, setPage] = useState<number | null>(null)
   const [totalPages, setTotalPages] = useState<number | null>(null)
+  const [rewriteSelectionButton, setRewriteSelectionButton] =
+    useState<RewriteSelectionButtonState | null>(null)
 
   // local state values
   const [pdfJsWrapper, setPdfJsWrapper] = useState<PDFJSWrapper | null>()
   const [initialised, setInitialised] = useState(false)
+
+  const clearRewriteSelectionButton = useCallback(() => {
+    setRewriteSelectionButton(null)
+  }, [])
+
+  const updateRewriteSelectionButton = useCallback(() => {
+    if (!pdfJsWrapper) {
+      clearRewriteSelectionButton()
+      return
+    }
+
+    const selection = window.getSelection()
+
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      clearRewriteSelectionButton()
+      return
+    }
+
+    const selectedText = selection.toString().trim()
+
+    if (!selectedText) {
+      clearRewriteSelectionButton()
+      return
+    }
+
+    const selectionRange = selection.getRangeAt(0)
+    const selectionNode =
+      selectionRange.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+        ? (selectionRange.commonAncestorContainer as Element)
+        : selectionRange.commonAncestorContainer.parentElement
+
+    if (!selectionNode || !pdfJsWrapper.container.contains(selectionNode)) {
+      clearRewriteSelectionButton()
+      return
+    }
+
+    const outerViewerElement = pdfJsWrapper.container.parentElement
+    if (!outerViewerElement) {
+      clearRewriteSelectionButton()
+      return
+    }
+
+    const selectionRect = selectionRange.getBoundingClientRect()
+    if (!selectionRect.width && !selectionRect.height) {
+      clearRewriteSelectionButton()
+      return
+    }
+
+    const outerViewerRect = outerViewerElement.getBoundingClientRect()
+    const estimatedButtonWidth = 180
+    const buttonLeft = Math.min(
+      Math.max(selectionRect.right - outerViewerRect.left + 8, 8),
+      Math.max(outerViewerRect.width - estimatedButtonWidth - 8, 8)
+    )
+
+    setRewriteSelectionButton({
+      text: selectedText,
+      top: Math.max(selectionRect.top - outerViewerRect.top - 40, 8),
+      left: buttonLeft,
+    })
+  }, [pdfJsWrapper, clearRewriteSelectionButton])
+
+  const handleRewriteSelection = useCallback(() => {
+    if (!rewriteSelectionButton) {
+      return
+    }
+
+    setChatIsOpen(true)
+    ;(async () => {
+      const selectedText = rewriteSelectionButton.text
+
+      let referenceLines: { start: number; end: number } | null = null
+
+      try {
+        const selection = window.getSelection()
+        if (selection && selection.rangeCount > 0 && pdfJsWrapper) {
+          const range = selection.getRangeAt(0)
+          const rects = range.getClientRects()
+          const firstRect = rects && rects.length ? rects[0] : range.getBoundingClientRect()
+          const lastRect = rects && rects.length ? rects[rects.length - 1] : firstRect
+
+          const selectionNode =
+            range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+              ? (range.commonAncestorContainer as Element)
+              : (range.commonAncestorContainer as Node).parentElement
+
+          const pageDiv = selectionNode?.closest('.page') as HTMLElement | null
+          const canvas = pageDiv?.querySelector('canvas') as HTMLCanvasElement | null
+
+          if (pageDiv && canvas) {
+            const pageIndex = parseInt(pageDiv.getAttribute('data-page-number') || '1', 10) - 1
+
+            const mapPoint = (clientX: number, clientY: number) =>
+              pdfJsWrapper.clickPosition({ clientX, clientY } as any, canvas, pageIndex)
+
+            const startPos = mapPoint(firstRect.left + 2, firstRect.top + 2)
+            const endPos = mapPoint(lastRect.right - 2, lastRect.bottom - 2)
+
+            if (startPos && endPos) {
+              const fetchLine = async (pos: any) => {
+                const h = pos.offset.left.toFixed(2)
+                const v = pos.offset.top.toFixed(2)
+                const params = new URLSearchParams({
+                  page: String(pos.page + 1),
+                  h,
+                  v,
+                })
+
+                if (clsiServerId) params.set('clsiserverid', clsiServerId)
+                if (pdfFile?.editorId) params.set('editorId', pdfFile.editorId)
+                if (pdfFile?.build) params.set('buildId', String(pdfFile.build))
+
+                try {
+                  const data = await getJSON(`/project/${projectId}/sync/pdf?${params}`)
+                  return data?.code?.[0]?.line
+                } catch (err) {
+                  return null
+                }
+              }
+
+              const startLine = await fetchLine(startPos)
+              const endLine = await fetchLine(endPos)
+
+              if (typeof startLine === 'number' && typeof endLine === 'number') {
+                referenceLines = {
+                  start: Math.min(startLine, endLine),
+                  end: Math.max(startLine, endLine),
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        debugConsole.error(err)
+      }
+
+      emitChatbotPrefill('', { referenceText: selectedText, referenceLines })
+      clearRewriteSelectionButton()
+      window.getSelection()?.removeAllRanges()
+    })()
+  }, [rewriteSelectionButton, setChatIsOpen, clearRewriteSelectionButton])
 
   const handlePageChange = useCallback(
     (newPage: number) => {
@@ -283,6 +436,40 @@ function PdfJsViewer({ url, pdfFile }: PdfJsViewerProps) {
     }
   }, [pdfJsWrapper])
 
+  // show an action button when text is selected in the PDF text layer
+  useEffect(() => {
+    if (!pdfJsWrapper) {
+      clearRewriteSelectionButton()
+      return
+    }
+
+    const handleSelectionChange = () => {
+      updateRewriteSelectionButton()
+    }
+
+    const handleResize = () => {
+      updateRewriteSelectionButton()
+    }
+
+    const handleScroll = () => {
+      clearRewriteSelectionButton()
+    }
+
+    document.addEventListener('selectionchange', handleSelectionChange)
+    window.addEventListener('resize', handleResize)
+    pdfJsWrapper.container.addEventListener('scroll', handleScroll)
+
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange)
+      window.removeEventListener('resize', handleResize)
+      pdfJsWrapper.container.removeEventListener('scroll', handleScroll)
+    }
+  }, [
+    pdfJsWrapper,
+    updateRewriteSelectionButton,
+    clearRewriteSelectionButton,
+  ])
+
   const positionRef = useRef(position)
   useEffect(() => {
     positionRef.current = position
@@ -519,6 +706,28 @@ function PdfJsViewer({ url, pdfFile }: PdfJsViewerProps) {
       >
         <div className="pdfViewer" />
       </div>
+      {rewriteSelectionButton && (
+        <button
+          type="button"
+          className="pdfjs-selection-rewrite-button"
+          style={{
+            top: `${rewriteSelectionButton.top}px`,
+            left: `${rewriteSelectionButton.left}px`,
+          }}
+          onMouseDown={event => event.preventDefault()}
+          onClick={handleRewriteSelection}
+          data-testid="pdfjs-selection-rewrite-button"
+          aria-label="Reescribir seccion"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              fill="currentColor"
+              d="m15.7 3.3 5 5c.4.4.4 1 0 1.4l-10 10c-.1.1-.3.2-.5.3l-5 1.2c-.3.1-.6 0-.8-.2-.2-.2-.3-.5-.2-.8l1.2-5c0-.2.1-.4.3-.5l10-10c.4-.4 1-.4 1.4 0ZM7.2 15.9l-.7 3 3-.7 8.8-8.8-2.3-2.3-8.8 8.8Z"
+            />
+          </svg>
+          <span>Reescribir seccion</span>
+        </button>
+      )}
       {toolbarInfoLoaded && (
         <PdfViewerControlsToolbar
           requestPresentationMode={requestPresentationMode}
