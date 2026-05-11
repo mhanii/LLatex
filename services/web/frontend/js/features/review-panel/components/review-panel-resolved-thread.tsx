@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useState } from 'react'
+import React, { FC, useCallback, useMemo, useState } from 'react'
 import { useTranslation, Trans } from 'react-i18next'
 import { ThreadId } from '../../../../../types/review-panel/review-panel'
 import { useThreadsActionsContext } from '../context/threads-context'
@@ -12,6 +12,8 @@ import { debugConsole } from '@/utils/debugging'
 import { useModalsContext } from '@/features/ide-react/context/modals-context'
 import { usePermissionsContext } from '@/features/ide-react/context/permissions-context'
 import { useUserContext } from '@/shared/context/user-context'
+import { useCodeMirrorStateContext } from '@/features/source-editor/components/codemirror-context'
+import { getFormattedLineNumbers } from '../utils/line-number-calculator'
 
 export const ReviewPanelResolvedThread: FC<{
   id: ThreadId
@@ -29,6 +31,15 @@ export const ReviewPanelResolvedThread: FC<{
     permissions.resolveAllComments ||
     (permissions.resolveOwnComments && isCommentAuthor)
   const canReopen = permissions.comment
+
+  const state = useCodeMirrorStateContext()
+  const lineNumbers = useMemo(() => {
+    if (!state || comment?.op?.p === undefined) {
+      return ''
+    }
+    const length = comment.op.c?.length ?? 0
+    return getFormattedLineNumbers(state.doc, comment.op.p, length)
+  }, [state, comment?.op?.p, comment?.op?.c])
 
   const handleReopenThread = useCallback(async () => {
     setProcessing(true)
@@ -125,6 +136,7 @@ export const ReviewPanelResolvedThread: FC<{
           content={comment?.op.c}
           checkNewLines
           translate="no"
+          lineNumbers={lineNumbers}
         />
       </div>
 
