@@ -54,5 +54,10 @@ export default {
       requirePrivateApiAuth(),
       LlmAgentController.agentSyntaxCheck
     )
+    webRouter.post(
+      '/internal/agent/create-project',
+      requirePrivateApiAuth(),
+      LlmAgentController.agentCreateProject
+    )
   },
 }

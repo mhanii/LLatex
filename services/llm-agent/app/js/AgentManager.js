@@ -90,7 +90,7 @@ export async function run(runId, input, startedAt, opts = {}) {
     const tools = buildTools(runCtx, agent.allowedTools)
     const model = createModel(agent.model)
 
-    const maxSteps = agent.maxSteps ?? 20
+    const maxSteps = opts.maxSteps ?? agent.maxSteps ?? 20
     let finalText = ''
 
     for (let i = 0; i < maxSteps; i++) {

@@ -1,0 +1,40 @@
+% PGFPlots: grouped bar chart comparing multiple series
+\documentclass{article}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+\begin{document}
+\begin{tikzpicture}
+  \begin{axis}[
+    ybar=4pt,                      % grouped bars, 4pt gap between groups
+    bar width=14pt,
+    width=11cm, height=7cm,
+    xlabel={Category},
+    ylabel={Score},
+    symbolic x coords={A,B,C,D,E},
+    xtick=data,
+    ymin=0, ymax=100,
+    ytick={0,20,40,60,80,100},
+    enlarge x limits=0.15,
+    legend pos=north west,
+    legend style={font=\small},
+    nodes near coords,             % show value on top of each bar
+    nodes near coords align=vertical,
+    nodes near coords style={font=\scriptsize},
+    grid=y, grid style={dashed, gray!30},
+    title={Group comparison},
+  ]
+    \addplot[fill=blue!50,  draw=blue!70]
+      coordinates {(A,72)(B,85)(C,60)(D,91)(E,55)};
+    \addlegendentry{Group 1}
+
+    \addplot[fill=red!40,   draw=red!70]
+      coordinates {(A,65)(B,78)(C,82)(D,70)(E,88)};
+    \addlegendentry{Group 2}
+
+    \addplot[fill=green!40, draw=green!70]
+      coordinates {(A,50)(B,62)(C,75)(D,80)(E,95)};
+    \addlegendentry{Group 3}
+  \end{axis}
+\end{tikzpicture}
+\end{document}

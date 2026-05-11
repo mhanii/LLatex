@@ -11,6 +11,7 @@ import UserInfoController from '../../../../app/src/Features/User/UserInfoContro
 import CompileManager from '../../../../app/src/Features/Compile/CompileManager.mjs'
 import ProjectLocator from '../../../../app/src/Features/Project/ProjectLocator.mjs'
 import ProjectGetter from '../../../../app/src/Features/Project/ProjectGetter.mjs'
+import ProjectCreationHandler from '../../../../app/src/Features/Project/ProjectCreationHandler.mjs'
 import ProjectEntityHandler from '../../../../app/src/Features/Project/ProjectEntityHandler.mjs'
 import Settings from '@overleaf/settings'
 import SyntaxChecker from './SyntaxChecker.mjs'
@@ -368,6 +369,20 @@ async function agentPdfPage(req, res) {
   res.json({ imageBase64: buf.toString('base64'), mimeType: 'image/png' })
 }
 
+async function agentCreateProject(req, res) {
+  const { userId, projectName, docLines } = req.body
+  if (!userId || !projectName) {
+    return res.status(400).json({ error: 'userId and projectName required' })
+  }
+  const lines = docLines ?? ['\\documentclass{article}', '\\begin{document}', '\\end{document}']
+  const project = await ProjectCreationHandler.promises.createProjectFromSnippet(
+    userId,
+    projectName,
+    lines
+  )
+  res.json({ projectId: project._id.toString() })
+}
+
 async function agentSyntaxCheck(req, res) {
   const { project_id: projectId } = req.params
   const scopePath = req.query.path ?? null
@@ -384,4 +399,5 @@ export default {
   internalCompile: expressify(internalCompile),
   agentPdfPage: expressify(agentPdfPage),
   agentSyntaxCheck: expressify(agentSyntaxCheck),
+  agentCreateProject: expressify(agentCreateProject),
 }

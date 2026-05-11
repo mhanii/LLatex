@@ -1,0 +1,16 @@
+{
+  "templates": [
+    {
+      "file": "starter.tex",
+      "description": "Node styles (process, decision, terminal) and arrow style — start here for any flowchart or step-by-step diagram"
+    },
+    {
+      "file": "basic_flowchart.tex",
+      "description": "Sequential process with branching — useful for algorithms, system pipelines, experimental procedures, manufacturing steps, or any ordered multi-stage process"
+    },
+    {
+      "file": "decision_tree.tex",
+      "description": "Tree with binary or n-ary branches and edge labels — useful for classification, logical inference, troubleshooting guides, decision analysis, or any hierarchical branching structure"
+    }
+  ]
+}

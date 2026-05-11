@@ -1,0 +1,16 @@
+{
+  "templates": [
+    {
+      "file": "nozzle.tex",
+      "description": "Cross-section with dimension lines and material hatching — useful for mechanical parts, fluid channels, structural cross-sections, or any engineering drawing that needs precise dimensioning and material indication"
+    },
+    {
+      "file": "signpost.tex",
+      "description": "Combined 2D cross-section and 3D structural view with applied load arrows — useful for structural analysis figures, force diagrams, material testing setups, or any diagram mixing a detail view with a 3D overview"
+    },
+    {
+      "file": "sem_system.tex",
+      "description": "Layered instrument cross-section with optical path and component labels — useful for scientific instrument diagrams, microscopy setups, optical bench layouts, or any vertically-stacked system cutaway"
+    }
+  ]
+}

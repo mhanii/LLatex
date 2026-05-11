@@ -19,6 +19,8 @@ export async function createRun(projectId, input) {
       userMessage: input.userMessage,
       selection: input.selection ?? null,
       context: input.context ?? null,
+      currentFile: input.currentFile ?? null,
+      agentName: input.agentName ?? null,
     },
     steps: [],
     contextItems: [],

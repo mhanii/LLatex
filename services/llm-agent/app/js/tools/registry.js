@@ -14,6 +14,8 @@ import { getOutline } from './get_outline.js'
 import { checkSyntax } from './check_syntax.js'
 import { compileAndCheck } from './compile_and_check.js'
 import { getPdfPage } from './get_pdf_page.js'
+import { listSkills } from './list_skills.js'
+import { readSkill } from './read_skill.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -137,6 +139,26 @@ export const TOOL_REGISTRY = {
       page: z.number().int().positive().describe('1-indexed page number'),
     }),
     execute: getPdfPage,
+  },
+
+  list_skills: {
+    description: loadPrompt('list_skills'),
+    inputSchema: z.object({}),
+    execute: listSkills,
+  },
+
+  read_skill: {
+    description: loadPrompt('read_skill'),
+    inputSchema: z.object({
+      name: z.string().describe('Skill name as returned by list_skills'),
+      template: z
+        .string()
+        .optional()
+        .describe(
+          'Template filename (e.g. "tcp_state_machine.tex"). Omit to get the guide and template index with descriptions.'
+        ),
+    }),
+    execute: readSkill,
   },
 }
 

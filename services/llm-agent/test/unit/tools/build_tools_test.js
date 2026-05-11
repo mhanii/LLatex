@@ -17,9 +17,9 @@ const CTX = {
 }
 
 describe('tools/index buildTools', function () {
-  it('returns all 10 tools when toolNames is omitted', function () {
+  it('returns all 12 tools when toolNames is omitted', function () {
     const tools = buildTools(CTX)
-    expect(Object.keys(tools)).to.have.lengthOf(10)
+    expect(Object.keys(tools)).to.have.lengthOf(12)
     expect(tools).to.have.all.keys(
       'list_files',
       'read_file',
@@ -30,7 +30,9 @@ describe('tools/index buildTools', function () {
       'get_outline',
       'check_syntax',
       'compile_and_check',
-      'get_pdf_page'
+      'get_pdf_page',
+      'list_skills',
+      'read_skill'
     )
   })
 
