@@ -43,7 +43,6 @@ export default function RailPanel({
       ref={panelRef}
       collapsible
       onCollapse={onCollapse}
-      onExpand={handlePaneExpand}
     >
       {isHistoryView && <HistorySidebar />}
       <div

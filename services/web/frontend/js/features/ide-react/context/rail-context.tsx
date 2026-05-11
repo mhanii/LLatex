@@ -80,7 +80,8 @@ export const RailProvider: FC<React.PropsWithChildren> = ({ children }) => {
     'file-tree'
   )
 
-  // Keep the panel collapse/expanded state in sync with isOpen and selectedTab
+  // Keep the panel collapse/expanded state in sync with isOpen
+  // This ensures the panel responds only to explicit user actions, not auto-resize
   useLayoutEffect(() => {
     const panelHandle = panelRef.current
 
@@ -91,7 +92,7 @@ export const RailProvider: FC<React.PropsWithChildren> = ({ children }) => {
         panelHandle.collapse()
       }
     }
-  }, [isOpen, selectedTab])
+  }, [isOpen])
 
   const selectTab = useCallback(
     (tab: RailTabKey) => {

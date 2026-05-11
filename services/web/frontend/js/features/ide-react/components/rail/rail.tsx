@@ -1,4 +1,4 @@
-import { FC, RefObject, useCallback, useEffect, useMemo } from 'react'
+import { FC, RefObject, useCallback, useEffect, useMemo, Fragment } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Nav, TabContainer } from 'react-bootstrap'
 import { useLayoutContext } from '@/shared/context/layout-context'
@@ -312,16 +312,19 @@ export const RailLayout = () => {
               .map(({ icon, key, indicator, title, disabled, ref, tab }) => {
                 const Component = tab ?? RailTab
                 return (
-                  <Component
-                    open={isOpen && selectedTab === key}
-                    key={key}
-                    eventKey={key}
-                    icon={icon}
-                    indicator={indicator}
-                    title={title}
-                    disabled={disabled}
-                    ref={ref}
-                  />
+                  <Fragment key={`rail-tab-wrapper-${key}`}>
+                    <Component
+                      open={isOpen && selectedTab === key}
+                      key={key}
+                      eventKey={key}
+                      icon={icon}
+                      indicator={indicator}
+                      title={title}
+                      disabled={disabled}
+                      ref={ref}
+                    />
+                    {key === 'chat' && <ChatbotRailOpenButton />}
+                  </Fragment>
                 )
               })}
             <RailActionElement key="more-options" action={moreOptionsAction} />
@@ -334,7 +337,6 @@ export const RailLayout = () => {
                 ref={action.ref}
               />
             ))}
-            <ChatbotRailOpenButton />
           </nav>
         </Nav>
       </nav>
