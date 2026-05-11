@@ -105,4 +105,44 @@ describe('<ChatbotPanel />', function () {
     )
     expect(screen.queryByText('""')).to.not.exist
   })
+
+  it('shows the source line range when it is available', async function () {
+    renderWithEditorContext(<ChatbotPanel />, { user })
+
+    await act(async () => {
+      emitChatbotPrefill('', {
+        referenceText: 'Selected section from the PDF',
+        referenceLines: { start: 20, end: 21 },
+      })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Lineas 20-21')).to.exist
+    })
+  })
+
+  it('clears the active reference when the x button is clicked', async function () {
+    renderWithEditorContext(<ChatbotPanel />, { user })
+
+    await act(async () => {
+      emitChatbotPrefill('', {
+        referenceText: 'Selected section from the PDF',
+        referenceLines: { start: 20, end: 21 },
+      })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Stop referencing this text' })).to
+        .exist
+    })
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Stop referencing this text' })
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByText('Lineas 20-21')).to.not.exist
+      expect(screen.queryByText('"Selected section from the PDF"')).to.not.exist
+    })
+  })
 })
