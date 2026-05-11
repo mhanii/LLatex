@@ -35,7 +35,11 @@ import { db, mongoClient } from '../mongodb.js'
 import { run as agentRun } from '../AgentManager.js'
 import { createRun } from '../AgentStore.js'
 
-const ADMIN_EMAIL = process.env.E2E_USER_EMAIL ?? 'mohamedhani590@gmail.com'
+const ADMIN_EMAIL = process.env.E2E_USER_EMAIL
+if (!ADMIN_EMAIL) {
+  console.error('E2E_USER_EMAIL is required (set to the seed admin user email).')
+  process.exit(2)
+}
 
 // ── Seed: truly empty ────────────────────────────────────────────────────────
 
@@ -324,13 +328,48 @@ function printRun(doc, label) {
 
 // ── Assertions ────────────────────────────────────────────────────────────────
 
-/** Read a file from the container's project volume via MongoDB docId → document-updater */
-function readProjectFile(projectId, filePath, finalFiles) {
-  // The files are on the container filesystem under /overleaf/...
-  // We can try reading them from the llm-agent's perspective via the doc store path.
-  // Simpler: just grep the raw path if accessible, or skip content checks.
-  // For now we return null and do a best-effort check.
-  return null
+/**
+ * Read a file's committed content by docId via document-updater's peek endpoint.
+ * Returns the joined lines, or null if the file is unknown or unreachable.
+ * @param {string} projectId
+ * @param {string} filePath
+ * @param {{path: string, docId: string}[]} finalFiles
+ * @returns {Promise<string|null>}
+ */
+async function readProjectFile(projectId, filePath, finalFiles) {
+  const entry = finalFiles.find(f => f.path === filePath)
+  if (!entry) return null
+  const base = `${settings.apis.documentUpdater.url}/project/${projectId}/doc/${entry.docId}`
+  // Peek first (Redis-only, lock-free, sees the latest in-flight state). If the
+  // doc has been flushed from Redis since the run finished, fall back to the
+  // loading endpoint, which reads from docstore.
+  try {
+    let res = await fetch(`${base}/peek`)
+    if (res.status === 404) res = await fetch(base)
+    if (!res.ok) return null
+    const { lines } = await res.json()
+    return Array.isArray(lines) ? lines.join('\n') : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * @param {string} projectId
+ * @param {{path: string, docId: string}[]} finalFiles
+ * @param {string[]} paths
+ * @returns {Promise<Map<string, string>>}
+ */
+async function loadFileContents(projectId, finalFiles, paths) {
+  /** @type {Map<string, string>} */
+  const out = new Map()
+  await Promise.all(
+    paths.map(async p => {
+      const content = await readProjectFile(projectId, p, finalFiles)
+      if (content != null) out.set(p, content)
+    })
+  )
+  return out
 }
 
 /**
@@ -338,8 +377,9 @@ function readProjectFile(projectId, filePath, finalFiles) {
  * @param {any[]}  seedFiles
  * @param {any[]}  finalFiles
  * @param {string} projectId
+ * @param {Map<string, string>} fileContents  Real on-disk content of figure files, keyed by path.
  */
-function assertRun(doc, seedFiles, finalFiles, projectId) {
+function assertRun(doc, seedFiles, finalFiles, projectId, fileContents) {
   let ok = true
   /** @param {boolean} cond @param {string} msg */
   function check(cond, msg) {
@@ -403,45 +443,41 @@ function assertRun(doc, seedFiles, finalFiles, projectId) {
     `at least 5 section files (got ${sectionFiles.length}: ${sectionFiles.map(f => f.path).join(', ')})`
   )
 
-  // ── Data integrity — check specific numbers appear in the generated files ──
-  // We verify via the tool_output of read_file or create_file calls to check if
-  // the agent embedded the exact data values into the right files.
-  const createCalls = toolCallContents.filter(
-    c => c?.name === 'create_file' || c?.name === 'edit_file'
-  )
-
-  // Helper: look for a value in any create/edit call targeting a specific path
+  // ── Data integrity — check specific numbers appear in the committed file content.
+  // Reads come from document-updater's peek endpoint (real on-disk state), not
+  // from tool-call argument strings, so an agent that issues correct args and
+  // then overwrites the file would still fail these assertions.
+  /** @param {string} filePath @param {string} value */
   function dataInFile(filePath, value) {
-    return createCalls.some(c => {
-      const matchesPath =
-        (c?.args?.path ?? '').includes(filePath.replace('figures/', ''))
-      const content = c?.args?.content ?? c?.args?.newText ?? ''
-      return matchesPath && String(content).includes(value)
-    })
+    const content = fileContents.get(filePath)
+    if (content == null) return false
+    return content.includes(value)
   }
 
   check(
-    dataInFile('training_curves', '0.38'),
+    dataInFile('figures/training_curves.tex', '0.38'),
     'training_curves.tex contains Newton-CG value 0.38 at iter 20'
   )
   check(
-    dataInFile('training_curves', '0.30'),
+    dataInFile('figures/training_curves.tex', '0.30'),
     'training_curves.tex contains SGD value 0.30 at iter 100'
   )
   check(
-    dataInFile('performance_bars', '94.8'),
+    dataInFile('figures/performance_bars.tex', '94.8'),
     'performance_bars.tex contains "Ours" accuracy 94.8'
   )
   check(
-    dataInFile('performance_bars', '82.3'),
+    dataInFile('figures/performance_bars.tex', '82.3'),
     'performance_bars.tex contains PID accuracy 82.3'
   )
   check(
-    dataInFile('attention_matrix', '0.75') || dataInFile('attention_matrix', '75'),
+    dataInFile('figures/attention_matrix.tex', '0.75') ||
+      dataInFile('figures/attention_matrix.tex', '75'),
     'attention_matrix.tex contains Cruise→Cruise weight 0.75'
   )
   check(
-    dataInFile('nozzle_section', '12') && dataInFile('nozzle_section', '48'),
+    dataInFile('figures/nozzle_section.tex', '12') &&
+      dataInFile('figures/nozzle_section.tex', '48'),
     'nozzle_section.tex contains throat 12mm and exit 48mm dimensions'
   )
 
@@ -498,7 +534,19 @@ async function main() {
   }
 
   bar('ASSERTIONS')
-  const passed = assertRun(doc, seedFiles, finalFiles, projectId)
+  const dataPaths = [
+    'figures/training_curves.tex',
+    'figures/performance_bars.tex',
+    'figures/attention_matrix.tex',
+    'figures/nozzle_section.tex',
+  ]
+  const fileContents = await loadFileContents(projectId, finalFiles, dataPaths)
+  for (const p of dataPaths) {
+    if (!fileContents.has(p)) {
+      console.warn(`  ⚠ could not fetch content for ${p} — data assertions will fail`)
+    }
+  }
+  const passed = assertRun(doc, seedFiles, finalFiles, projectId, fileContents)
 
   bar('SUMMARY')
   console.log(`status:     ${doc.status}`)

@@ -1,7 +1,7 @@
 // @ts-check
 import { expect } from 'chai'
 import { checkSyntax } from '../../../app/js/tools/check_syntax.js'
-import { fakeResponse, CTX, stubFetch, restoreFetch } from './helpers.js'
+import { fakeResponse, makeCtx, stubFetch, restoreFetch } from './helpers.js'
 
 const NO_ISSUES = { issues: [] }
 
@@ -17,13 +17,13 @@ describe('checkSyntax', function () {
       },
     ]
     stubFetch(async () => fakeResponse(200, { issues }))
-    const result = await checkSyntax({}, CTX)
+    const result = await checkSyntax({}, makeCtx())
     expect(result.issues).to.deep.equal(issues)
   })
 
   it('returns empty issues array on clean project', async function () {
     stubFetch(async () => fakeResponse(200, NO_ISSUES))
-    const result = await checkSyntax({}, CTX)
+    const result = await checkSyntax({}, makeCtx())
     expect(result.issues).to.deep.equal([])
   })
 
@@ -33,7 +33,7 @@ describe('checkSyntax', function () {
       capturedUrl = url
       return fakeResponse(200, NO_ISSUES)
     })
-    await checkSyntax({}, CTX)
+    await checkSyntax({}, makeCtx())
     expect(capturedUrl).to.include('/internal/project/proj123/agent/syntax-check')
   })
 
@@ -43,7 +43,7 @@ describe('checkSyntax', function () {
       capturedUrl = url
       return fakeResponse(200, NO_ISSUES)
     })
-    await checkSyntax({ path: 'main.tex' }, CTX)
+    await checkSyntax({ path: 'main.tex' }, makeCtx())
     expect(capturedUrl).to.include('path=main.tex')
   })
 
@@ -53,7 +53,7 @@ describe('checkSyntax', function () {
       capturedUrl = url
       return fakeResponse(200, NO_ISSUES)
     })
-    await checkSyntax({}, CTX)
+    await checkSyntax({}, makeCtx())
     expect(capturedUrl).to.not.include('path=')
   })
 
@@ -63,13 +63,13 @@ describe('checkSyntax', function () {
       capturedOpts = opts
       return fakeResponse(200, NO_ISSUES)
     })
-    await checkSyntax({}, CTX)
+    await checkSyntax({}, makeCtx())
     expect(capturedOpts.headers.Authorization).to.match(/^Basic /)
   })
 
   it('wraps HTTP failure in a single error issue', async function () {
     stubFetch(async () => fakeResponse(503))
-    const result = await checkSyntax({}, CTX)
+    const result = await checkSyntax({}, makeCtx())
     expect(result.issues).to.have.length(1)
     expect(result.issues[0].type).to.equal('error')
     expect(result.issues[0].message).to.include('503')

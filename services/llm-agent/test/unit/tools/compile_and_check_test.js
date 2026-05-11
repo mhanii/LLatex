@@ -1,7 +1,7 @@
 // @ts-check
 import { expect } from 'chai'
 import { compileAndCheck } from '../../../app/js/tools/compile_and_check.js'
-import { fakeResponse, CTX, stubFetch, restoreFetch } from './helpers.js'
+import { fakeResponse, makeCtx, stubFetch, restoreFetch } from './helpers.js'
 
 const EMPTY_OK = {
   success: true,
@@ -17,7 +17,7 @@ describe('compileAndCheck', function () {
 
   it('passes the structured success payload through unchanged', async function () {
     stubFetch(async () => fakeResponse(200, { ...EMPTY_OK, pageCount: 4 }))
-    const result = await compileAndCheck({}, CTX)
+    const result = await compileAndCheck({}, makeCtx())
     expect(result).to.deep.equal({ ...EMPTY_OK, pageCount: 4 })
   })
 
@@ -39,7 +39,7 @@ describe('compileAndCheck', function () {
       pageCount: null,
     }
     stubFetch(async () => fakeResponse(200, failure))
-    const result = await compileAndCheck({}, CTX)
+    const result = await compileAndCheck({}, makeCtx())
     expect(result).to.deep.equal(failure)
   })
 
@@ -51,14 +51,14 @@ describe('compileAndCheck', function () {
         status: 'too-recently-compiled',
       })
     )
-    const result = await compileAndCheck({}, CTX)
+    const result = await compileAndCheck({}, makeCtx())
     expect(result.success).to.be.false
     expect(result.status).to.equal('too-recently-compiled')
   })
 
   it('returns empty entries with HTTP error status when fetch fails', async function () {
     stubFetch(async () => fakeResponse(500))
-    const result = await compileAndCheck({}, CTX)
+    const result = await compileAndCheck({}, makeCtx())
     expect(result.success).to.be.false
     expect(result.status).to.include('500')
     expect(result.errors).to.deep.equal([])
@@ -73,7 +73,7 @@ describe('compileAndCheck', function () {
       called = true
       return fakeResponse(200, EMPTY_OK)
     })
-    const result = await compileAndCheck({ path: 'nope.tex' }, CTX)
+    const result = await compileAndCheck({ path: 'nope.tex' }, makeCtx())
     expect(called).to.be.false
     expect(result.success).to.be.false
     expect(result.status).to.include('file not found')
@@ -90,7 +90,7 @@ describe('compileAndCheck', function () {
       capturedBody = JSON.parse(opts.body)
       return fakeResponse(200, EMPTY_OK)
     })
-    await compileAndCheck({}, CTX)
+    await compileAndCheck({}, makeCtx())
     expect(capturedUrl).to.include('/internal/project/proj123/agent/compile')
     expect(capturedHeaders.Authorization).to.match(/^Basic /)
     expect(capturedBody).to.deep.equal({ userId: 'user123' })

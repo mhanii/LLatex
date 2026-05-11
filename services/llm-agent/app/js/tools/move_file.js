@@ -27,5 +27,7 @@ export async function moveFile({ oldPath, newPath }, ctx) {
   if (!res.ok) {
     return `Move failed: HTTP ${res.status}`
   }
+  const entry = ctx.context?.files?.find(f => f.path === oldPath)
+  if (entry) entry.path = newPath
   return 'Moved.'
 }

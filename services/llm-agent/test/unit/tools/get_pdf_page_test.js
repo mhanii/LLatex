@@ -1,7 +1,7 @@
 // @ts-check
 import { expect } from 'chai'
 import { getPdfPage } from '../../../app/js/tools/get_pdf_page.js'
-import { fakeResponse, CTX, stubFetch, restoreFetch } from './helpers.js'
+import { fakeResponse, makeCtx, stubFetch, restoreFetch } from './helpers.js'
 
 const FAKE_IMAGE = { imageBase64: 'iVBORw0KGgo=', mimeType: 'image/png' }
 
@@ -10,20 +10,20 @@ describe('getPdfPage', function () {
 
   it('returns imageBase64 and mimeType on success', async function () {
     stubFetch(async () => fakeResponse(200, FAKE_IMAGE))
-    const result = await getPdfPage({ page: 1 }, CTX)
+    const result = await getPdfPage({ page: 1 }, makeCtx())
     expect(result).to.deep.equal(FAKE_IMAGE)
   })
 
   it('returns error string when no compiled PDF exists (404)', async function () {
     stubFetch(async () => fakeResponse(404))
-    const result = await getPdfPage({ page: 1 }, CTX)
+    const result = await getPdfPage({ page: 1 }, makeCtx())
     expect(result).to.be.a('string')
     expect(result).to.include('No compiled PDF')
   })
 
   it('returns error string on upstream failure', async function () {
     stubFetch(async () => fakeResponse(502))
-    const result = await getPdfPage({ page: 1 }, CTX)
+    const result = await getPdfPage({ page: 1 }, makeCtx())
     expect(result).to.be.a('string')
     expect(result).to.include('502')
   })
@@ -34,7 +34,7 @@ describe('getPdfPage', function () {
       capturedUrl = url
       return fakeResponse(200, FAKE_IMAGE)
     })
-    await getPdfPage({ page: 3 }, CTX)
+    await getPdfPage({ page: 3 }, makeCtx())
     expect(capturedUrl).to.include('/internal/project/proj123/agent/pdf-page')
     expect(capturedUrl).to.include('page=3')
     expect(capturedUrl).to.include('userId=user123')
@@ -46,14 +46,14 @@ describe('getPdfPage', function () {
       capturedOpts = opts
       return fakeResponse(200, FAKE_IMAGE)
     })
-    await getPdfPage({ page: 1 }, CTX)
+    await getPdfPage({ page: 1 }, makeCtx())
     expect(capturedOpts.headers.Authorization).to.match(/^Basic /)
   })
 
   it('returns error string for invalid page number (0)', async function () {
     // No fetch should be needed — the tool guards before calling
     stubFetch(async () => { throw new Error('should not call fetch') })
-    const result = await getPdfPage({ page: 0 }, CTX)
+    const result = await getPdfPage({ page: 0 }, makeCtx())
     expect(result).to.be.a('string')
   })
 })

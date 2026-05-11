@@ -1,7 +1,7 @@
 // @ts-check
 import { expect } from 'chai'
 import { editFile } from '../../../app/js/tools/edit_file.js'
-import { fakeResponse, CTX, stubFetch, restoreFetch } from './helpers.js'
+import { fakeResponse, makeCtx, stubFetch, restoreFetch } from './helpers.js'
 
 describe('editFile', function () {
   afterEach(restoreFetch)
@@ -10,7 +10,7 @@ describe('editFile', function () {
     stubFetch(async () => fakeResponse(204))
     const result = await editFile(
       { path: 'main.tex', oldText: 'hello', newText: 'world' },
-      CTX
+      makeCtx()
     )
     expect(result).to.equal('Change applied.')
   })
@@ -19,7 +19,7 @@ describe('editFile', function () {
     stubFetch(async () => fakeResponse(404))
     const result = await editFile(
       { path: 'main.tex', oldText: 'missing text', newText: 'replacement' },
-      CTX
+      makeCtx()
     )
     expect(result).to.include('not found')
     expect(result).to.include('main.tex')
@@ -34,7 +34,7 @@ describe('editFile', function () {
     )
     const result = await editFile(
       { path: 'main.tex', oldText: 'repeated', newText: 'replacement' },
-      CTX
+      makeCtx()
     )
     expect(result).to.include('multiple times')
   })
@@ -43,7 +43,7 @@ describe('editFile', function () {
     stubFetch(async () => fakeResponse(500))
     const result = await editFile(
       { path: 'main.tex', oldText: 'x', newText: 'y' },
-      CTX
+      makeCtx()
     )
     expect(result).to.include('500')
   })
@@ -57,7 +57,7 @@ describe('editFile', function () {
     })
     await editFile(
       { path: 'main.tex', oldText: 'old', newText: 'new' },
-      CTX
+      makeCtx()
     )
     expect(capturedUrl).to.include('/project/proj123/doc/doc111/agent-replace')
     expect(capturedBody).to.deep.equal({
@@ -67,11 +67,16 @@ describe('editFile', function () {
     })
   })
 
-  it('throws for unknown path', async function () {
-    stubFetch(async () => fakeResponse(204))
-    let err
-    try { await editFile({ path: 'ghost.tex', oldText: 'x', newText: 'y' }, CTX) } catch (e) { err = e }
-    expect(err).to.be.an('error')
-    expect(err.message).to.include('ghost.tex')
+  it('returns an error string (not throw) for unknown path', async function () {
+    let called = false
+    stubFetch(async () => { called = true; return fakeResponse(204) })
+    const result = await editFile(
+      { path: 'ghost.tex', oldText: 'x', newText: 'y' },
+      makeCtx()
+    )
+    expect(result).to.be.a('string')
+    expect(result).to.include('ghost.tex')
+    expect(result).to.include('list_files')
+    expect(called).to.be.false
   })
 })
