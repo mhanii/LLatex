@@ -22,7 +22,30 @@ export function buildTools(ctx, toolNames) {
     out[name] = tool({
       description: def.description,
       inputSchema: def.inputSchema,
-      execute: input => def.execute(input, ctx),
+      execute: async input => {
+        await ctx.onToolEvent?.({
+          toolName: name,
+          status: 'running',
+          input,
+        })
+        try {
+          const output = await def.execute(input, ctx)
+          await ctx.onToolEvent?.({
+            toolName: name,
+            status: 'completed',
+            input,
+          })
+          return output
+        } catch (err) {
+          await ctx.onToolEvent?.({
+            toolName: name,
+            status: 'error',
+            input,
+            error: err?.message ?? String(err),
+          })
+          throw err
+        }
+      },
     })
   }
   return out

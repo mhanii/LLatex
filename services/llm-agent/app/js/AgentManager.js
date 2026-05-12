@@ -54,6 +54,25 @@ async function notifyWebAgentComplete(projectId, payload) {
   }
 }
 
+async function notifyWebAgentToolCall(projectId, payload) {
+  const response = await fetch(
+    webUrl(`/internal/project/${projectId}/agent/tool-call`),
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: basicAuth(),
+      },
+      body: JSON.stringify(payload),
+    }
+  )
+  if (!response.ok) {
+    throw new Error(
+      `agent tool callback failed with HTTP ${response.status}`
+    )
+  }
+}
+
 /**
  * Entry point for the agent loop. Called without await (fire-and-forget)
  * so the HTTP response can return immediately with the runId.
@@ -85,7 +104,22 @@ export async function run(runId, input, startedAt, opts = {}) {
       projectId: input.projectId,
       userId: input.userId,
       runId,
+      conversationId: input.conversationId,
       context: input.context,
+      onToolEvent: async event => {
+        try {
+          await notifyWebAgentToolCall(input.projectId, {
+            conversationId: input.conversationId,
+            runId,
+            ...event,
+          })
+        } catch (notifyErr) {
+          logger.warn(
+            { err: notifyErr, runId, projectId: input.projectId },
+            'agent tool callback failed'
+          )
+        }
+      },
     }
     const tools = buildTools(runCtx, agent.allowedTools)
     const model = createModel(agent.model)
@@ -191,6 +225,7 @@ export async function run(runId, input, startedAt, opts = {}) {
     try {
       await notifyWebAgentComplete(input.projectId, {
         conversationId: input.conversationId,
+        runId,
         userId: input.userId,
         content: output.content,
       })
@@ -208,6 +243,7 @@ export async function run(runId, input, startedAt, opts = {}) {
       try {
         await notifyWebAgentComplete(input.projectId, {
           conversationId: input.conversationId,
+          runId,
           userId: input.userId,
           content: output.content,
         })

@@ -1,9 +1,10 @@
 // @ts-check
 
 import { expressify } from '@overleaf/promise-utils'
-import { ObjectId } from 'mongodb'
+import { ObjectId } from '../../../../app/src/infrastructure/mongodb.mjs'
 import SessionManager from '../../../../app/src/Features/Authentication/SessionManager.mjs'
 import ChatApiHandler from '../../../../app/src/Features/Chat/ChatApiHandler.mjs'
+import ChatManager from '../../../../app/src/Features/Chat/ChatManager.mjs'
 import EditorController from '../../../../app/src/Features/Editor/EditorController.mjs'
 import EditorRealTimeController from '../../../../app/src/Features/Editor/EditorRealTimeController.mjs'
 import UserInfoManager from '../../../../app/src/Features/User/UserInfoManager.mjs'
@@ -16,6 +17,7 @@ import ProjectEntityHandler from '../../../../app/src/Features/Project/ProjectEn
 import Settings from '@overleaf/settings'
 import SyntaxChecker from './SyntaxChecker.mjs'
 import LlmAgentApiHandler from './LlmAgentApiHandler.mjs'
+import AgentConversationManager from './AgentConversationManager.mjs'
 import { parseCompileLogs } from './parsers/LogParser.mjs'
 
 function normalizeProjectPath(path) {
@@ -52,6 +54,12 @@ async function sendMessage(req, res) {
   }
 
   const conversationId = bodyConversationId ?? new ObjectId().toHexString()
+  const conversation = await AgentConversationManager.promises.ensureConversation(
+    projectId,
+    conversationId,
+    userId,
+    message
+  )
 
   const project = await ProjectGetter.promises.getProject(projectId, {
     name: 1,
@@ -73,7 +81,18 @@ async function sendMessage(req, res) {
   const user = await UserInfoManager.promises.getPersonalInfo(chatMessage.user_id)
   chatMessage.user = UserInfoController.formatPersonalInfo(user)
 
-  EditorRealTimeController.emitToRoom(projectId, 'new-chat-message', chatMessage)
+  await AgentConversationManager.promises.recordMessage(
+    projectId,
+    conversationId,
+    chatMessage,
+    'user'
+  )
+
+  EditorRealTimeController.emitToRoom(projectId, 'agent:message', {
+    conversationId,
+    conversation,
+    message: { ...chatMessage, role: 'user' },
+  })
 
   const { runId } = await LlmAgentApiHandler.promises.startRun(projectId, {
     userId,
@@ -82,8 +101,63 @@ async function sendMessage(req, res) {
     selection: selection ?? undefined,
     context,
   })
+  await AgentConversationManager.promises.recordRun(projectId, conversationId, runId)
 
   res.status(202).json({ runId, messageId: chatMessage.id, conversationId })
+}
+
+async function createConversation(req, res) {
+  const { project_id: projectId } = req.params
+  const userId = SessionManager.getLoggedInUserId(req.session)
+  if (userId == null) {
+    throw new Error('no logged-in user')
+  }
+
+  const conversation =
+    await AgentConversationManager.promises.createConversation(projectId, userId)
+  res.status(201).json(conversation)
+}
+
+async function listConversations(req, res) {
+  const { project_id: projectId } = req.params
+  const conversations =
+    await AgentConversationManager.promises.listConversations(projectId)
+  res.json(conversations)
+}
+
+async function getConversationMessages(req, res) {
+  const { project_id: projectId, conversation_id: conversationId } = req.params
+  const conversation = await AgentConversationManager.promises.getConversation(
+    projectId,
+    conversationId
+  )
+  if (!conversation) {
+    return res.status(404).json({ error: 'agent conversation not found' })
+  }
+
+  let thread
+  try {
+    thread = await ChatApiHandler.promises.getThread(projectId, conversationId)
+  } catch (err) {
+    if (err?.statusCode === 404 || err?.response?.status === 404) {
+      return res.json([])
+    }
+    throw err
+  }
+
+  await ChatManager.promises.injectUserInfoIntoThreads({
+    [conversationId]: thread,
+  })
+  const roles = await AgentConversationManager.promises.getMessageRoles(
+    projectId,
+    conversationId
+  )
+  res.json(
+    thread.messages.map(message => ({
+      ...message,
+      role: roles.get(message.id) ?? (message.user_id ? 'user' : 'assistant'),
+    }))
+  )
 }
 
 // Called by llm-agent service after run completes — emits reply over WebSocket.
@@ -92,7 +166,7 @@ async function sendMessage(req, res) {
 // - { conversationId, userId, content } to create and emit a new chat message
 async function agentComplete(req, res) {
   const { project_id: projectId } = req.params
-  const { conversationId, messageId, userId, content } = req.body
+  const { conversationId, messageId, userId, content, runId } = req.body
   if (!conversationId) {
     return res.status(400).json({ error: 'conversationId required' })
   }
@@ -120,8 +194,56 @@ async function agentComplete(req, res) {
   }
 
   if (message) {
-    EditorRealTimeController.emitToRoom(projectId, 'new-chat-message', message)
+    await AgentConversationManager.promises.recordMessage(
+      projectId,
+      conversationId,
+      message,
+      'assistant',
+      runId
+    )
+    const updatedConversation =
+      await AgentConversationManager.promises.getConversation(
+        projectId,
+        conversationId
+      )
+    EditorRealTimeController.emitToRoom(projectId, 'agent:message', {
+      conversationId,
+      conversation: updatedConversation,
+      message: { ...message, role: 'assistant' },
+    })
   }
+  res.sendStatus(204)
+}
+
+async function agentToolCall(req, res) {
+  const { project_id: projectId } = req.params
+  const {
+    conversationId,
+    runId,
+    toolCallId,
+    toolName,
+    status,
+    input,
+    output,
+    error,
+  } = req.body
+  if (!conversationId || !runId || !toolName || !status) {
+    return res
+      .status(400)
+      .json({ error: 'conversationId, runId, toolName and status required' })
+  }
+
+  EditorRealTimeController.emitToRoom(projectId, 'agent:tool-call', {
+    conversationId,
+    runId,
+    toolCallId,
+    toolName,
+    status,
+    input,
+    output,
+    error,
+    timestamp: Date.now(),
+  })
   res.sendStatus(204)
 }
 
@@ -394,8 +516,12 @@ async function agentSyntaxCheck(req, res) {
 }
 
 export default {
+  createConversation: expressify(createConversation),
+  listConversations: expressify(listConversations),
+  getConversationMessages: expressify(getConversationMessages),
   sendMessage: expressify(sendMessage),
   agentComplete: expressify(agentComplete),
+  agentToolCall: expressify(agentToolCall),
   agentCreateFile: expressify(agentCreateFile),
   agentDeleteFile: expressify(agentDeleteFile),
   agentMoveFile: expressify(agentMoveFile),

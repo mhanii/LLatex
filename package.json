@@ -2,6 +2,7 @@
   "name": "overleaf",
   "private": true,
   "dependencies": {
+    "micromark-extension-gfm": "^3.0.0",
     "patch-package": "^8.0.0"
   },
   "devDependencies": {

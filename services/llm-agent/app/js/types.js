@@ -85,7 +85,9 @@
  * @property {string} projectId
  * @property {string} userId
  * @property {string} runId
+ * @property {string} conversationId
  * @property {ProjectContext} [context]
+ * @property {(event: {toolName: string, status: 'running'|'completed'|'error', input?: unknown, error?: string}) => Promise<void>} [onToolEvent]
  */
 
 /**

@@ -75,11 +75,10 @@ export default function MainLayout() {
     'ide-redesign-chatbot-panel-dragging': chatDockDragging,
   })
 
-  const chatSize = chatDockSide === 'left' ? chatPanelSizeLeft : chatPanelSizeRight
   const chatMaxPercent = 40
   const forcedChatStyle = chatPanelStyle
-    ? { ...chatPanelStyle, flexBasis: `${chatSize}%`, maxWidth: `${chatMaxPercent}%` }
-    : { flexBasis: `${chatSize}%`, maxWidth: `${chatMaxPercent}%` }
+    ? { ...chatPanelStyle, maxWidth: `${chatMaxPercent}%` }
+    : { maxWidth: `${chatMaxPercent}%` }
 
   return (
     <div className="ide-redesign-main">
