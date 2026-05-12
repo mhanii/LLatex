@@ -1,5 +1,5 @@
 // @ts-check
-import { resolveFile, docUpdaterUrl } from './utils.js'
+import { resolveFile, docUpdaterUrl, unknownPathError } from './utils.js'
 
 const OUTLINE_RE =
   /^\\(chapter|section|subsection|subsubsection)\*?\{([^}]*)\}|^\\begin\{([^}]+)\}/
@@ -10,13 +10,19 @@ const OUTLINE_RE =
  * @returns {Promise<Array<{type: string, title: string, lineNumber: number}> | string>}
  */
 export async function getOutline({ path }, ctx) {
-  const { docId } = resolveFile(path, ctx)
-  const res = await fetch(
-    `${docUpdaterUrl()}/project/${ctx.projectId}/doc/${docId}/peek`,
-    { signal: AbortSignal.timeout(30_000) } // 30s timeout
-  )
+  const file = resolveFile(path, ctx)
+  if (!file) return unknownPathError(path)
+  const { docId } = file
+  const base = `${docUpdaterUrl()}/project/${ctx.projectId}/doc/${docId}`
+  // Peek first — Redis-only, lock-free, reflects the latest in-flight edits
+  // from any active client. On 404 the doc isn't in Redis yet; fall back to
+  // the loading endpoint, which reads from docstore and warms Redis.
+  let res = await fetch(`${base}/peek`, { signal: AbortSignal.timeout(30_000) })
   if (res.status === 404) {
-    return `"${path}" is not loaded yet — try listing files first.`
+    res = await fetch(base, { signal: AbortSignal.timeout(30_000) })
+  }
+  if (res.status === 404) {
+    return `"${path}" not found in project storage. Call list_files to confirm the path.`
   }
   if (!res.ok) {
     return `Failed to read "${path}": HTTP ${res.status}`

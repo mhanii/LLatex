@@ -1,0 +1,137 @@
+% Table in the shape of an arrow
+% Author: Gonzalo Medina
+
+
+% ## Arrow-Shaped Matrix Illustration
+%
+% This LaTeX code uses **TikZ** to create a distinct, visually engaging diagram of a standard matrix (matrix of nodes) shaped into an **arrow**. It uses custom styling and libraries to construct the shape, colors, rules, labels, and slanted markings, making it an excellent technique for process flow illustrations.
+%
+% ### Key Features
+%
+% * **Arrow-Shaped Grid:** Defines a basic `matrix of nodes` grid (`row sep/column sep`) but uses custom `\draw` and `\shade` commands, along with a creative use of empty cells and white-filled "erase" regions, to transform the standard rectangle into a pointed arrow shape.
+% * **Custom Color Palette:** Sets up an array of specific light pastel colors (`colone` to `colseven`) to provide color coding for different sections or categories within the arrow.
+% * **Parameterized Matrix:** Employs the `\tikzset{table/style={...}}` configuration to set consistent styling (nodes, rectangles, fixed width, alignment, text depth/height) across all cells of the matrix.
+% * **Dynamic Labeling:** Includes multiple layers of text labeling:
+% * **Direct Cell Labels:** Uses `\node` and coordinate arithmetic (`at (mat-X-Y)`) to accurately place main labels like "Firm Infrastructure" and "Operations" within their correct grid boxes.
+% * **Side/Bottom Labels:** Uses rotated nodes (`\node[rotate=90]`) and specific positioning relative to the grid (`([xshift=...]mat-X-Y.north)`) to add category descriptors such as "**SUPPORT ACTIVITIES**" on the left and "**PRIMARY ACTIVITIES**" along the bottom.
+% * **Slanted Markings:** Leverages the `decorations.markings` library to place multiple transformable "Margin" labels along the diagonal edges of the arrow tip.
+%
+%
+% * **Structural Details:** Includes custom `white` horizontal and vertical rules (`\draw`), thick boundaries for definition, and curly braces (`decorations.pathreplacing`) raised with a `raise` shift to visually cluster categories like "Primary Activities."
+%
+% ### Technical Components
+%
+% * **Matrix Library:** Heavily uses the `matrix` library and PGF coordinate arithmetic (e.g., `(mat-5-2.north west)`) for both construction and label placement.
+% * **PGFMath Arithmetic:** Employs coordinate shifting (`[yshift=-10pt]`) and calculation syntax (`($ (mat-1-5.north)!0.5!(mat-1-5.north east) $)`) for highly accurate node and label positioning.
+% * **Fill and Shade:** Uses `\shade` to create a gradient fill on the arrow tip, blending the `colfour`, `colseven`, and `white` colors.
+% * **Preview and Tightpage:** Incorporates the `preview` package with specific `\PreviewBorder` settings for a perfectly cropped diagram with defined padding.
+%
+
+\documentclass{article}
+\usepackage{tikz}
+\usepackage[active,tightpage]{preview}
+\PreviewEnvironment{tikzpicture}
+\setlength\PreviewBorder{10pt}%
+\usetikzlibrary{calc,matrix,decorations.markings,decorations.pathreplacing}
+
+\definecolor{colone}{RGB}{209,220,204}
+\definecolor{coltwo}{RGB}{204,222,210}
+\definecolor{colthree}{RGB}{207,233,232}
+\definecolor{colfour}{RGB}{248,243,214}
+\definecolor{colfive}{RGB}{245,238,197}
+\definecolor{colsix}{RGB}{243,235,179}
+\definecolor{colseven}{RGB}{241,231,163}
+
+\tikzset{
+  table/.style={
+    matrix of nodes,
+    row sep=-\pgflinewidth,
+    column sep=-\pgflinewidth,
+    nodes={rectangle,text width=2cm,align=center},
+    text depth=1.25ex,
+    text height=2.5ex,
+    nodes in empty cells
+  }
+}
+
+\renewcommand*{\familydefault}{\sfdefault}
+\newcommand{\cbox}[1]{\parbox[t]{2cm}{\centering #1}}
+
+\begin{document}
+
+\begin{tikzpicture}
+  \matrix (mat) [table] {
+    |[fill=colfour]|      & |[fill=colfour]|  & |[fill=colfour]|
+      & |[fill=colfour]|  & |[fill=colfour]|  &                   \\
+    |[fill=colfive]|      & |[fill=colfive]|  & |[fill=colfive]|
+      & |[fill=colfive]|  & |[fill=colfive]|  &                   \\
+    |[fill=colsix]|       & |[fill=colsix]|   & |[fill=colsix]|
+      & |[fill=colsix]|   & |[fill=colsix]|   & |[fill=colsix]|   \\
+    |[fill=colseven]|     & |[fill=colseven]| & |[fill=colseven]|
+      & |[fill=colseven]| & |[fill=colseven]| & |[fill=colseven]| \\
+    |[fill=colone]|       & |[fill=coltwo]|   & |[fill=colthree]|
+      & |[fill=coltwo]|   & |[fill=colone]|   & |[fill=colone]|   \\
+    |[fill=colone]|       & |[fill=coltwo]|   & |[fill=colthree]|
+      & |[fill=coltwo]|   & |[fill=colone]|   & |[fill=colone]|   \\
+    |[fill=colone]|       & |[fill=coltwo]|   & |[fill=colthree]|
+      & |[fill=coltwo]|   & |[fill=colone]|   &                   \\
+    |[fill=colone]|       & |[fill=coltwo]|   & |[fill=colthree]|
+      & |[fill=coltwo]|   & |[fill=colone]|   &                   \\
+  };
+
+  % horizontal rules
+  \foreach \row in {2,3,4}
+    \draw[white] (mat-\row-1.north west) -- (mat-\row-6.north east);
+  \draw[white,ultra thick] (mat-1-1.north west) -- (mat-1-6.north east);
+  \draw[white,ultra thick] (mat-5-1.north west) -- (mat-5-6.north east);
+
+  % vertical rules
+  \foreach \col in {2,3,4,5}
+    \draw[white] (mat-5-\col.north west) -- (mat-8-\col.south west);
+
+  % The labels
+  \node[fill=colfour] at (mat-1-3) {Firm Infrastructure};
+  \node[fill=colfive] at (mat-2-3) {Human Resources Management};
+  \node[fill=colsix] at (mat-3-3) {Technology Development};
+  \node[fill=colseven] at (mat-4-3) {Procurement};
+  \node at ([yshift=-10pt]mat-6-1) {\cbox{Inbound Logistics}};
+  \node at ([yshift=-10pt]mat-6-2) {\cbox{Operations \\\mbox{}}};
+  \node at ([yshift=-10pt]mat-6-3) {\cbox{Outbound Logistics}};
+  \node at ([yshift=-10pt]mat-6-4) {\cbox{Marketing \& Sales}};
+  \node at ([yshift=-10pt]mat-6-5) {\cbox{Service \\\mbox{}}};
+  \node[rotate = 90] at ([xshift=-52pt]mat-3-1.north)
+    {\textsc{Support Activities}};
+  \node at ([yshift=-19pt, xshift=-0.5cm]mat-8-3.south)
+    {\textsc{Primary Activities}};
+
+  % Erase some visible lines outside the arrow
+  \fill[white] (mat-1-5.north east) -- (mat-5-6.north east)
+    -- (mat-1-6.north east) -- cycle;
+  \fill[white] (mat-8-5.north east) -- (mat-5-6.north east)
+    -- (mat-8-6.north east) -- cycle;
+
+  % Draw the arrow tip
+  \shade[top color=colfour!70, bottom color=colfour!70,
+    middle color=colseven, draw=white, ultra thick]
+    (mat-1-5.north) -- (mat-5-6.north) -- (mat-8-5.south) --
+    (mat-8-5.south east) -- (mat-5-6.north east) -- (mat-8-5.south east) --
+    (mat-5-6.north east) -- (mat-1-5.north east) -- cycle;
+
+  % The slanted "Margin" labels
+  \begin{scope}[decoration={markings,
+    mark=at position .5 with \node[transform shape] {Margin};}]
+  \path[postaction={decorate}]
+    ( $ (mat-1-5.north)!0.5!(mat-1-5.north east) $ )
+    -- ( $ (mat-5-6.north)!0.5!(mat-5-6.north east) $ );
+  \path[postaction={decorate}]
+    ( $ (mat-5-6.north)!0.5!(mat-5-6.north east) $ )
+    -- ( $ (mat-8-5.south)!0.5!(mat-8-5.south east) $ );
+  \end{scope}
+
+  % The braces
+  \draw[decorate, decoration={brace, mirror, raise=6pt}]
+    (mat-1-1.north west) -- (mat-5-1.north west);
+  \draw[decorate, decoration={brace, mirror, raise=6pt}]
+    (mat-8-1.south west) -- (mat-8-5.south);
+\end{tikzpicture}
+\end{document}

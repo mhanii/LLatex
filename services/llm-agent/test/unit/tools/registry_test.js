@@ -17,11 +17,13 @@ const EXPECTED_TOOLS = [
   'check_syntax',
   'compile_and_check',
   'get_pdf_page',
+  'list_skills',
+  'read_skill',
 ]
 
 describe('tools/registry', function () {
   describe('TOOL_REGISTRY', function () {
-    it('contains exactly the 10 expected tools', function () {
+    it('contains exactly the 12 expected tools', function () {
       expect(Object.keys(TOOL_REGISTRY).sort()).to.deep.equal(
         [...EXPECTED_TOOLS].sort()
       )
@@ -38,8 +40,8 @@ describe('tools/registry', function () {
     })
 
     it('inputSchema is a Zod object that successfully parses an empty object for tools with all-optional inputs', function () {
-      // list_files has no inputs; check_syntax and compile_and_check have only optional inputs
-      const allOptional = ['list_files', 'check_syntax', 'compile_and_check']
+      // list_files and list_skills have no inputs; others have only optional inputs
+      const allOptional = ['list_files', 'list_skills', 'check_syntax', 'compile_and_check']
       for (const name of allOptional) {
         const result = TOOL_REGISTRY[name].inputSchema.safeParse({})
         expect(result.success, `${name} should accept {}`).to.be.true
@@ -47,10 +49,11 @@ describe('tools/registry', function () {
     })
 
     it('inputSchema rejects missing required fields for tools with required inputs', function () {
-      // read_file requires `path`; edit_file requires path/oldText/newText
+      // read_file requires `path`; edit_file requires path/oldText/newText; read_skill requires `name`
       expect(TOOL_REGISTRY.read_file.inputSchema.safeParse({}).success).to.be.false
       expect(TOOL_REGISTRY.edit_file.inputSchema.safeParse({}).success).to.be.false
       expect(TOOL_REGISTRY.move_file.inputSchema.safeParse({ oldPath: 'a' }).success).to.be.false
+      expect(TOOL_REGISTRY.read_skill.inputSchema.safeParse({}).success).to.be.false
     })
   })
 
@@ -66,8 +69,8 @@ describe('tools/registry', function () {
   })
 
   describe('listTools', function () {
-    it('returns all 10 tool names', function () {
-      expect(listTools()).to.have.lengthOf(10)
+    it('returns all 12 tool names', function () {
+      expect(listTools()).to.have.lengthOf(12)
       expect(listTools().sort()).to.deep.equal([...EXPECTED_TOOLS].sort())
     })
   })

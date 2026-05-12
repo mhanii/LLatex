@@ -1,0 +1,24 @@
+{
+  "templates": [
+    {
+      "file": "starter.tex",
+      "description": "Minimal 3D scene with tikz-3dplot view angles and xyz axes — start here for any 3D illustration"
+    },
+    {
+      "file": "coordinate_axes.tex",
+      "description": "Labelled 3D frame with sphere, projection lines, and angle arcs — useful for physics vectors, geometric spaces, reference frame illustrations, or mathematical coordinate system figures"
+    },
+    {
+      "file": "surface.tex",
+      "description": "Patch-based parametric surface — useful for function landscapes, manifold illustrations, terrain models, or any 3D curved surface"
+    },
+    {
+      "file": "3d_coordinate_system.tex",
+      "description": "Multiple coordinate frames with Euler rotations and spherical-coordinate projections — useful for rigid-body mechanics, robotics transforms, signal geometry, or any scene requiring rotated sub-frames"
+    },
+    {
+      "file": "circumscribed_parallelpiped.tex",
+      "description": "3D polyhedron drawn with pure coordinate math (no external packages) — useful for crystallography, lattice structures, bounding-box diagrams, or any solid geometry figure"
+    }
+  ]
+}
