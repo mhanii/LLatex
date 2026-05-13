@@ -483,6 +483,25 @@ describe('LlmAgentController', function () {
       expect(res.statusCode).toBe(204)
     })
 
+    it('returns 500 when an existing chat message cannot be loaded', async function () {
+      ChatApiHandler.promises.getThreadMessage.mockResolvedValueOnce(null)
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: { conversationId: CONVERSATION_ID, messageId: MESSAGE_ID },
+      }
+      const res = makeRes()
+      await LlmAgentController.agentComplete(req, res, vi.fn())
+
+      expect(
+        AgentConversationManager.promises.recordMessage
+      ).not.toHaveBeenCalled()
+      expect(EditorRealTimeController.emitToRoom).not.toHaveBeenCalled()
+      expect(res.statusCode).toBe(500)
+      expect(JSON.parse(res.body)).toEqual({
+        error: 'agent completion message was not found',
+      })
+    })
+
     it('emits tool call progress events', async function () {
       const req = {
         params: { project_id: PROJECT_ID },

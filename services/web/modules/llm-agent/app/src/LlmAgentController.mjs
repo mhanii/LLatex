@@ -241,25 +241,29 @@ async function agentComplete(req, res) {
       .json({ error: 'messageId or (userId and content) required' })
   }
 
-  if (message) {
-    await AgentConversationManager.promises.recordMessage(
-      projectId,
-      conversationId,
-      message,
-      'assistant',
-      runId
-    )
-    const updatedConversation =
-      await AgentConversationManager.promises.getConversation(
-        projectId,
-        conversationId
-      )
-    EditorRealTimeController.emitToRoom(projectId, 'agent:message', {
-      conversationId,
-      conversation: updatedConversation,
-      message: { ...message, role: 'assistant' },
+  if (!message) {
+    return res.status(500).json({
+      error: 'agent completion message was not found',
     })
   }
+
+  await AgentConversationManager.promises.recordMessage(
+    projectId,
+    conversationId,
+    message,
+    'assistant',
+    runId
+  )
+  const updatedConversation =
+    await AgentConversationManager.promises.getConversation(
+      projectId,
+      conversationId
+    )
+  EditorRealTimeController.emitToRoom(projectId, 'agent:message', {
+    conversationId,
+    conversation: updatedConversation,
+    message: { ...message, role: 'assistant' },
+  })
   res.sendStatus(204)
 }
 
@@ -459,12 +463,12 @@ function clsiOutputBaseUrl() {
 
 async function internalCompile(req, res) {
   const { project_id: projectId } = req.params
-  const { userId, rootDoc_id, stopOnFirstError } = req.body
+  const { userId, rootDoc_id: rootDocId, stopOnFirstError } = req.body
   if (!userId) {
     return res.status(400).json({ error: 'userId required' })
   }
   const compileOptions = { isAutoCompile: false, fileLineErrors: true }
-  if (rootDoc_id) compileOptions.rootDoc_id = rootDoc_id
+  if (rootDocId) compileOptions.rootDoc_id = rootDocId
   if (stopOnFirstError) compileOptions.stopOnFirstError = true
   const result = await CompileManager.promises.compile(
     projectId,

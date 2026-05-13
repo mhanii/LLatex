@@ -33,6 +33,7 @@ type ChatbotMessage = {
 
 type AgentConversation = {
   id: string
+  createdBy: string
   title: string
   createdAt: number
   updatedAt: number
@@ -418,6 +419,13 @@ export default function ChatbotPanel() {
 
     const controller = new AbortController()
     setIsLoadingMessages(true)
+    setMessages(prev =>
+      prev.filter(
+        message =>
+          (message.pending || message.role === 'status') &&
+          message.conversationId === activeConversationId
+      )
+    )
     getJSON<AgentServerMessage[]>(
       apiPath(`/conversations/${activeConversationId}/messages`),
       { signal: controller.signal }
@@ -461,6 +469,12 @@ export default function ChatbotPanel() {
       conversation?: AgentConversation
       message: AgentServerMessage
     }) {
+      if (
+        payload.conversation &&
+        payload.conversation.createdBy !== user.id
+      ) {
+        return
+      }
       if (payload.conversation) {
         upsertConversation(payload.conversation)
       }
@@ -490,6 +504,7 @@ export default function ChatbotPanel() {
     toChatbotMessage,
     toolEventToMessage,
     upsertConversation,
+    user.id,
   ])
 
   useEffect(() => {
@@ -632,11 +647,24 @@ export default function ChatbotPanel() {
 
       setActiveConversationId(result.conversationId)
       setMessages(prev => {
-        if (prev.some(message => message.id === result.messageId)) {
-          return prev.filter(message => message.id !== pendingId)
+        if (
+          prev.some(
+            message =>
+              message.id === result.messageId &&
+              message.conversationId === result.conversationId
+          )
+        ) {
+          return prev.filter(
+            message =>
+              !(
+                message.id === pendingId &&
+                message.conversationId === result.conversationId
+              )
+          )
         }
         return prev.map(message =>
-          message.id === pendingId || message.id === editingMessageId
+          (message.id === pendingId || message.id === editingMessageId) &&
+          message.conversationId === result.conversationId
             ? { ...message, id: result.messageId, pending: false }
             : message
         )
@@ -645,7 +673,8 @@ export default function ChatbotPanel() {
       debugConsole.error(error)
       setMessages(prev =>
         prev.map(message =>
-          message.id === pendingId || message.id === editingMessageId
+          (message.id === pendingId || message.id === editingMessageId) &&
+          message.conversationId === conversationId
             ? {
                 ...message,
                 pending: false,

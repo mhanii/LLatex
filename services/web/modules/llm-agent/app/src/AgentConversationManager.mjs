@@ -35,6 +35,10 @@ function normalizeObjectId(id, label) {
   return new ObjectId(id)
 }
 
+function isDuplicateKeyError(err) {
+  return err?.code === 11000 || err?.codeName === 'DuplicateKey'
+}
+
 async function createConversation(projectId, userId) {
   const now = new Date()
   const _id = new ObjectId()
@@ -81,27 +85,38 @@ async function ensureConversation(projectId, conversationId, userId, message) {
   const now = new Date()
   // Atomic upsert: a non-atomic findOne+insertOne races on concurrent first
   // messages to the same conversationId and throws E11000 on the loser.
-  const doc = await db.agentConversations.findOneAndUpdate(
-    {
-      _id: normalizeObjectId(conversationId, 'conversationId'),
-      projectId: normalizeObjectId(projectId, 'projectId'),
-      ...(userId != null
-        ? { createdBy: normalizeObjectId(userId, 'userId') }
-        : {}),
-    },
-    {
-      $setOnInsert: {
-        createdBy: normalizeObjectId(userId, 'userId'),
-        title: message ? titleFromMessage(message) : DEFAULT_TITLE,
-        createdAt: now,
-        updatedAt: now,
-        lastMessageAt: null,
-        lastRunId: null,
-        messages: [],
+  let doc
+  try {
+    doc = await db.agentConversations.findOneAndUpdate(
+      {
+        _id: normalizeObjectId(conversationId, 'conversationId'),
+        projectId: normalizeObjectId(projectId, 'projectId'),
+        ...(userId != null
+          ? { createdBy: normalizeObjectId(userId, 'userId') }
+          : {}),
       },
-    },
-    { upsert: true, returnDocument: 'after' }
-  )
+      {
+        $setOnInsert: {
+          createdBy: normalizeObjectId(userId, 'userId'),
+          title: message ? titleFromMessage(message) : DEFAULT_TITLE,
+          createdAt: now,
+          updatedAt: now,
+          lastMessageAt: null,
+          lastRunId: null,
+          messages: [],
+        },
+      },
+      { upsert: true, returnDocument: 'after' }
+    )
+  } catch (err) {
+    if (isDuplicateKeyError(err)) {
+      throw Object.assign(
+        new Error('agent conversation not found or not owned by user'),
+        { statusCode: 403 }
+      )
+    }
+    throw err
+  }
   return formatConversation(doc)
 }
 
@@ -134,7 +149,7 @@ async function recordMessage(projectId, conversationId, message, role, runId) {
           createdAt: now,
         },
       },
-    }
+    },
   )
 
   if (role === 'user') {
