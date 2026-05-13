@@ -15,6 +15,7 @@ async function startRun(req, res) {
     context,
     currentFile,
     agentName,
+    chatHistory,
   } = req.body
 
   if (!userId || !conversationId || !userMessage) {
@@ -39,6 +40,7 @@ async function startRun(req, res) {
     context,
     currentFile,
     agentName,
+    chatHistory,
   }
 
   const runId = await createRun(projectId, input)
