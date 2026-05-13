@@ -50,7 +50,7 @@ async function sendMessage(req, res) {
 
   const userId = SessionManager.getLoggedInUserId(req.session)
   if (userId == null) {
-    throw new Error('no logged-in user')
+    return res.status(403).json({ error: 'not logged in' })
   }
 
   const conversationId = bodyConversationId ?? new ObjectId().toHexString()
@@ -110,7 +110,7 @@ async function createConversation(req, res) {
   const { project_id: projectId } = req.params
   const userId = SessionManager.getLoggedInUserId(req.session)
   if (userId == null) {
-    throw new Error('no logged-in user')
+    return res.status(403).json({ error: 'not logged in' })
   }
 
   const conversation =

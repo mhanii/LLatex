@@ -114,21 +114,12 @@ async function recordMessage(projectId, conversationId, message, role, runId) {
     },
   }
 
-  if (role === 'user') {
-    update.$setOnInsert = {
-      title: titleFromMessage(message.content ?? ''),
-      createdAt: now,
-      createdBy: normalizeObjectId(message.user_id, 'userId'),
-    }
-  }
-
   await db.agentConversations.updateOne(
     {
       _id: normalizeObjectId(conversationId, 'conversationId'),
       projectId: normalizeObjectId(projectId, 'projectId'),
     },
-    update,
-    { upsert: false }
+    update
   )
 
   if (role === 'user') {
