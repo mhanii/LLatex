@@ -220,14 +220,25 @@ export async function run(runId, input, startedAt, opts = {}) {
       if (!(result.toolCalls?.length > 0)) break
     }
 
-    const output = { type: 'text', content: finalText }
+    // If the loop exited without the model ever producing text (e.g. maxSteps
+    // exhausted by back-to-back tool calls), emit a fallback message — the web
+    // service rejects empty content with 400, which would otherwise leave the
+    // UI stuck in the pending state with no visible response.
+    const stepBudgetExhausted = !finalText
+    const content = stepBudgetExhausted
+      ? `Agent stopped after ${maxSteps} steps without producing a final response. Try a more focused request.`
+      : finalText
+    const output = {
+      type: stepBudgetExhausted ? 'error' : 'text',
+      content,
+    }
     await finalizeRun(runId, output, startedAt)
     try {
       await notifyWebAgentComplete(input.projectId, {
         conversationId: input.conversationId,
         runId,
         userId: input.userId,
-        content: output.content,
+        content,
       })
     } catch (notifyErr) {
       logger.warn(

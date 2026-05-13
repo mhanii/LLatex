@@ -79,25 +79,26 @@ async function getConversation(projectId, conversationId, userId) {
 
 async function ensureConversation(projectId, conversationId, userId, message) {
   const now = new Date()
-  const _id = normalizeObjectId(conversationId, 'conversationId')
-  const existing = await db.agentConversations.findOne({
-    _id,
-    projectId: normalizeObjectId(projectId, 'projectId'),
-  })
-  if (existing) return formatConversation(existing)
-
-  const doc = {
-    _id,
-    projectId: normalizeObjectId(projectId, 'projectId'),
-    createdBy: normalizeObjectId(userId, 'userId'),
-    title: message ? titleFromMessage(message) : DEFAULT_TITLE,
-    createdAt: now,
-    updatedAt: now,
-    lastMessageAt: null,
-    lastRunId: null,
-    messages: [],
-  }
-  await db.agentConversations.insertOne(doc)
+  // Atomic upsert: a non-atomic findOne+insertOne races on concurrent first
+  // messages to the same conversationId and throws E11000 on the loser.
+  const doc = await db.agentConversations.findOneAndUpdate(
+    {
+      _id: normalizeObjectId(conversationId, 'conversationId'),
+      projectId: normalizeObjectId(projectId, 'projectId'),
+    },
+    {
+      $setOnInsert: {
+        createdBy: normalizeObjectId(userId, 'userId'),
+        title: message ? titleFromMessage(message) : DEFAULT_TITLE,
+        createdAt: now,
+        updatedAt: now,
+        lastMessageAt: null,
+        lastRunId: null,
+        messages: [],
+      },
+    },
+    { upsert: true, returnDocument: 'after' }
+  )
   return formatConversation(doc)
 }
 
