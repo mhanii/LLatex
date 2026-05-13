@@ -49,6 +49,14 @@ describe('<ChatbotPanel />', function () {
             lastMessageAt: null,
             lastRunId: null,
           },
+          {
+            id: 'conv-2',
+            title: 'Discuss chapter 2',
+            createdAt: 2,
+            updatedAt: 2,
+            lastMessageAt: 2,
+            lastRunId: null,
+          },
         ])
       }
 
@@ -62,7 +70,7 @@ describe('<ChatbotPanel />', function () {
       if (url.endsWith('/agent/conversations') && method === 'POST') {
         return jsonResponse(
           {
-            id: 'conv-2',
+            id: 'conv-3',
             title: 'New chat',
             createdAt: 2,
             updatedAt: 2,
@@ -71,6 +79,14 @@ describe('<ChatbotPanel />', function () {
           },
           { status: 201 }
         )
+      }
+
+      if (url.endsWith('/agent/conversations/conv-1') && method === 'DELETE') {
+        return new Response(null, { status: 204 })
+      }
+
+      if (url.endsWith('/agent/conversations/conv-2') && method === 'DELETE') {
+        return new Response(null, { status: 204 })
       }
 
       if (url.endsWith('/agent/message') && method === 'POST') {
@@ -284,5 +300,34 @@ describe('<ChatbotPanel />', function () {
       expect(screen.queryByText('Lines 20-21')).to.not.exist
       expect(screen.queryByText('Selected section from the PDF')).to.not.exist
     })
+  })
+
+  it('allows deleting a conversation from the dropdown menu', async function () {
+    const confirmStub = sinon.stub(window, 'confirm').returns(true)
+
+    renderChatbot()
+
+    await screen.findByRole('button', { name: 'Agent conversation' })
+    await waitFor(() => {
+      expect(screen.queryByText('Loading...')).to.not.exist
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agent conversation' }))
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Delete chat Discuss chapter 2' })
+    )
+
+    await waitFor(() => {
+      expect(confirmStub.called).to.equal(true)
+      expect(
+        fetchStub.calledWithMatch(
+          sinon.match('/agent/conversations/conv-2'),
+          sinon.match.has('method', 'DELETE')
+        )
+      ).to.equal(true)
+    })
+
+    confirmStub.restore()
   })
 })
