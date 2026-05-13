@@ -85,6 +85,9 @@ async function ensureConversation(projectId, conversationId, userId, message) {
     {
       _id: normalizeObjectId(conversationId, 'conversationId'),
       projectId: normalizeObjectId(projectId, 'projectId'),
+      ...(userId != null
+        ? { createdBy: normalizeObjectId(userId, 'userId') }
+        : {}),
     },
     {
       $setOnInsert: {

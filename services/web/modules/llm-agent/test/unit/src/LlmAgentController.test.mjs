@@ -267,6 +267,15 @@ describe('LlmAgentController', function () {
       expect(body.conversationId).toBe(CONVERSATION_ID)
     })
 
+    it('calls ensureConversation with userId for ownership enforcement', async function () {
+      const req = makeReq({ conversationId: CONVERSATION_ID })
+      await LlmAgentController.sendMessage(req, makeRes(), vi.fn())
+
+      expect(
+        AgentConversationManager.promises.ensureConversation
+      ).toHaveBeenCalledWith(PROJECT_ID, CONVERSATION_ID, USER_ID, 'hello agent')
+    })
+
     it('emits agent:message to the project room', async function () {
       await LlmAgentController.sendMessage(makeReq(), makeRes(), vi.fn())
 
