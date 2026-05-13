@@ -12,8 +12,15 @@ export const ChatbotMarkdown: FC<{ text: string }> = ({ text }) => {
   const components = useMemo(
     () => ({
       a: (props: any) => (
-        <a {...props} rel={LINK_REL} target={LINK_TARGET} />
+        <a {...props} rel={LINK_REL} target={LINK_TARGET} className="chatbot-link" />
       ),
+      code: ({node, inline, className, children, ...props}: any) => {
+        return (
+          <code className={className} {...props}>
+            {children}
+          </code>
+        )
+      }
     }),
     []
   )
