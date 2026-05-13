@@ -40,6 +40,33 @@ function buildProjectContext(project) {
   }
 }
 
+async function buildAgentChatHistory(projectId, conversationId, excludeMessageId) {
+  let thread
+  try {
+    thread = await ChatApiHandler.promises.getThread(projectId, conversationId)
+  } catch (err) {
+    if (err?.statusCode === 404 || err?.response?.status === 404) return []
+    throw err
+  }
+  const meta = await AgentConversationManager.promises.getMessageMetadata(
+    projectId,
+    conversationId
+  )
+  return (thread.messages ?? [])
+    .filter(m => m.id !== excludeMessageId)
+    .map(m => {
+      const info = meta.get(m.id) ?? { role: 'user', runId: null }
+      return {
+        id: m.id,
+        user_id: m.user_id,
+        content: m.content,
+        timestamp: m.timestamp,
+        role: info.role,
+        runId: info.runId,
+      }
+    })
+}
+
 async function sendMessage(req, res) {
   const { project_id: projectId } = req.params
   const { message, selection, conversationId: bodyConversationId } = req.body
@@ -94,12 +121,24 @@ async function sendMessage(req, res) {
     message: { ...chatMessage, role: 'user' },
   })
 
+  // Build chat history for the agent. The chat thread alone does not carry
+  // role information (agent messages are stored with the human user_id), and
+  // tool calls/outputs from prior assistant turns are not in the chat thread
+  // at all. We assemble both here and pass them in the run payload so the
+  // agent sees a coherent multi-turn context.
+  const chatHistory = await buildAgentChatHistory(
+    projectId,
+    conversationId,
+    chatMessage.id
+  )
+
   const { runId } = await LlmAgentApiHandler.promises.startRun(projectId, {
     userId,
     conversationId,
     userMessage: message,
     selection: selection ?? undefined,
     context,
+    chatHistory,
   })
   await AgentConversationManager.promises.recordRun(projectId, conversationId, runId)
 

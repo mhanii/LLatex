@@ -6,7 +6,7 @@
  *
  * @typedef {'system_prompt'|'current_file'|'selection'|
  *          'user_message'|'assistant_message'|
- *          'tool_call'|'tool_output'|
+ *          'tool_call'|'tool_output'|'reasoning'|
  *          'chat_history_message'} ContextItemKind
  */
 

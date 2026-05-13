@@ -205,6 +205,9 @@ describe('LlmAgentController', function () {
         getMessageRoles: vi
           .fn()
           .mockResolvedValue(new Map([[MESSAGE_ID, 'user']])),
+        getMessageMetadata: vi
+          .fn()
+          .mockResolvedValue(new Map([[MESSAGE_ID, { role: 'user', runId: null }]])),
         recordRun: vi.fn().mockResolvedValue(undefined),
       },
     }

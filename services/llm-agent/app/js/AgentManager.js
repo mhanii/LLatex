@@ -141,6 +141,14 @@ export async function run(runId, input, startedAt, opts = {}) {
       })
 
       const stepEnd = new Date()
+      // Persist reasoning per step so subsequent turns can replay it. Some
+      // models (DeepSeek-R1 family) require the prior assistant's reasoning
+      // to be round-tripped or they reject the next request. ReasoningPart's
+      // metadata field is providerOptions in @ai-sdk/provider-utils.
+      const reasoning = (result.reasoning ?? []).map(r => ({
+        text: r.text ?? '',
+        providerOptions: r.providerOptions ?? null,
+      }))
       await appendStep(runId, {
         name: 'llm.complete',
         startedAt: stepStart,
@@ -148,6 +156,7 @@ export async function run(runId, input, startedAt, opts = {}) {
         input: { messages },
         output: {
           text: result.text ?? '',
+          reasoning,
           toolCalls: result.toolCalls ?? [],
           toolResults: result.toolResults ?? [],
           finishReason: result.finishReason,
@@ -161,6 +170,20 @@ export async function run(runId, input, startedAt, opts = {}) {
           latencyMs: stepEnd.getTime() - stepStart.getTime(),
         },
       })
+
+      // Emit reasoning into the context BEFORE tool_calls so the rendered
+      // assistant message has reasoning parts at the start of its content.
+      for (const r of reasoning) {
+        if (!r.text) continue
+        await cm.add({
+          kind: 'reasoning',
+          role: 'assistant',
+          source: { kind: 'agent', ref: agent.name },
+          content: r.text,
+          addedBy: 'llm:assistant',
+          meta: { stepIndex: i, providerOptions: r.providerOptions },
+        })
+      }
 
       const toolCalls = result.toolCalls ?? []
       const toolResults = result.toolResults ?? []

@@ -121,17 +121,26 @@ export async function renderContextItems(items, ctx) {
   const out = []
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
-    if (item.kind === 'tool_call') {
-      const parts = [toolCallPart(item)]
+    if (item.kind === 'reasoning' || item.kind === 'tool_call') {
+      // Merge consecutive reasoning + tool_call items at the same stepIndex
+      // into one assistant message: { content: [reasoning..., tool-call...] }.
+      // Reasoning parts must precede tool-call parts within the message.
+      const stepIdx = item.meta?.stepIndex
+      const parts = []
       while (
-        i + 1 < items.length &&
-        items[i + 1].kind === 'tool_call' &&
-        items[i + 1].meta?.stepIndex === item.meta?.stepIndex
+        i < items.length &&
+        (items[i].kind === 'reasoning' || items[i].kind === 'tool_call') &&
+        items[i].meta?.stepIndex === stepIdx
       ) {
+        if (items[i].kind === 'reasoning') {
+          parts.push({ type: 'reasoning', text: String(items[i].content ?? '') })
+        } else {
+          parts.push(toolCallPart(items[i]))
+        }
         i++
-        parts.push(toolCallPart(items[i]))
       }
-      out.push({ role: 'assistant', content: parts })
+      i--
+      if (parts.length > 0) out.push({ role: 'assistant', content: parts })
     } else if (item.kind === 'tool_output') {
       const parts = [toolResultPart(item)]
       while (
