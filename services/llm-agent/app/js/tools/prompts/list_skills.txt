@@ -1,0 +1,1 @@
+Return all available skills. Each skill is a named expert guide for a complex LaTeX task (e.g. TikZ 2D graphics, TikZ 3D graphics, PGFPlots charts, flowcharts). Returns an array of { name, description } objects. Call this first whenever the user asks for graphics, diagrams, or complex structures you are not already fully confident about.

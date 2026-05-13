@@ -1,0 +1,12 @@
+{
+  "templates": [
+    {
+      "file": "homotopy_of_paths.tex",
+      "description": "Family of curved paths between two endpoints with domain annotation — useful for topology, continuous deformation arguments, path-equivalence illustrations, or any figure showing a parameterised family of curves"
+    },
+    {
+      "file": "arrow_table.tex",
+      "description": "Matrix of labelled cells shaped into an arrow with colour-coded columns and rotated row labels — useful for value-chain diagrams, process matrices, category comparisons, strategy frameworks, or any tabular figure where the visual shape itself carries meaning"
+    }
+  ]
+}

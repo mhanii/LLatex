@@ -1,9 +1,10 @@
 import { useLayoutContext } from '@/shared/context/layout-context'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { sendMBOnce } from '@/infrastructure/event-tracking'
 
 export function useLayoutEventTracking() {
   const { view, leftMenuShown, chatIsOpen } = useLayoutContext()
+  const previousChatIsOpen = useRef(chatIsOpen)
 
   useEffect(() => {
     if (view && view !== 'editor' && view !== 'pdf') {
@@ -18,8 +19,9 @@ export function useLayoutEventTracking() {
   }, [leftMenuShown])
 
   useEffect(() => {
-    if (chatIsOpen) {
+    if (chatIsOpen && !previousChatIsOpen.current) {
       sendMBOnce(`ide-open-chat-once`)
     }
+    previousChatIsOpen.current = chatIsOpen
   }, [chatIsOpen])
 }

@@ -1,5 +1,5 @@
 // @ts-check
-import { resolveFile, docUpdaterUrl } from './utils.js'
+import { resolveFile, docUpdaterUrl, unknownPathError } from './utils.js'
 
 async function readErrorBody(res) {
   const body = await res.text().catch(() => '')
@@ -20,7 +20,9 @@ async function readErrorBody(res) {
  * @returns {Promise<string>}
  */
 export async function editFile({ path, oldText, newText }, ctx) {
-  const { docId } = resolveFile(path, ctx)
+  const file = resolveFile(path, ctx)
+  if (!file) return unknownPathError(path)
+  const { docId } = file
   const res = await fetch(
     `${docUpdaterUrl()}/project/${ctx.projectId}/doc/${docId}/agent-replace`,
     {
@@ -31,6 +33,7 @@ export async function editFile({ path, oldText, newText }, ctx) {
         new_text: newText,
         user_id: ctx.userId,
       }),
+      signal: AbortSignal.timeout(30_000), // 30s timeout
     }
   )
   if (res.ok) {

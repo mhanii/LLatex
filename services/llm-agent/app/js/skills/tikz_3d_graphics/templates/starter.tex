@@ -1,0 +1,50 @@
+\documentclass{article}
+\usepackage{tikz}
+\usepackage{tikz-3dplot}
+
+\begin{document}
+
+% Set the 3D view: elevation=70°, azimuth=110°
+\tdplotsetmaincoords{70}{110}
+
+\begin{figure}[h]
+  \centering
+  \begin{tikzpicture}[
+    tdplot_main_coords,   % activates the 3D coordinate transform
+    scale=2.5,
+    line width=0.6pt,
+    font=\small,
+  ]
+    % --- 3D coordinate axes ---
+    \draw[thick,-{Stealth}] (0,0,0) -- (1.4,0,0) node[anchor=north east]{$x$};
+    \draw[thick,-{Stealth}] (0,0,0) -- (0,1.4,0) node[anchor=north west]{$y$};
+    \draw[thick,-{Stealth}] (0,0,0) -- (0,0,1.4) node[anchor=south]{$z$};
+
+    % --- A point in spherical coordinates ---
+    % \tdplotsetcoord{Name}{r}{polar θ}{azimuthal φ}
+    \tdplotsetcoord{P}{1}{55}{40}
+
+    % Draw vector to P
+    \draw[-{Stealth}, red, thick] (0,0,0) -- (P)
+      node[above right]{$\mathbf{P}$};
+
+    % Dashed projections onto the coordinate planes
+    \draw[dashed, gray] (0,0,0) -- (Pxy);
+    \draw[dashed, gray] (Pxy)   -- (P);
+    \draw[dashed, gray] (Px)    -- (Pxy);
+    \draw[dashed, gray] (Py)    -- (Pxy);
+
+    % Arc for azimuthal angle φ in the xy-plane
+    \tdplotdrawarc[blue]{(0,0,0)}{0.35}{0}{40}
+      {anchor=north}{$\varphi$}
+
+    % Arc for polar angle θ (switch to the tilted plane first)
+    \tdplotsetthetaplanecoords{40}
+    \tdplotdrawarc[tdplot_rotated_coords, red]{(0,0,0)}{0.35}{0}{55}
+      {anchor=south west}{$\theta$}
+  \end{tikzpicture}
+  \caption{3D coordinate axes and a point in spherical coordinates.}
+  \label{fig:tikz3d}
+\end{figure}
+
+\end{document}

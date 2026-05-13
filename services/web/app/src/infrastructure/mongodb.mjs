@@ -53,6 +53,7 @@ export const db = {
   grouppolicies: internalDb.collection('grouppolicies'),
   groupAuditLogEntries: internalDb.collection('groupAuditLogEntries'),
   institutions: internalDb.collection('institutions'),
+  agentConversations: internalDb.collection('agentConversations'),
   messages: internalDb.collection('messages'),
   migrations: internalDb.collection('migrations'),
   notifications: internalDb.collection('notifications'),

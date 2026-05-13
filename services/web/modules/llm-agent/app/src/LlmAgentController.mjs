@@ -1,9 +1,10 @@
 // @ts-check
 
 import { expressify } from '@overleaf/promise-utils'
-import { ObjectId } from 'mongodb'
+import { ObjectId } from '../../../../app/src/infrastructure/mongodb.mjs'
 import SessionManager from '../../../../app/src/Features/Authentication/SessionManager.mjs'
 import ChatApiHandler from '../../../../app/src/Features/Chat/ChatApiHandler.mjs'
+import ChatManager from '../../../../app/src/Features/Chat/ChatManager.mjs'
 import EditorController from '../../../../app/src/Features/Editor/EditorController.mjs'
 import EditorRealTimeController from '../../../../app/src/Features/Editor/EditorRealTimeController.mjs'
 import UserInfoManager from '../../../../app/src/Features/User/UserInfoManager.mjs'
@@ -11,11 +12,13 @@ import UserInfoController from '../../../../app/src/Features/User/UserInfoContro
 import CompileManager from '../../../../app/src/Features/Compile/CompileManager.mjs'
 import ProjectLocator from '../../../../app/src/Features/Project/ProjectLocator.mjs'
 import ProjectGetter from '../../../../app/src/Features/Project/ProjectGetter.mjs'
+import ProjectCreationHandler from '../../../../app/src/Features/Project/ProjectCreationHandler.mjs'
 import ProjectEntityHandler from '../../../../app/src/Features/Project/ProjectEntityHandler.mjs'
 import Settings from '@overleaf/settings'
 import SyntaxChecker from './SyntaxChecker.mjs'
 import LlmAgentApiHandler from './LlmAgentApiHandler.mjs'
-import { parseLatexLog } from './LatexLogParser.mjs'
+import AgentConversationManager from './AgentConversationManager.mjs'
+import { parseCompileLogs } from './parsers/LogParser.mjs'
 
 function normalizeProjectPath(path) {
   return path.startsWith('/') ? path.slice(1) : path
@@ -37,6 +40,33 @@ function buildProjectContext(project) {
   }
 }
 
+async function buildAgentChatHistory(projectId, conversationId, excludeMessageId) {
+  let thread
+  try {
+    thread = await ChatApiHandler.promises.getThread(projectId, conversationId)
+  } catch (err) {
+    if (err?.statusCode === 404 || err?.response?.status === 404) return []
+    throw err
+  }
+  const meta = await AgentConversationManager.promises.getMessageMetadata(
+    projectId,
+    conversationId
+  )
+  return (thread.messages ?? [])
+    .filter(m => m.id !== excludeMessageId)
+    .map(m => {
+      const info = meta.get(m.id) ?? { role: 'user', runId: null }
+      return {
+        id: m.id,
+        user_id: m.user_id,
+        content: m.content,
+        timestamp: m.timestamp,
+        role: info.role,
+        runId: info.runId,
+      }
+    })
+}
+
 async function sendMessage(req, res) {
   const { project_id: projectId } = req.params
   const { message, selection, conversationId: bodyConversationId } = req.body
@@ -47,10 +77,16 @@ async function sendMessage(req, res) {
 
   const userId = SessionManager.getLoggedInUserId(req.session)
   if (userId == null) {
-    throw new Error('no logged-in user')
+    return res.status(403).json({ error: 'not logged in' })
   }
 
   const conversationId = bodyConversationId ?? new ObjectId().toHexString()
+  const conversation = await AgentConversationManager.promises.ensureConversation(
+    projectId,
+    conversationId,
+    userId,
+    message
+  )
 
   const project = await ProjectGetter.promises.getProject(projectId, {
     name: 1,
@@ -72,7 +108,29 @@ async function sendMessage(req, res) {
   const user = await UserInfoManager.promises.getPersonalInfo(chatMessage.user_id)
   chatMessage.user = UserInfoController.formatPersonalInfo(user)
 
-  EditorRealTimeController.emitToRoom(projectId, 'new-chat-message', chatMessage)
+  await AgentConversationManager.promises.recordMessage(
+    projectId,
+    conversationId,
+    chatMessage,
+    'user'
+  )
+
+  EditorRealTimeController.emitToRoom(projectId, 'agent:message', {
+    conversationId,
+    conversation,
+    message: { ...chatMessage, role: 'user' },
+  })
+
+  // Build chat history for the agent. The chat thread alone does not carry
+  // role information (agent messages are stored with the human user_id), and
+  // tool calls/outputs from prior assistant turns are not in the chat thread
+  // at all. We assemble both here and pass them in the run payload so the
+  // agent sees a coherent multi-turn context.
+  const chatHistory = await buildAgentChatHistory(
+    projectId,
+    conversationId,
+    chatMessage.id
+  )
 
   const { runId } = await LlmAgentApiHandler.promises.startRun(projectId, {
     userId,
@@ -80,9 +138,74 @@ async function sendMessage(req, res) {
     userMessage: message,
     selection: selection ?? undefined,
     context,
+    chatHistory,
   })
+  await AgentConversationManager.promises.recordRun(projectId, conversationId, runId)
 
   res.status(202).json({ runId, messageId: chatMessage.id, conversationId })
+}
+
+async function createConversation(req, res) {
+  const { project_id: projectId } = req.params
+  const userId = SessionManager.getLoggedInUserId(req.session)
+  if (userId == null) {
+    return res.status(403).json({ error: 'not logged in' })
+  }
+
+  const conversation =
+    await AgentConversationManager.promises.createConversation(projectId, userId)
+  res.status(201).json(conversation)
+}
+
+async function listConversations(req, res) {
+  const { project_id: projectId } = req.params
+  const userId = SessionManager.getLoggedInUserId(req.session)
+  if (userId == null) {
+    return res.status(403).json({ error: 'not logged in' })
+  }
+  const conversations =
+    await AgentConversationManager.promises.listConversations(projectId, userId)
+  res.json(conversations)
+}
+
+async function getConversationMessages(req, res) {
+  const { project_id: projectId, conversation_id: conversationId } = req.params
+  const userId = SessionManager.getLoggedInUserId(req.session)
+  if (userId == null) {
+    return res.status(403).json({ error: 'not logged in' })
+  }
+  const conversation = await AgentConversationManager.promises.getConversation(
+    projectId,
+    conversationId,
+    userId
+  )
+  if (!conversation) {
+    return res.status(404).json({ error: 'agent conversation not found' })
+  }
+
+  let thread
+  try {
+    thread = await ChatApiHandler.promises.getThread(projectId, conversationId)
+  } catch (err) {
+    if (err?.statusCode === 404 || err?.response?.status === 404) {
+      return res.json([])
+    }
+    throw err
+  }
+
+  await ChatManager.promises.injectUserInfoIntoThreads({
+    [conversationId]: thread,
+  })
+  const roles = await AgentConversationManager.promises.getMessageRoles(
+    projectId,
+    conversationId
+  )
+  res.json(
+    thread.messages.map(message => ({
+      ...message,
+      role: roles.get(message.id) ?? (message.user_id ? 'user' : 'assistant'),
+    }))
+  )
 }
 
 // Called by llm-agent service after run completes — emits reply over WebSocket.
@@ -91,7 +214,7 @@ async function sendMessage(req, res) {
 // - { conversationId, userId, content } to create and emit a new chat message
 async function agentComplete(req, res) {
   const { project_id: projectId } = req.params
-  const { conversationId, messageId, userId, content } = req.body
+  const { conversationId, messageId, userId, content, runId } = req.body
   if (!conversationId) {
     return res.status(400).json({ error: 'conversationId required' })
   }
@@ -118,9 +241,61 @@ async function agentComplete(req, res) {
       .json({ error: 'messageId or (userId and content) required' })
   }
 
-  if (message) {
-    EditorRealTimeController.emitToRoom(projectId, 'new-chat-message', message)
+  if (!message) {
+    return res.status(500).json({
+      error: 'agent completion message was not found',
+    })
   }
+
+  await AgentConversationManager.promises.recordMessage(
+    projectId,
+    conversationId,
+    message,
+    'assistant',
+    runId
+  )
+  const updatedConversation =
+    await AgentConversationManager.promises.getConversation(
+      projectId,
+      conversationId
+    )
+  EditorRealTimeController.emitToRoom(projectId, 'agent:message', {
+    conversationId,
+    conversation: updatedConversation,
+    message: { ...message, role: 'assistant' },
+  })
+  res.sendStatus(204)
+}
+
+async function agentToolCall(req, res) {
+  const { project_id: projectId } = req.params
+  const {
+    conversationId,
+    runId,
+    toolCallId,
+    toolName,
+    status,
+    input,
+    output,
+    error,
+  } = req.body
+  if (!conversationId || !runId || !toolName || !status) {
+    return res
+      .status(400)
+      .json({ error: 'conversationId, runId, toolName and status required' })
+  }
+
+  EditorRealTimeController.emitToRoom(projectId, 'agent:tool-call', {
+    conversationId,
+    runId,
+    toolCallId,
+    toolName,
+    status,
+    input,
+    output,
+    error,
+    timestamp: Date.now(),
+  })
   res.sendStatus(204)
 }
 
@@ -259,33 +434,56 @@ function clsiUrl(projectId, userId, action) {
   return `${base}${prefix}/${action}`
 }
 
-async function fetchCompileErrors(projectId, userId) {
+/**
+ * Base URL for fetching CLSI output files (output.log, *.blg, etc.) — the
+ * same target web's _proxyToClsiWithLimits hits for non-zip output.
+ *
+ * Defensive fallback: develop/dev.env sets DOWNLOAD_HOST to a full URL
+ * because services/clsi/config/settings.defaults.cjs treats it that way.
+ * services/web's settings template (settings.defaults.js:248) instead
+ * expects a hostname and re-wraps it as `http://${DOWNLOAD_HOST}:8080`,
+ * producing `http://http://clsi-nginx:8080:8080` in dev. The frontend never
+ * notices because webpack proxies /build/* to clsi-nginx directly. We need
+ * a real URL on the backend, so detect the malformed case and fall back to
+ * the raw env value.
+ */
+function clsiOutputBaseUrl() {
+  const v = Settings.apis.clsi.downloadHost
   try {
-    const logRes = await fetch(clsiUrl(projectId, userId, 'output-log'))
-    if (!logRes.ok) return []
-    return parseLatexLog(await logRes.text())
+    const parsed = new URL(v)
+    // node's URL is permissive: 'http://http://clsi-nginx:8080:8080' parses
+    // as host='http', pathname='//clsi-nginx:8080:8080'. Reject the case
+    // where the host itself looks like a scheme.
+    if (/^https?$/i.test(parsed.host)) throw new Error('malformed')
+    return v
   } catch {
-    return []
+    return process.env.DOWNLOAD_HOST || v
   }
 }
 
 async function internalCompile(req, res) {
   const { project_id: projectId } = req.params
-  const { userId, rootDoc_id } = req.body
+  const { userId, rootDoc_id: rootDocId, stopOnFirstError } = req.body
   if (!userId) {
     return res.status(400).json({ error: 'userId required' })
   }
   const compileOptions = { isAutoCompile: false, fileLineErrors: true }
-  if (rootDoc_id) compileOptions.rootDoc_id = rootDoc_id
+  if (rootDocId) compileOptions.rootDoc_id = rootDocId
+  if (stopOnFirstError) compileOptions.stopOnFirstError = true
   const result = await CompileManager.promises.compile(
     projectId,
     userId,
     compileOptions
   )
-  const { status } = result
+  const { status, outputFiles = [] } = result
 
-  const errors =
-    status !== 'success' ? await fetchCompileErrors(projectId, userId) : []
+  // Parse logs the same way the editor does — same parsers, same byte stream
+  // (output.log + every *.blg) — so the LLM sees what the user sees.
+  const { errors, warnings, typesetting } = await parseCompileLogs(
+    outputFiles,
+    clsiOutputBaseUrl(),
+    { stoppedOnFirstError: status === 'stopped-on-first-error' }
+  )
 
   let pageCount = null
   if (status === 'success') {
@@ -300,7 +498,14 @@ async function internalCompile(req, res) {
     }
   }
 
-  res.json({ success: status === 'success', status, errors, pageCount })
+  res.json({
+    success: status === 'success',
+    status,
+    errors,
+    warnings,
+    typesetting,
+    pageCount,
+  })
 }
 
 async function agentPdfPage(req, res) {
@@ -338,6 +543,23 @@ async function agentPdfPage(req, res) {
   res.json({ imageBase64: buf.toString('base64'), mimeType: 'image/png' })
 }
 
+async function agentCreateProject(req, res) {
+  const { userId, projectName, docLines } = req.body
+  if (!userId || !projectName) {
+    return res.status(400).json({ error: 'userId and projectName required' })
+  }
+  if (docLines != null && !Array.isArray(docLines)) {
+    return res.status(400).json({ error: 'docLines must be an array of strings' })
+  }
+  const lines = docLines ?? ['\\documentclass{article}', '\\begin{document}', '\\end{document}']
+  const project = await ProjectCreationHandler.promises.createProjectFromSnippet(
+    userId,
+    projectName,
+    lines
+  )
+  res.json({ projectId: project._id.toString() })
+}
+
 async function agentSyntaxCheck(req, res) {
   const { project_id: projectId } = req.params
   const scopePath = req.query.path ?? null
@@ -346,12 +568,17 @@ async function agentSyntaxCheck(req, res) {
 }
 
 export default {
+  createConversation: expressify(createConversation),
+  listConversations: expressify(listConversations),
+  getConversationMessages: expressify(getConversationMessages),
   sendMessage: expressify(sendMessage),
   agentComplete: expressify(agentComplete),
+  agentToolCall: expressify(agentToolCall),
   agentCreateFile: expressify(agentCreateFile),
   agentDeleteFile: expressify(agentDeleteFile),
   agentMoveFile: expressify(agentMoveFile),
   internalCompile: expressify(internalCompile),
   agentPdfPage: expressify(agentPdfPage),
   agentSyntaxCheck: expressify(agentSyntaxCheck),
+  agentCreateProject: expressify(agentCreateProject),
 }

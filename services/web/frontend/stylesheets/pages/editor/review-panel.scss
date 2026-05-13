@@ -401,13 +401,17 @@ del.review-panel-content-highlight {
   font-size: var(--font-size-02);
 }
 
+.review-panel-expandable-content-line-numbers {
+  color: var(--content-secondary);
+  font-size: var(--font-size-01);
+  margin-bottom: var(--spacing-02);
+  font-weight: 500;
+  font-style: italic;
+}
+
 .review-panel-comment-wrapper {
   display: flex;
   gap: var(--spacing-04);
-}
-
-.review-panel-comment {
-  flex-grow: 1;
 }
 
 .review-panel-comment-reply-divider {

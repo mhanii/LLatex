@@ -30,6 +30,19 @@
  * @property {string} userMessage
  * @property {Selection} [selection]
  * @property {ProjectContext} [context]
+ * @property {{path: string, docId: string}} [currentFile]  - file the user has open; takes precedence over selection.docId only as a fallback
+ * @property {string} [agentName]  - registry key for the requested agent prompt/tool profile
+ * @property {Array<ChatHistoryMessage>} [chatHistory]  - prior turns of this conversation. When provided, the seeder uses these (with role info from the web module) instead of fetching the chat thread directly. Each entry includes a `runId` for assistant turns so the agent can replay that turn's tool calls / outputs / reasoning from the agentRuns collection.
+ */
+
+/**
+ * @typedef {Object} ChatHistoryMessage
+ * @property {string} id           - chat message ObjectId
+ * @property {string} user_id
+ * @property {string} content
+ * @property {number} timestamp
+ * @property {'user'|'assistant'} role
+ * @property {string|null} runId   - the runId of the assistant turn that produced this message (null for user messages)
  */
 
 /**
@@ -83,7 +96,9 @@
  * @property {string} projectId
  * @property {string} userId
  * @property {string} runId
+ * @property {string} conversationId
  * @property {ProjectContext} [context]
+ * @property {(event: {toolName: string, status: 'running'|'completed'|'error', input?: unknown, error?: string}) => Promise<void>} [onToolEvent]
  */
 
 /**

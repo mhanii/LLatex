@@ -371,7 +371,12 @@ async function main() {
           compile1.success || compile1.status === 'success',
           `compile succeeded (status="${compile1.status}")`
         )
-        if (compile1.errors?.length) info(`warnings: ${compile1.errors.join('; ')}`)
+        assert(Array.isArray(compile1.warnings), `warnings is an array`)
+        assert(Array.isArray(compile1.typesetting), `typesetting is an array`)
+        assert(compile1.errors.length === 0, `no errors on clean project (got ${compile1.errors.length})`)
+        if (compile1.warnings.length) {
+          info(`warnings: ${compile1.warnings.length}; first: ${JSON.stringify(compile1.warnings[0])}`)
+        }
       }
 
       // ── Step 10: getPdfPage ───────────────────────────────────────────────────
@@ -429,22 +434,27 @@ async function main() {
       assert(tableIssue.length > 0, `detected unclosed \\begin{table}`)
       ok(`issues on broken file: ${syntax2.issues.length} (includes unclosed table)`)
 
-      // ── Step 14: compileAndCheck returns non-empty errors[] on failure ────────
-      // Verifies the log-parser path introduced in the P1 fix: when compilation
-      // fails, output.log is fetched from CLSI and parsed into actionable strings.
-      step('14 · compileAndCheck errors[] are non-empty on failure')
+      // ── Step 14: compileAndCheck errors[] match the editor's view ────────────
+      // Verifies the ported log-parser pipeline: each error is the same
+      // structured entry the editor renders (level/file/line/message/ruleId).
+      // Also implicitly verifies no sync/cache lag — the broken edit from
+      // step 11 must show up in this compile's errors.
+      step('14 · compileAndCheck errors carry the editor-shape and are sync-fresh')
       if (compile2.status === 'too-recently-compiled' || compile2.status?.includes('unavailable')) {
         info(`skipped (compile2 status="${compile2.status}")`)
       } else if (!compile2.success) {
-        assert(
-          Array.isArray(compile2.errors),
-          `errors field is an array`
-        )
-        assert(
-          compile2.errors.length > 0,
-          `errors[] is non-empty (got ${compile2.errors.length} error(s))`
-        )
-        info(`first error: ${compile2.errors[0]}`)
+        assert(Array.isArray(compile2.errors), `errors field is an array`)
+        assert(compile2.errors.length > 0, `errors[] non-empty (got ${compile2.errors.length})`)
+        const first = compile2.errors[0]
+        assert(typeof first === 'object' && first !== null, `errors[0] is an object`)
+        assert(first.level === 'error', `errors[0].level === 'error' (got "${first.level}")`)
+        assert(typeof first.message === 'string' && first.message.length > 0, `errors[0].message is non-empty string`)
+        const anyWithFile = compile2.errors.some(e => e.file && e.file.includes('new.tex'))
+        assert(anyWithFile, `at least one error references new.tex (proves edit propagated to CLSI)`)
+        const anyWithRuleId = compile2.errors.some(e => e.ruleId)
+        assert(anyWithRuleId, `at least one error has a ruleId (proves HumanReadableLogs ran)`)
+        info(`first error: ${JSON.stringify(first)}`)
+        info(`warnings: ${compile2.warnings.length}, typesetting: ${compile2.typesetting.length}`)
       } else {
         info(`skipped — compile2 unexpectedly succeeded`)
       }
@@ -487,6 +497,181 @@ async function main() {
       const syntax4 = await checkSyntax({ path: NEW_FILE_PATH }, ctx)
       const dupAfterRestore = syntax4.issues.filter(i => i.message.includes('dup-label'))
       assert(dupAfterRestore.length === 0, `no duplicate-label warning after restore`)
+
+      // ── Steps 16a–16f: rapid edit / check_syntax loop — staleness regression ─
+      // Reproduces the agent-loop bug: agent edits, calls check_syntax to
+      // confirm, edits again, calls check_syntax again. Every check_syntax
+      // call must reflect the *current* doc state, no stale carryover.
+      step('16a · rapid edit/check_syntax loop — staleness regression')
+
+      // 16a: introduce env-mismatch + duplicate label in one edit
+      const loopBreak = await editFile(
+        {
+          path: NEW_FILE_PATH,
+          oldText: '\\section{Methodology}',
+          newText:
+            '\\subsection{Methodology}\n\\label{loop-a}\n\\label{loop-a}\n\\begin{equation}\n\\end{align}',
+        },
+        ctx
+      )
+      assert(loopBreak === 'Change applied.', `step 16a edit applied`)
+      const syntaxLoop1 = await checkSyntax({ path: NEW_FILE_PATH }, ctx)
+      const hasDupLoopA = syntaxLoop1.issues.some(i =>
+        i.message.includes('loop-a')
+      )
+      const hasEnvMismatch1 = syntaxLoop1.issues.some(
+        i => i.message.includes('equation') || i.message.includes('align')
+      )
+      assert(hasDupLoopA, `16a: detects duplicate \\label{loop-a}`)
+      assert(hasEnvMismatch1, `16a: detects equation/align mismatch`)
+
+      // 16b: fix the env mismatch — duplicate label still there
+      step('16b · fix mismatched env, re-check (dup label must remain visible)')
+      const loopFixEnv = await editFile(
+        {
+          path: NEW_FILE_PATH,
+          oldText: '\\begin{equation}\n\\end{align}',
+          newText: '\\begin{equation}\n\\end{equation}',
+        },
+        ctx
+      )
+      assert(loopFixEnv === 'Change applied.', `step 16b edit applied`)
+      const syntaxLoop2 = await checkSyntax({ path: NEW_FILE_PATH }, ctx)
+      const stillHasMismatch = syntaxLoop2.issues.some(
+        i => i.message.includes('align') && i.message.includes('equation')
+      )
+      const stillHasDupLoopA = syntaxLoop2.issues.some(i =>
+        i.message.includes('loop-a')
+      )
+      assert(!stillHasMismatch, `16b: env mismatch is gone (proves fresh read)`)
+      assert(stillHasDupLoopA, `16b: dup-label still detected (sanity)`)
+
+      // 16c: fix the duplicate label — issues must drop to zero
+      step('16c · fix dup label, re-check (must show zero issues for our edits)')
+      const loopFixLabel = await editFile(
+        {
+          path: NEW_FILE_PATH,
+          oldText:
+            '\\subsection{Methodology}\n\\label{loop-a}\n\\label{loop-a}\n\\begin{equation}\n\\end{equation}',
+          newText: '\\section{Methodology}',
+        },
+        ctx
+      )
+      assert(loopFixLabel === 'Change applied.', `step 16c edit applied`)
+      const syntaxLoop3 = await checkSyntax({ path: NEW_FILE_PATH }, ctx)
+      const stillHasDup = syntaxLoop3.issues.some(i =>
+        i.message.includes('loop-a')
+      )
+      const stillHasEnv = syntaxLoop3.issues.some(
+        i => i.message.includes('equation') || i.message.includes('align')
+      )
+      assert(!stillHasDup, `16c: duplicate label gone (proves fresh read)`)
+      assert(!stillHasEnv, `16c: no stale env errors`)
+
+      // 16d: same content, second call must be identical (idempotency)
+      step('16d · check_syntax is idempotent on unchanged content')
+      const syntaxLoop4 = await checkSyntax({ path: NEW_FILE_PATH }, ctx)
+      assert(
+        syntaxLoop4.issues.length === syntaxLoop3.issues.length,
+        `16d: same issue count on repeat (got ${syntaxLoop4.issues.length} vs ${syntaxLoop3.issues.length})`
+      )
+
+      // 16e: project-wide call (no path arg) must reflect latest edits too
+      step('16e · check_syntax with no path (project-wide) sees latest state')
+      const breakAgain = await editFile(
+        {
+          path: NEW_FILE_PATH,
+          oldText: '\\section{Methodology}',
+          newText: '\\section{Methodology}\n\\begin{quote}',
+        },
+        ctx
+      )
+      assert(breakAgain === 'Change applied.', `16e edit applied`)
+      const syntaxAll1 = await checkSyntax({}, ctx)
+      const detectedQuote = syntaxAll1.issues.some(
+        i => i.message.includes('quote') && i.file === NEW_FILE_PATH
+      )
+      assert(detectedQuote, `16e: project-wide check sees new \\begin{quote}`)
+      const fixAgain = await editFile(
+        {
+          path: NEW_FILE_PATH,
+          oldText: '\\section{Methodology}\n\\begin{quote}',
+          newText: '\\section{Methodology}',
+        },
+        ctx
+      )
+      assert(fixAgain === 'Change applied.', `16e fix applied`)
+      const syntaxAll2 = await checkSyntax({}, ctx)
+      const stillHasQuote = syntaxAll2.issues.some(
+        i => i.message.includes('quote') && i.file === NEW_FILE_PATH
+      )
+      assert(!stillHasQuote, `16e: project-wide check sees the fix (no stale)`)
+
+      // 16f: check_syntax called 5x in tight loop on unchanged content —
+      // must return the same issue count every time. Reproduces the agent's
+      // repeated polling pattern.
+      step('16f · 5x check_syntax on unchanged content — must be consistent')
+      const repeated = []
+      for (let i = 0; i < 5; i++) {
+        repeated.push((await checkSyntax({ path: NEW_FILE_PATH }, ctx)).issues.length)
+      }
+      const allEqual = repeated.every(n => n === repeated[0])
+      assert(
+        allEqual,
+        `16f: counts equal across 5 calls (got [${repeated.join(', ')}])`
+      )
+
+      // ── Step 17: identical old/new content — no tracked change ───────────────
+      // Regression guard: agent-replace must NOT emit a delete+insert when
+      // old_text === new_text. The server returns 204 immediately without
+      // touching the doc, so content must be byte-for-byte unchanged.
+      step('17 · editFile with identical old/new — no diff emitted')
+      const identicalTarget = '\\section{Methodology}'
+      const beforeNoOp = await readFile({ path: NEW_FILE_PATH }, ctx)
+      assert(
+        beforeNoOp.includes(identicalTarget),
+        `17: target line is present before no-op edit`
+      )
+      const noOpResult = await editFile(
+        { path: NEW_FILE_PATH, oldText: identicalTarget, newText: identicalTarget },
+        ctx
+      )
+      assert(noOpResult === 'Change applied.', `17: identical edit returns ok (${noOpResult})`)
+      const afterNoOp = await readFile({ path: NEW_FILE_PATH }, ctx)
+      assert(afterNoOp === beforeNoOp, `17: file content unchanged after no-op edit`)
+
+      // ── Step 18: double-change collapse — old is oldest, new is newest ────────
+      // Two sequential agent edits on the same region. The ranges-tracker
+      // collapses them: tracked delete = original old text, tracked insert =
+      // final new text. Verified by content: the document must contain the
+      // final replacement only.
+      step('18 · double editFile on same region — collapses to single tracked change')
+      const doubleBase = '\\section{Methodology}'
+      const doubleIntermediate = '\\section{Revised Methodology}'
+      const doubleFinal = '\\section{Final Methodology}'
+
+      const dc1 = await editFile(
+        { path: NEW_FILE_PATH, oldText: doubleBase, newText: doubleIntermediate },
+        ctx
+      )
+      assert(dc1 === 'Change applied.', `18a: first edit applied`)
+
+      const dc2 = await editFile(
+        { path: NEW_FILE_PATH, oldText: doubleIntermediate, newText: doubleFinal },
+        ctx
+      )
+      assert(dc2 === 'Change applied.', `18b: second edit applied`)
+
+      const afterDouble = await readFile({ path: NEW_FILE_PATH }, ctx)
+      assert(afterDouble.includes(doubleFinal), `18c: file contains final replacement text`)
+      assert(!afterDouble.includes(doubleIntermediate), `18d: intermediate text is gone`)
+      assert(!afterDouble.includes(doubleBase), `18e: original text is gone`)
+
+      // Restore
+      await editFile(
+        { path: NEW_FILE_PATH, oldText: doubleFinal, newText: doubleBase },
+        ctx
+      )
 
       // ── Summary ───────────────────────────────────────────────────────────────
       console.log('\n' + '─'.repeat(56))

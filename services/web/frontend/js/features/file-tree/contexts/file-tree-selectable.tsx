@@ -250,7 +250,7 @@ export const FileTreeSelectableProvider: FC<
 }
 
 export function useSelectableEntity(id: string, type: string) {
-  const { view, setView } = useLayoutContext()
+  const { view, setView, setEditorPanelOpen } = useLayoutContext()
   const { setContextMenuCoords } = useFileTreeMainContext()
   const { fileTreeData } = useFileTreeData()
   const {
@@ -332,8 +332,10 @@ export function useSelectableEntity(id: string, type: string) {
 
       if (type === 'file') {
         setView('file')
+        setEditorPanelOpen(true)
       } else if (type === 'doc') {
         setView('editor')
+        setEditorPanelOpen(true)
       } else if (type === 'folder') {
         setView(chooseView())
       }
@@ -344,6 +346,7 @@ export function useSelectableEntity(id: string, type: string) {
       setIsRootFolderSelected,
       selectOrMultiSelectEntity,
       setView,
+      setEditorPanelOpen,
       type,
       buildSelectedRange,
       chooseView,

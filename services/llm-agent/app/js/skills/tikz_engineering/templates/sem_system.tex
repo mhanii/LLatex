@@ -1,0 +1,356 @@
+% Scanning Electron Microscope (SEM) system
+
+% This LaTeX document generates a detailed **diagram of a Scanning Electron Microscope (SEM) system**. It utilizes the **TikZ** graphics library to construct a cross-sectional view of the entire instrument, complete with accurate component labeling.
+%
+% ### Document Configuration
+%
+% * **Class:** `minimal` for a clean output focus.
+% * **Encoding:** `utf8`.
+% * **Libraries:** `tikz` (main graphics), `arrows`, and `decorations.pathmorphing` (though not heavily used in this example).
+% * **Preview:** The `preview` package ensures the output image is tightly cropped around the diagram with a specific margin.
+%
+% ### Visual Style
+%
+% * **Custom TikZ Styles:** Defines several styles for housing (`sem housing horz`, `sem housing vert`), internals (`sem background`), and specific optical elements like lenses (`sem lens thick`, `sem lens thinn`) and stigmators (`sem quadrupole`).
+% * **Shading and Fills:** Uses linear and ball gradients (`top color=...`, `shading=ball`) to create a faux-3D effect, distinguishing solid components from vacuum regions.
+%
+% ### Diagram Components
+%
+% The code is structured into scopes, defining the various functional segments of the SEM from top to bottom:
+%
+% 1. **Electron Source (Gun):**
+% * Constructs the main chamber.
+% * Visualizes the Tungsten filament and Wehnelt cylinder (labeled as Suppressor).
+% * Includes an Ion Getter Pump attached to the side.
+%
+%
+% 2. **Focusing and Condenser Optics:**
+% * Adds the Condenser Lens, defined by specific lens styles.
+% * Incorporates Stigmators, styled as quadrupole elements.
+% * Includes a primary Vacuum Pump.
+%
+%
+% 3. **Optics and Deflection:**
+% * Defines the Beam Blanker and Scanning Coils, styled as octopole elements.
+% * Includes a Faraday Cup mechanism.
+%
+%
+% 4. **Objective Pole Piece:**
+% * Draws the final Objective Lens.
+% * Includes the Objective Aperture callout.
+%
+%
+% 5. **Sample Chamber and Detectors:**
+% * Constructs a sample holder and a spherical specimen.
+% * Includes detailed drawings of a **Secondary Electron (SE) Detector**, complete with its Faraday Cage.
+% * Visualizes an **Energy Dispersive X-ray (EDX) Detector** (replacing a GIS system).
+%
+%
+% 6. **Electron Beam Path:**
+% * Renders the electron trajectory as a dashed blue path, illustrating how it originates at the filament and is focused and scanned across the sample.
+%
+%
+%
+% ### Annotations
+%
+% * **Labels:** The entire diagram is extensively labeled using a distinct scope with the `arrow` style.
+% * **Direction:** Connects each component label (e.g., Tungsten Filament, Anode, Stigmators) precisely to its visual representation in the diagram using TikZ `to[...]` commands.
+
+\documentclass{minimal}
+\usepackage[utf8]{inputenc}
+\usepackage{tikz}
+\usepackage[active,tightpage]{preview}
+\PreviewEnvironment{tikzpicture}
+\setlength\PreviewBorder{5pt}%
+
+\usetikzlibrary{arrows,decorations.pathmorphing}
+\tikzset{
+  arrow/.style={-stealth', line width=0.5pt},
+  every picture/.append style={line width=1pt},
+}
+\begin{document}
+\begin{tikzpicture}[
+    scale=1.3,
+    sem housing horz/.style={top color=black!10, bottom color=black!40, draw=black!50},
+    sem housing vert/.style={left color=black!10, right color=black!40, draw=black!50},
+    sem housing/.style={fill=black!20, draw=black!50},
+    sem background vert/.style={left color=black!40, right color=black!10, draw=black!50},
+    sem background/.style={fill=black!30, draw=black!50},
+    sem lens thick/.style={draw=black!80, line width=0.04cm},
+    sem lens thinn/.style={draw=black!95, line width=0.02cm},
+    sem mirror/.style={draw=black!60, line width=0.03cm, fill=black!20},
+    sem objective/.style={draw=black!60, line width=0.03cm},
+    sem quadrupole/.style={draw=black!60, line width=0.03cm},
+    sem blanker/.style={draw=black!90, fill=black!60},
+    sem octopole/.style={draw=black!80, line width=0.04cm},
+  ]
+
+  % SEM Column construction
+  \begin{scope}[scale=2]
+    \begin{scope}[yshift=0.2]
+      %% Electron Source
+      { % Background
+        \path[sem background vert]
+          (-1,0) arc (180:360:1 and 0.05) -- (1,-1) arc (360:180:1 and 0.05) --cycle;
+        \path[sem background vert]
+          (-0.8,0.2) arc (180:360:0.8 and 0.04) -- (1,0) arc (360:180:1 and 0.05) --cycle;
+        \path[sem background vert]
+          (-0.8,-1.2) arc (180:360:0.8 and 0.04) -- (1,-1) arc (360:180:1 and 0.05) --cycle;
+      }
+      { % Internals
+        \path[sem housing vert]
+          (-0.3,0) -- (0.3,0) -- (0.3,-0.45) -- (0,-0.7) coordinate (source) -- (-0.3,-0.45) --cycle;
+        % Tungsten Filament
+        \path[draw=black!80, line width=1.5pt]
+          (-0.15, -0.45) -- (0, -0.9) coordinate (emitter) -- (0.15, -0.45);
+        % Anode
+        \path[sem lens thinn]
+          (-0.8,-0.9) -- (-0.05,-0.9)
+          (0.05,-0.9) -- (0.8,-0.9) coordinate[midway] (extractor);
+        % Wehnelt Cylinder
+        \path[sem lens thick]
+          (-0.4,-0.4) -- (-0.4,-0.8) -- (-0.1,-0.8) (0.1,-0.8) -- (0.4,-0.8) -- (0.4,-0.4) coordinate[midway] (suppressor);
+      }
+      \begin{scope} % Smooth Housing
+        \path[clip]
+          (-1,0.3) -- (1,0.3) -- (1,-1.3)
+          -- (0.6,-1.3) ..controls (0.6,0.2) and (-0.6,0.2).. (-0.6,-1.3)
+          -- (-1,-1.3) --cycle;
+        \path[sem housing vert]
+          (-1,0) arc (180:0:1 and 0.05) -- (1,-1) arc (0:180:1 and 0.05) --cycle;
+        \path[sem housing vert]
+          (-0.8,0.2) arc (180:0:0.8 and 0.04) -- (1,0) arc (0:180:1 and 0.05) --cycle;
+        \path[sem housing vert]
+          (-0.8,-1.2) arc (180:0:0.8 and 0.04) -- (1,-1) arc (0:180:1 and 0.05) --cycle;
+        \path[sem housing]
+          (0,-1.2) ellipse (0.8 and 0.04);
+      \end{scope}
+      { % Ion Getter Pump
+        \path[sem housing]
+          (-1,-0.1) rectangle (-1.2,-0.6);
+        \path[sem housing]
+          (-1.2,-0.15) rectangle (-1.25,-0.2)
+          (-1.2,-0.55) rectangle (-1.25,-0.5);
+        \path[sem housing horz]
+          (-1.2,-0.25) rectangle (-1.6,-0.45);
+      }
+    \end{scope}
+
+    %% Acceleration and Focusing
+    \begin{scope}[yshift=-1.4cm]
+      { % Background
+        \path[sem background vert]
+          (-0.7,0.2) arc (180:360:0.7 and 0.03) -- (0.7,-1.2) arc (360:180:0.7 and 0.03) --cycle;
+      }
+      { % Internals
+        \path[sem lens thinn] % Lens
+          (-0.3,-0.25) -- (-0.5,-0.25) -- (-0.5,-0.35) -- (-0.3,-0.35)
+          (0.3,-0.25) -- (0.5,-0.25) -- (0.5,-0.35) -- (0.3,-0.35);
+        \path[sem lens thick]
+          (-0.45,-0.3) -- (-0.35,-0.3) (0.35,-0.3) -- (0.45,-0.3)
+          (0,-0.3) coordinate (ionlens1)
+          (-0.5,-0.25) coordinate (linse1);
+        \path[sem quadrupole] % Stigmator 1
+          (0,-0.45) ellipse (0.33cm and 0.01cm)
+          (0,-0.65) ellipse (0.33cm and 0.01cm)
+          (-0.35,-0.45) -- ++(0,-0.2) (-0.2,-0.45) -- ++(0,-0.2)
+          (0.35,-0.45) -- ++(0,-0.2) (0.2,-0.45) -- ++(0,-0.2)
+          (-0.35,-0.45) coordinate (quadA);
+        \path[sem lens thick]
+          (-0.25,-0.45) -- (0.25,-0.45)
+          (-0.25,-0.65) -- (0.25,-0.65);
+        \path[sem lens thick] % Aperture
+          (-0.7,-0.75) -- (-0.05,-0.75) (0.05,-0.75) -- (0.7,-0.75) coordinate[midway] (blende)
+          (0,-0.75) coordinate (ionblende);
+        \path[sem quadrupole] % Stigmator 2
+          (0,-0.85) ellipse (0.33cm and 0.01cm)
+          (0,-1.05) ellipse (0.33cm and 0.01cm)
+          (-0.35,-0.85) -- ++(0,-0.2) (-0.2,-0.85) -- ++(0,-0.2)
+          (0.35,-0.85) -- ++(0,-0.2) (0.2,-0.85) -- ++(0,-0.2)
+          (-0.35,-0.85) coordinate (quadB);
+        \path[sem lens thick]
+          (-0.25,-0.85) -- (0.25,-0.85)
+          (-0.25,-1.05) -- (0.25,-1.05);
+      }
+      \begin{scope} % Smooth Housing
+        \path[clip]
+          (0.7,0.3) -- (0.7,-1.3)
+          -- (0.6,-1.3) ..controls (0.5,-0.6).. (0.6,0.3) --cycle
+          (-0.7,0.3) -- (-0.6,0.3) ..controls (-0.5,-0.6).. (-0.6,-1.3)
+          -- (-0.7,-1.3) --cycle;
+        \path[sem housing vert]
+          (-0.7,0.2) arc (180:0:0.7 and 0.03) -- (0.7,-1.2) arc (0:180:0.7 and 0.03) --cycle;
+      \end{scope}
+      { % Vacuum Pump
+        \path[sem housing]
+          (0.7,-0.1) rectangle (0.9,-0.6);
+        \path[sem housing]
+          (0.9,-0.15) rectangle (0.95,-0.2) (0.95,-0.15) coordinate (ionenpume)
+          (0.9,-0.55) rectangle (0.95,-0.5);
+        \path[sem housing horz]
+          (0.9,-0.25) rectangle (1.3,-0.45);
+      }
+    \end{scope}
+
+    \begin{scope}[yshift=-2.8cm]
+      % Optics and Deflection
+      { % Background
+        \path[sem background vert]
+          (-0.8,0.2) arc (180:360:0.8 and 0.03) -- (0.8,-1.5) arc (360:180:0.8 and 0.03) --cycle;
+      }
+      { % Internals
+        \path[sem blanker] % Blanker
+          (-0.3,0.1) rectangle (-0.25,-0.2)
+          (0.3,0.1) rectangle (0.25,-0.2)
+          (-0.3,0.1) coordinate (blanker);
+        \path[sem lens thick]
+          (-0.3,-0.05) -- (-0.4,-0.05) (0.3,-0.05) -- (0.4,-0.05);
+        \path[sem lens thick] % Faraday cup
+          (-0.3,-0.25) -- (-0.3,-0.35) -- (-0.15,-0.35) -- (-0.15,-0.25)
+          (-0.3,-0.25) coordinate (faraday)
+          (0.3,-0.25) -- (0.3,-0.35) -- (0.15,-0.35) -- (0.15,-0.25);
+        \path[sem octopole] % Scanning Coils 1
+          (0,-0.4) ellipse (0.38cm and 0.01cm)
+          (0,-0.6) ellipse (0.38cm and 0.01cm)
+          (-0.4,-0.4) -- (-0.4,-0.6) (0.4,-0.4) -- (0.4,-0.6)
+          (-0.27,-0.4) -- ++(0,-0.2) (-0.1,-0.4) -- ++(0,-0.2)
+          (0.27,-0.4) -- ++(0,-0.2) (0.1,-0.4) -- ++(0,-0.2)
+          (0,-0.5) coordinate (ionocto1)
+          (-0.4,-0.4) coordinate (octoA);
+        \path[sem octopole] % Scanning Coils 2
+          (0,-0.7) ellipse (0.38cm and 0.01cm)
+          (0,-1.05) ellipse (0.38cm and 0.01cm)
+          (-0.4,-0.7) -- (-0.4,-1.05) (0.4,-0.7) -- (0.4,-1.05)
+          (-0.27,-0.7) -- ++(0,-0.35) (-0.1,-0.7) -- ++(0,-0.35)
+          (0.27,-0.7) -- ++(0,-0.35) (0.1,-0.7) -- ++(0,-0.35)
+          (0,-0.88) coordinate (ionocto2)
+          (-0.4,-0.7) coordinate (octoB);
+      }
+      \begin{scope} % Smooth Housing
+        \path[clip]
+          (0.8,0.3) -- (0.8,-1.6)
+          -- (0.6,-1.6) ..controls (0.8,-0.6).. (0.6,0.3) --cycle
+          (-0.8,0.3) -- (-0.6,0.3) ..controls (-0.4,-0.6).. (-0.6,-1.6)
+          -- (-0.8,-1.6) --cycle;
+        \path[sem housing vert]
+          (-0.8,0.2) arc (180:0:0.8 and 0.03) -- (0.8,-1.5) arc (0:180:0.8 and 0.03) --cycle;
+      \end{scope}
+    \end{scope}
+
+    \begin{scope}[yshift=-4.5cm]
+      % Objective Pole Piece
+      { % Background
+        \path[sem background vert]
+          (-0.8,0.2) arc (180:360:0.8 and 0.03) -- (0.8,-0.6) arc (360:180:0.8 and 0.03) -- cycle;
+        \path[sem background vert]
+          (0.8,-0.6) arc (360:180:0.8 and 0.03) -- (-0.3,-1) arc (180:360:0.3 and 0.01) -- cycle;
+      }
+      { % Internals
+        \path[sem mirror]
+          (-0.15,-0.4) arc (-75:-50:0.25) -- (-0.05,-0.4) -- cycle;
+        \path[sem mirror]
+          (0.15,-0.4) arc (-105:-130:0.25) -- (0.05,-0.4) -- cycle;
+        \path[sem lens thinn] % Objective Lens Core
+          (-0.15,-0.65) -- (-0.3,-0.65) -- (-0.3,-0.75) -- (-0.15,-0.75)
+          (0.15,-0.65) -- (0.3,-0.65) -- (0.3,-0.75) -- (0.15,-0.75);
+        \path[sem lens thick]
+          (-0.27,-0.7) -- (-0.17,-0.7) (0.17,-0.7) -- (0.27,-0.7)
+          (0,-0.7) coordinate (ionlens2)
+          (-0.27,-0.65) coordinate (linse2);
+      }
+      \begin{scope} % Smooth Housing
+        \path[clip]
+          (-0.8,0.3) -- (-0.6,0.3) ..controls (-0.5,-1.3) and (0.5,-1.3).. (0.6,0.3)
+          -- (0.8,0.3) -- (0.8,-1) -- (-0.8,-1) -- cycle;
+        \path[sem housing vert]
+          (-0.8,0.2) arc (180:0:0.8 and 0.03) -- (0.8,-0.6) arc (0:180:0.8 and 0.03) -- cycle;
+        \path[sem housing vert]
+          (0.8,-0.6) arc (0:180:0.8 and 0.03) -- (-0.3,-1) arc (180:0:0.3 and 0.01) -- cycle;
+      \end{scope}
+    \end{scope}
+
+    \begin{scope}[yshift=-6cm, scale=0.5]
+      % Sample Specimen
+      \path[draw=black!80, fill=black!50, rounded corners=1pt]
+        (-0.2,-0.6) rectangle (0.2,-0.2); % Pin
+      \path[draw=black!80, fill=black!30, rounded corners=2pt]
+        (-0.8,-0.2) rectangle (0.8,0); % Mount Stub
+      \path[draw=black!80, shading=ball, ball color=gray!40]
+        (0,0.3) circle (0.3); % Spherical Specimen
+      \coordinate (target) at (0,0.55);
+    \end{scope}
+
+    \begin{scope}[yshift=-5.7cm, rotate around={-30:(-0.75,0.2)}]
+      % Secondary Electron Detector
+      \path[draw=black!80, line width=0.03cm] % Grid / Cage
+        (-0.7,0.2) -- (-0.4,0.15) -- (-0.1,0.2);
+      \path[sem housing horz]
+        (-0.9,0.3) -- (-0.6,0.25) arc(90:270:0.1 and 0.15) -- (-0.9,0) arc(270:90:0.1 and 0.15) --cycle;
+      \path[sem housing]
+        (-0.6,0.1) ellipse (0.1 and 0.15);
+      \begin{scope}
+        \path[sem housing]
+          (-0.6,0.1) ellipse (0.07 and 0.11);
+        \path[clip]
+          (-0.6,0.1) ellipse (0.07 and 0.11);
+        \path[shading=ball, ball color=cyan!30]
+          (-0.5,0) circle (0.4);
+      \end{scope}
+      \path[draw=black!80, line width=0.03cm] % Lower Grid
+        (-0.9,0.05) -- (-0.6,0) -- (-0.4,-0.2);
+    \end{scope}
+
+    \begin{scope}[yshift=-6cm]
+      % EDX Detector replacing GIS
+      \path[sem housing horz]
+        (2.2, 0.8) -- (0.8, 0.4) -- (0.7, 0.5) -- (2.1, 0.9) -- cycle;
+      \path[fill=black!80]
+        (0.8, 0.4) -- (0.7, 0.5) -- (0.65, 0.45) -- (0.75, 0.35) -- cycle;
+    \end{scope}
+
+    \begin{scope} % Electron Beam Paths
+      % Electrons (Blue dashed instead of grey)
+      \path[draw=blue!80, dashed]
+        (source) -- (emitter)
+        (emitter) -- (ionlens1 -| -0.23,0) -- (ionblende -| 0.32,0)
+        (ionblende -| 0.02,0) -- (ionocto1 -| 0.028,0) -- (ionocto2 -| 0.03,0) -- (ionlens2 -| 0.07,0) --
+        (target) --
+        (ionlens2 -| -0.07,0) -- (ionocto2 -| -0.03,0) -- (ionocto1 -| -0.028,0) -- (ionblende -| -0.02,0)
+        (ionblende -| -0.32,0) -- (ionlens1 -| 0.23,0) -- (emitter);
+      \path[fill=blue, opacity=0.2]
+        (emitter) -- (ionlens1 -| -0.23,0) -- (ionblende -| 0.32,0) --
+        (ionblende -| 0.02,0) -- (ionocto1 -| 0.028,0) -- (ionocto2 -| 0.03,0) -- (ionlens2 -| 0.07,0) --
+        (target) --
+        (ionlens2 -| -0.07,0) -- (ionocto2 -| -0.03,0) -- (ionocto1 -| -0.028,0) --
+        (ionblende -| -0.02,0) -- (ionblende -| -0.32,0) -- (ionlens1 -| 0.23,0) -- cycle;
+    \end{scope}
+
+    % Labels
+    \begin{scope}[arrow]
+      \path[draw] (0.9,0.3) node[anchor=west] {Tungsten Filament} to[out=180, in=45] (0.1,-0.6);
+      \path[draw] (1.5,-0.6) node[anchor=west] {Anode} to[out=180, in=45] (extractor);
+      \path[draw,shorten >=0.1cm] (1.5,-0.3) node[anchor=west] {Wehnelt Cylinder} to[out=180, in=45] (suppressor);
+      \path[draw] (-0.7,0.5) node[anchor=east] (tmp) {Ion Getter Pump} (tmp) to[out=-90, in=180] (-1.3, -0.2);
+      \path[draw,shorten >=0.1cm] (-1.1,-1.2) node[anchor=east] {Electron Beam} to[out=0, in=225] (emitter);
+      \path[draw] (1.5,-1.3) node[anchor=west] {Vacuum Pump} to[out=180, in=45] (1,-1.5);
+
+      \path[draw,shorten >=0.1cm] (-0.9,-1.8) node[anchor=east] (quad) {Stigmators} to[out=0, in=160] (quadA);
+      \path[draw,shorten >=0.1cm]  (quad) to[out=0, in=160] (quadB);
+      \path[draw,shorten >=0.05cm] (-1.1,-1.4) node[anchor=east] {Condenser Lens} to[out=0, in=135] (linse1);
+      \path[draw,shorten >=0.05cm] (1.5,-1.8) node[anchor=west] {Objective Aperture} to[out=180, in=60] (blende);
+
+      \path[draw, shorten >=0.1cm] (-1.1,-2.3) node[anchor=east] {Beam Blanker} to[out=0, in=140] (blanker);
+      \path[draw, shorten >=0.1cm] (-1.1,-2.7) node[anchor=east] {Faraday Cup} to[out=0, in=140] (faraday);
+      \path[draw, shorten >=0.1cm] (-1.1,-3.1) node[anchor=east] (okto) {Scanning Coils} to[out=0, in=140] (octoA);
+      \path[draw, shorten >=0.1cm] (okto) to[out=0, in=140] (octoB);
+
+      \path[draw] (-1.1,-4.7) node[anchor=east] {Objective Lens} to[out=0, in=150] (linse2);
+
+      \path[draw] (1.5,-5.1) node[anchor=west] {EDX Detector} to[out=180, in=70] (1.2,-5.4);
+      \path[draw] (1.5,-5.8) node[anchor=west] {Sample Specimen} to[out=180, in=20] (0.3,-5.8);
+      \path[draw] (-1.1,-5.1) node[anchor=east] {SE Detector} to[out=0, in=110] (-0.8,-5.4);
+      \path[draw] (-1.1,-6) node[anchor=east] {Faraday Cage} to[out=0, in=-120] (-0.7,-5.9);
+    \end{scope}
+  \end{scope}
+\end{tikzpicture}
+\end{document}

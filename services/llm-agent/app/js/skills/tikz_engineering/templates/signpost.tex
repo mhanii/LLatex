@@ -1,0 +1,109 @@
+  % ## Signpost Structural Loading Diagram
+  %
+  % This LaTeX code uses **TikZ** to create a technical illustration of a **signpost structure under multiple applied loads**. It combines a detailed 2D cross-section view with a parameterized 3D dimetric projection to visualize how forces are distributed across the assembly.
+  %
+  % ---
+  %
+  % ### Key Features
+  %
+  % * **Vector and View Styles:** Defines custom TikZ styles for various line types (e.g., `load`, `stress`, `dim`, `axis`) and specific 3D perspectives like `isometric` and `dimetric`, ensuring visual consistency throughout the diagram.
+  % * **2D Cross-Section:** Provides a detailed **top-down view of the signpost's hollow circular post**. It includes clear dimension lines labeled with $d_i$ (inner diameter) and $d_o$ (outer diameter) to specify the geometry.
+  % * **3D Structure Visualization:** Constructs the signpost and sign in a **3D dimetric2 projection**. This includes:
+  % * The **Steel Post** rising from a **Fixed Support** base.
+  % * The rectangular **Sign** mounted at the top, showing thickness and height details.
+  % * The 3D coordinate axes $(x, y, z)$.
+  %
+  %
+  % * **Applied Load Callouts:** Visualizes several different types of loads on the structure:
+  % * **Concentrated Forces:** A downward point load $F_{z1}$ on the post and a lateral force $F_{y1}$ acting on the sign.
+  % * **Distributed Wind Loads:**
+  % * **Vertical Wind Load:** Represented as constant downward arrows ($w_z$) across the top edge of the sign.
+  % * **Varying Vertical Pressure:** Illustrates a wind load ($w_x$) on the post that increases linearly with height, including the defining mathematical equation ($w_x = \frac{z}{h_1+h_2}w_0$).
+  %
+  %
+  %
+  %
+  % * **Structural Dimensions:** Includes parameterized dimension lines for key heights ($h_1$, $h_2$) and the sign's width ($b_2$), along with variables for measuring position ($x_1$, $z_1$).
+  %
+  % ### Technical Components
+  %
+  % * **Coordinate Manipulation:** Extensively uses standard $(x,y,z)$ coordinates and relative positioning (e.g., `++(6,0,0)`) within the dimetric2 scope to build the complex 3D assembly.
+  % * **Gradient and Fill Effects:** Employs linear gradients and varying gray fill percentages (`fill=gray!50`, `fill=gray!10`) to simulate shading and distinguish between different parts of the structure (support, post, sign, different sign faces).
+  % * **Preview and Center Environments:** Uses the `center` and `preview` environments to ensure the final output is well-presented, centered on the page, and tightly cropped without extra margins.
+
+
+
+  % Signpost with loads applied
+% % Author: Paul Gessler
+% \documentclass{article}
+% \usepackage{tikz}             % TikZ and PGF
+% \usepackage[active,tightpage]{preview}
+% \PreviewEnvironment{center}
+% \setlength\PreviewBorder{10pt}%
+% % Vector Styles
+% \tikzstyle{load}   = [ultra thick,-latex]
+% \tikzstyle{stress} = [-latex]
+% \tikzstyle{dim}    = [latex-latex]
+% \tikzstyle{axis}   = [-latex,black!55]
+%
+% % Drawing Views
+% \tikzstyle{isometric}=[x={(0.710cm,-0.410cm)},y={(0cm,0.820cm)},z={(-0.710cm,-0.410cm)}]
+% \tikzstyle{dimetric} =[x={(0.935cm,-0.118cm)},y={(0cm,0.943cm)},z={(-0.354cm,-0.312cm)}]
+% \tikzstyle{dimetric2}=[x={(0.935cm,-0.118cm)},z={(0cm,0.943cm)},y={(+0.354cm,+0.312cm)}]
+% \tikzstyle{trimetric}=[x={(0.926cm,-0.207cm)},y={(0cm,0.837cm)},z={(-0.378cm,-0.507cm)}]
+%
+% \begin{document}
+% \begin{center}
+%   \begin{tikzpicture}
+%     \node (origin) at (0,0) {}; % shift relative baseline
+%     \coordinate (O) at (2,3);
+%     \draw[fill=gray!10] (O) circle (1);
+%     \draw[fill=white] (O) circle (0.75) node[below,yshift=-1.125cm] {Signpost Cross Section};
+%     \draw[dim] (O) ++(-0.75,0) -- ++(1.5,0) node[midway,above] {$d_i$};
+%     \draw[dim] (O) ++(-1,1.25) -- ++(2,0) node[midway,above] {$d_o$};
+%     \foreach \x in {-1,1} {
+%       \draw (O) ++(\x,0.25) -- ++(0,1.25);
+%     }
+%   \end{tikzpicture}%
+%   \begin{tikzpicture}[dimetric2]
+%         \coordinate (O) at (0,0,0);
+%         \draw[axis] (O) -- ++(6,0,0) node[right] {$x$};
+%         \draw[axis] (O) -- ++(0,6,0) node[above right] {$y$};
+%         \draw[axis] (O) -- ++(0,0,6) node[above] {$z$};
+%         \draw[fill=gray!50] (0,0,-0.5) circle (0.5);
+%         \fill[fill=gray!50] (-0.46,-0.2,-0.5) -- (0.46,0.2,-0.5) -- (0.46,0.2,0) -- (-0.46,-0.2,0) -- cycle;
+%         \draw[fill=gray!20] (O) circle (0.5);
+%     \draw (0.46,0.2,-0.5) -- ++(0,0,0.5) node[below right,pos=0.0] {Fixed Support};
+%     \draw (-0.46,-0.2,-0.5) -- ++(0,0,0.5);
+%     \draw[fill=gray!10] (O) circle (0.2);
+%     \fill[fill=gray!10] (-0.175,-0.1,0) -- (0.175,0.1,0) -- ++(0,0,4) -- (-0.175,-0.1,4) -- cycle;
+%     \draw (-0.175,-0.1,0) -- ++(0,0,4);
+%     \draw (0.175,0.1,0) -- ++(0,0,4) node[right,midway] {Steel Post};
+%     \draw (4,0,3.95) -- ++(0,0,-1);
+%     \foreach \z in {0.5,0.75,...,5} {
+%       \draw[-latex] (-2*\z/5-0.2,0,\z) -- (-0.2,0,\z);
+%     }
+%     \draw[load] (0,0,4) -- ++(0,0,-1.25) node[right,xshift=0.1cm] {$F_{z1}$};
+%     \draw[fill=gray!20] (-0.25,-0.25,5) -- (4,-0.25,5) -- (4,+0.25,5) -- (-0.25,+0.25,5) -- cycle;
+%     \draw[fill=gray!50] (+4.00,-0.25,4) -- (4,+0.25,4) -- (4,+0.25,5) -- (+4.00,-0.25,5) -- cycle;
+%     \draw[fill=gray!10] (-0.25,-0.25,4) -- (4,-0.25,4) -- (4,-0.25,5) -- (-0.25,-0.25,5) -- cycle;
+%     \draw (4.05,0,4) -- ++(1,0,0);
+%     \draw (4.05,0,5) -- ++(1,0,0);
+%     \draw[dim] (4.5,0,0) -- ++(0,0,4) node[midway,right] {$h_1$};
+%     \draw[dim] (4.5,0,4) -- ++(0,0,1) node[midway,right] {$h_2$};
+%     \draw[dim] (0,0,3.4) -- ++(4,0,0) node[midway,below] {$b_2$};
+%     \coordinate (P) at (2,-0.25,4.5);
+%     \draw (P) -- ++(0,0,0.25);
+%     \draw (P) -- ++(0.25,0,0);
+%     \draw[dim] (2.125,-0.25,4.5) -- ++(0,0,-0.5) node[midway,right] {$z_1$};
+%     \draw[dim] (2,-0.25,4.625) -- ++(-2,0,0) node[midway,below] {$x_1$};
+%     \draw[load] (2,-2.45,4.5) -- ++(0,2.2,0) node[pos=0.0,right,xshift=0.08cm] {$F_{y1}$};
+%     \draw[axis,dashed,-] (O) -- (0,0,5);
+%     \draw (0,0,5.5) -- ++(4,0,0) node[midway,above] {$w_{z}$};
+%     \foreach \x in {0,0.25,...,4} {
+%       \draw[-latex] (\x,0,5.5) -- ++(0,0,-0.5);
+%     }
+%     \draw (-0.2,0,0) -- ++(-2,0,5) node[above,xshift=0.5cm] {$w_{x}=\frac{z}{h_1+h_2} w_0$};
+%   \end{tikzpicture} %
+% \end{center}
+% \end{document}

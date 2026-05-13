@@ -25,9 +25,13 @@
 }
 
 .chat {
-  $new-message-height: 80px;
+  $new-message-height: 32px;
 
   color: var(--chat-color);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
 
   .chat-error {
     position: absolute;
@@ -39,10 +43,10 @@
   }
 
   .messages {
-    position: absolute;
-    inset: 0;
-    bottom: $new-message-height;
+    flex: 1;
+    min-height: 0;
     overflow-x: hidden;
+    overflow-y: auto;
     background-color: var(--chat-bg);
 
     li.message {
@@ -70,27 +74,30 @@
   }
 
   .new-message {
-    @extend .full-size;
-
-    top: auto;
-    height: $new-message-height;
-    background-color: var(--chat-new-message-bg);
-    padding: calc(var(--line-height-03) / 4);
-    border-top: 1px solid var(--chat-new-message-border);
-
-    textarea {
-      overflow: auto;
-      resize: none;
-      border-radius: var(--border-radius-base);
-      border: 1px solid var(--border-divider-themed);
-      height: 100%;
-      width: 100%;
-      color: var(--chat-new-message-textarea-color);
-      font-size: var(--font-size-02);
-      padding: calc(var(--line-height-03) / 4);
-      background-color: var(--chat-new-message-textarea-bg);
-    }
+    flex-shrink: 0;
+    display: none;
   }
+}
+
+.chat-panel,
+.ide-chatbot-panel,
+.ide-chatbot-panel-composer {
+  overflow: hidden !important;
+}
+
+.ide-redesign-chatbot-panel,
+.ide-chatbot-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.chat-wrapper {
+  flex: 1;
+  min-height: 0 !important;
+  overflow: hidden;
+  position: relative;
 }
 
 .chat-empty-state-placeholder {
@@ -254,9 +261,12 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
 
   .chat-wrapper {
     flex: 1 1 auto;
+    min-height: 0;
     position: relative;
+    overflow: hidden;
   }
 }

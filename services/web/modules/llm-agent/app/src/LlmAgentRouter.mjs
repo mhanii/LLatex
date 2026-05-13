@@ -7,6 +7,24 @@ const requirePrivateApiAuth = () =>
 
 export default {
   apply(webRouter) {
+    webRouter.get(
+      '/project/:project_id/agent/conversations',
+      AuthenticationController.requireLogin(),
+      AuthorizationMiddleware.ensureUserCanReadProject,
+      LlmAgentController.listConversations
+    )
+    webRouter.post(
+      '/project/:project_id/agent/conversations',
+      AuthenticationController.requireLogin(),
+      AuthorizationMiddleware.ensureUserCanReadProject,
+      LlmAgentController.createConversation
+    )
+    webRouter.get(
+      '/project/:project_id/agent/conversations/:conversation_id/messages',
+      AuthenticationController.requireLogin(),
+      AuthorizationMiddleware.ensureUserCanReadProject,
+      LlmAgentController.getConversationMessages
+    )
     webRouter.post(
       '/project/:project_id/agent/message',
       AuthenticationController.requireLogin(),
@@ -23,6 +41,11 @@ export default {
       '/internal/project/:project_id/agent/complete',
       requirePrivateApiAuth(),
       LlmAgentController.agentComplete
+    )
+    webRouter.post(
+      '/internal/project/:project_id/agent/tool-call',
+      requirePrivateApiAuth(),
+      LlmAgentController.agentToolCall
     )
     webRouter.post(
       '/internal/project/:project_id/agent/create-file',
@@ -53,6 +76,11 @@ export default {
       '/internal/project/:project_id/agent/syntax-check',
       requirePrivateApiAuth(),
       LlmAgentController.agentSyntaxCheck
+    )
+    webRouter.post(
+      '/internal/agent/create-project',
+      requirePrivateApiAuth(),
+      LlmAgentController.agentCreateProject
     )
   },
 }

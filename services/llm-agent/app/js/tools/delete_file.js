@@ -18,6 +18,7 @@ export async function deleteFile({ path }, ctx) {
         Authorization: basicAuth(),
       },
       body: JSON.stringify({ path, userId: ctx.userId }),
+      signal: AbortSignal.timeout(30_000), // 30s timeout
     }
   )
   if (res.status === 404) {
@@ -25,6 +26,11 @@ export async function deleteFile({ path }, ctx) {
   }
   if (!res.ok) {
     return `Delete failed: HTTP ${res.status}`
+  }
+  const files = ctx.context?.files
+  if (files) {
+    const idx = files.findIndex(f => f.path === path)
+    if (idx !== -1) files.splice(idx, 1)
   }
   return 'Deleted.'
 }

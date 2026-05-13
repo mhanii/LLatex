@@ -50,7 +50,7 @@ export const FileTreeOpenProvider: FC<React.PropsWithChildren> = ({
   const { openDocWithId, openInitialDoc } = useEditorManagerContext()
   const { currentDocumentId } = useEditorOpenDocContext()
   const { showVisualForFile } = useEditorPropertiesContext()
-  const { setOpenFile } = useLayoutContext()
+  const { setOpenFile, setEditorPanelOpen } = useLayoutContext()
   const [openEntity, setOpenEntity] = useState<
     FileTreeDocumentFindResult | FileTreeFileRefFindResult | null
   >(null)
@@ -115,6 +115,9 @@ export const FileTreeOpenProvider: FC<React.PropsWithChildren> = ({
           ? convertFileRefToBinaryFile(selected.entity)
           : null
       setOpenFile(openFile)
+      if (selected.type === 'fileRef') {
+        setEditorPanelOpen(true)
+      }
       if (openFile) {
         if (selected?.entity?.name?.endsWith('.bib')) {
           sendMB('open-bib-file', {
@@ -128,7 +131,14 @@ export const FileTreeOpenProvider: FC<React.PropsWithChildren> = ({
         window.dispatchEvent(new CustomEvent('file-view:file-opened'))
       }
     },
-    [fileTreeReady, openDocWithId, projectOwner, setOpenFile, showVisualForFile]
+    [
+      fileTreeReady,
+      openDocWithId,
+      projectOwner,
+      setEditorPanelOpen,
+      setOpenFile,
+      showVisualForFile,
+    ]
   )
 
   const handleFileTreeDelete = useCallback(

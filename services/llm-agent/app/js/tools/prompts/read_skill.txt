@@ -1,0 +1,6 @@
+Read a skill guide and its templates. Two-step workflow:
+
+1. Call with only `name` → returns the skill guide (when to use, packages, key concepts) and an index of available templates with one-line descriptions. Use this to decide which template fits the task.
+2. Call again with `name` + `template` (a filename from the index) → returns the full LaTeX code for that template.
+
+Call list_skills first to get valid skill names. Always read the guide before writing complex LaTeX so you follow the correct package setup and patterns.

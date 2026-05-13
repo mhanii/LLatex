@@ -18,11 +18,16 @@ export async function createFile({ path, content }, ctx) {
         Authorization: basicAuth(),
       },
       body: JSON.stringify({ path, content: content ?? '', userId: ctx.userId }),
+      signal: AbortSignal.timeout(30_000), // 30s timeout
     }
   )
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     return `Create failed: HTTP ${res.status} — ${body}`
   }
-  return /** @type {{path: string, docId: string}} */ (await res.json())
+  const created = /** @type {{path: string, docId: string}} */ (await res.json())
+  if (ctx.context?.files && !ctx.context.files.some(f => f.path === created.path)) {
+    ctx.context.files.push({ path: created.path, docId: created.docId })
+  }
+  return created
 }

@@ -37,7 +37,7 @@ module.exports = {
   },
 
   llm: {
-    defaultModel: process.env.LLM_MODEL || 'gpt-4o',
+    defaultModel: process.env.LLM_MODEL || '@deepseek/deepseek-v4-flash',
     portkey: {
       apiKey: process.env.PORTKEY_API_KEY || '',
       virtualKey: process.env.PORTKEY_VIRTUAL_KEY || '',
