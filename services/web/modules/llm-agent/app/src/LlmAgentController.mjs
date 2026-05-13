@@ -125,6 +125,18 @@ async function listConversations(req, res) {
   res.json(conversations)
 }
 
+async function deleteConversation(req, res) {
+  const { project_id: projectId, conversation_id: conversationId } = req.params
+  const deletedCount = await AgentConversationManager.promises.deleteConversation(
+    projectId,
+    conversationId
+  )
+  if (!deletedCount) {
+    return res.status(404).json({ error: 'agent conversation not found' })
+  }
+  res.sendStatus(204)
+}
+
 async function getConversationMessages(req, res) {
   const { project_id: projectId, conversation_id: conversationId } = req.params
   const conversation = await AgentConversationManager.promises.getConversation(
@@ -518,6 +530,7 @@ async function agentSyntaxCheck(req, res) {
 export default {
   createConversation: expressify(createConversation),
   listConversations: expressify(listConversations),
+  deleteConversation: expressify(deleteConversation),
   getConversationMessages: expressify(getConversationMessages),
   sendMessage: expressify(sendMessage),
   agentComplete: expressify(agentComplete),
