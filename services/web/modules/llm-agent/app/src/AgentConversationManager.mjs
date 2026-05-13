@@ -69,6 +69,14 @@ async function getConversation(projectId, conversationId) {
   return conversation ? formatConversation(conversation) : null
 }
 
+async function deleteConversation(projectId, conversationId) {
+  const result = await db.agentConversations.deleteOne({
+    _id: normalizeObjectId(conversationId, 'conversationId'),
+    projectId: normalizeObjectId(projectId, 'projectId'),
+  })
+  return result.deletedCount ?? 0
+}
+
 async function ensureConversation(projectId, conversationId, userId, message) {
   const now = new Date()
   const _id = normalizeObjectId(conversationId, 'conversationId')
@@ -177,6 +185,7 @@ export default {
   createConversation: callbackify(createConversation),
   listConversations: callbackify(listConversations),
   getConversation: callbackify(getConversation),
+  deleteConversation: callbackify(deleteConversation),
   ensureConversation: callbackify(ensureConversation),
   recordMessage: callbackify(recordMessage),
   getMessageRoles: callbackify(getMessageRoles),
@@ -185,6 +194,7 @@ export default {
     createConversation,
     listConversations,
     getConversation,
+    deleteConversation,
     ensureConversation,
     recordMessage,
     getMessageRoles,
