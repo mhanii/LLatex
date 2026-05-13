@@ -19,6 +19,12 @@ export default {
       AuthorizationMiddleware.ensureUserCanReadProject,
       LlmAgentController.createConversation
     )
+    webRouter.delete(
+      '/project/:project_id/agent/conversations/:conversation_id',
+      AuthenticationController.requireLogin(),
+      AuthorizationMiddleware.ensureUserCanReadProject,
+      LlmAgentController.deleteConversation
+    )
     webRouter.get(
       '/project/:project_id/agent/conversations/:conversation_id/messages',
       AuthenticationController.requireLogin(),
