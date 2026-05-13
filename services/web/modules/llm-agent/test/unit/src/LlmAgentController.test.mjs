@@ -339,12 +339,23 @@ describe('LlmAgentController', function () {
       expect(res.statusCode).toBe(201)
     })
 
-    it('lists conversations', async function () {
-      const req = { params: { project_id: PROJECT_ID } }
+    it('lists conversations scoped to the logged-in user', async function () {
+      const req = { params: { project_id: PROJECT_ID }, session: {} }
       const res = makeRes()
       await LlmAgentController.listConversations(req, res, vi.fn())
 
+      expect(
+        AgentConversationManager.promises.listConversations
+      ).toHaveBeenCalledWith(PROJECT_ID, USER_ID)
       expect(JSON.parse(res.body)[0].id).toBe(CONVERSATION_ID)
+    })
+
+    it('returns 403 from listConversations when no user is in session', async function () {
+      SessionManager.getLoggedInUserId.mockReturnValue(null)
+      const req = { params: { project_id: PROJECT_ID }, session: {} }
+      const res = makeRes()
+      await LlmAgentController.listConversations(req, res, vi.fn())
+      expect(res.statusCode).toBe(403)
     })
 
     it('loads messages with agent roles', async function () {
@@ -353,14 +364,32 @@ describe('LlmAgentController', function () {
           project_id: PROJECT_ID,
           conversation_id: CONVERSATION_ID,
         },
+        session: {},
       }
       const res = makeRes()
       await LlmAgentController.getConversationMessages(req, res, vi.fn())
 
+      expect(
+        AgentConversationManager.promises.getConversation
+      ).toHaveBeenCalledWith(PROJECT_ID, CONVERSATION_ID, USER_ID)
       expect(JSON.parse(res.body)[0]).toMatchObject({
         id: MESSAGE_ID,
         role: 'user',
       })
+    })
+
+    it('returns 403 from getConversationMessages when no user is in session', async function () {
+      SessionManager.getLoggedInUserId.mockReturnValue(null)
+      const req = {
+        params: {
+          project_id: PROJECT_ID,
+          conversation_id: CONVERSATION_ID,
+        },
+        session: {},
+      }
+      const res = makeRes()
+      await LlmAgentController.getConversationMessages(req, res, vi.fn())
+      expect(res.statusCode).toBe(403)
     })
   })
 
@@ -379,13 +408,13 @@ describe('LlmAgentController', function () {
       expect(res.statusCode).toBe(400)
     })
 
-    it('forwards an error via next() when no user is in session', async function () {
+    it('returns 403 when no user is in session', async function () {
       SessionManager.getLoggedInUserId.mockReturnValue(null)
 
-      const next = vi.fn()
-      await LlmAgentController.sendMessage(makeReq(), makeRes(), next)
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
 
-      expect(next).toHaveBeenCalledWith(expect.any(Error))
+      expect(res.statusCode).toBe(403)
     })
 
     it('returns 404 when project cannot be loaded', async function () {

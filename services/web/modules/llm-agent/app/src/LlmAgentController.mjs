@@ -120,16 +120,25 @@ async function createConversation(req, res) {
 
 async function listConversations(req, res) {
   const { project_id: projectId } = req.params
+  const userId = SessionManager.getLoggedInUserId(req.session)
+  if (userId == null) {
+    return res.status(403).json({ error: 'not logged in' })
+  }
   const conversations =
-    await AgentConversationManager.promises.listConversations(projectId)
+    await AgentConversationManager.promises.listConversations(projectId, userId)
   res.json(conversations)
 }
 
 async function getConversationMessages(req, res) {
   const { project_id: projectId, conversation_id: conversationId } = req.params
+  const userId = SessionManager.getLoggedInUserId(req.session)
+  if (userId == null) {
+    return res.status(403).json({ error: 'not logged in' })
+  }
   const conversation = await AgentConversationManager.promises.getConversation(
     projectId,
-    conversationId
+    conversationId,
+    userId
   )
   if (!conversation) {
     return res.status(404).json({ error: 'agent conversation not found' })

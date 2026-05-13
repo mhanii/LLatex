@@ -53,18 +53,26 @@ async function createConversation(projectId, userId) {
   return formatConversation(doc)
 }
 
-async function listConversations(projectId) {
+async function listConversations(projectId, userId) {
   const conversations = await db.agentConversations
-    .find({ projectId: normalizeObjectId(projectId, 'projectId') })
+    .find({
+      projectId: normalizeObjectId(projectId, 'projectId'),
+      createdBy: normalizeObjectId(userId, 'userId'),
+    })
     .sort({ updatedAt: -1, _id: -1 })
     .toArray()
   return conversations.map(formatConversation)
 }
 
-async function getConversation(projectId, conversationId) {
+// userId is optional: the internal agentComplete path does not carry a session
+// user. User-facing routes must always pass it to enforce per-creator scoping.
+async function getConversation(projectId, conversationId, userId) {
   const conversation = await db.agentConversations.findOne({
     _id: normalizeObjectId(conversationId, 'conversationId'),
     projectId: normalizeObjectId(projectId, 'projectId'),
+    ...(userId != null
+      ? { createdBy: normalizeObjectId(userId, 'userId') }
+      : {}),
   })
   return conversation ? formatConversation(conversation) : null
 }
@@ -98,28 +106,31 @@ async function recordMessage(projectId, conversationId, message, role, runId) {
   const messageId = message.id ?? message._id?.toString()
   if (!messageId) return
 
-  const update = {
-    $set: {
-      updatedAt: now,
-      lastMessageAt: new Date(message.timestamp ?? now),
-      ...(runId ? { lastRunId: runId } : {}),
-    },
-    $addToSet: {
-      messages: {
-        messageId,
-        role,
-        runId: runId ?? null,
-        createdAt: now,
-      },
-    },
-  }
-
+  // Guard the push at the query level so retries (e.g. agentComplete called
+  // twice for the same messageId) don't append duplicate entries. $addToSet
+  // would not work here because the subdocument carries a per-call createdAt
+  // that makes each candidate unique.
   await db.agentConversations.updateOne(
     {
       _id: normalizeObjectId(conversationId, 'conversationId'),
       projectId: normalizeObjectId(projectId, 'projectId'),
+      'messages.messageId': { $ne: messageId },
     },
-    update
+    {
+      $set: {
+        updatedAt: now,
+        lastMessageAt: new Date(message.timestamp ?? now),
+        ...(runId ? { lastRunId: runId } : {}),
+      },
+      $push: {
+        messages: {
+          messageId,
+          role,
+          runId: runId ?? null,
+          createdAt: now,
+        },
+      },
+    }
   )
 
   if (role === 'user') {
