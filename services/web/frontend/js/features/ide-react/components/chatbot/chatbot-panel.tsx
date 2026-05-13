@@ -28,6 +28,7 @@ type ChatbotMessage = {
   role: 'user' | 'assistant' | 'status'
   text: string
   pending?: boolean
+  conversationId?: string
 }
 
 type AgentConversation = {
@@ -155,11 +156,12 @@ export default function ChatbotPanel() {
   )
 
   const toChatbotMessage = useCallback(
-    (message: AgentServerMessage): ChatbotMessage => ({
+    (message: AgentServerMessage, conversationId?: string): ChatbotMessage => ({
       id: message.id,
       role:
         message.role ?? (message.user_id === user.id ? 'user' : 'assistant'),
       text: message.content,
+      ...(conversationId ? { conversationId } : {}),
     }),
     [user.id]
   )
@@ -380,6 +382,7 @@ export default function ChatbotPanel() {
         id: createMessageId('status'),
         role: 'status',
         text,
+        conversationId: event.conversationId,
       }
     },
     [createMessageId, toolSubject]
@@ -421,11 +424,15 @@ export default function ChatbotPanel() {
     )
       .then(serverMessages => {
         if (controller.signal.aborted) return
-        const loadedMessages = serverMessages.map(toChatbotMessage)
+        const loadedMessages = serverMessages.map(m =>
+          toChatbotMessage(m, activeConversationId)
+        )
         setMessages(prev => {
           const loadedIds = new Set(loadedMessages.map(message => message.id))
           const localMessages = prev.filter(
-            message => message.pending || message.role === 'status'
+            message =>
+              (message.pending || message.role === 'status') &&
+              message.conversationId === activeConversationId
           )
           return [
             ...loadedMessages,
@@ -460,7 +467,7 @@ export default function ChatbotPanel() {
       if (payload.conversationId !== activeConversationIdRef.current) {
         return
       }
-      appendMessage(toChatbotMessage(payload.message))
+      appendMessage(toChatbotMessage(payload.message, payload.conversationId))
     }
 
     function receivedToolCall(payload: AgentToolCallEvent) {
@@ -566,6 +573,7 @@ export default function ChatbotPanel() {
       role: 'user',
       text: trimmed,
       pending: true,
+      conversationId,
     }
 
     if (isEditing && editingMessageId) {
