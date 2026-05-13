@@ -10,9 +10,12 @@ import {
 import classNames from 'classnames'
 import OLTooltip from '@/shared/components/ol/ol-tooltip'
 import OLIconButton from '@/shared/components/ol/ol-icon-button'
-import { getJSON, postJSON } from '@/infrastructure/fetch-json'
+import { getJSON, postJSON, deleteJSON } from '@/infrastructure/fetch-json'
 import { useIdeContext } from '@/shared/context/ide-context'
 import { useLayoutContext } from '@/shared/context/layout-context'
+import { useEditorManagerContext } from '@/features/ide-react/context/editor-manager-context'
+import { useFileTreeData } from '@/shared/context/file-tree-data-context'
+import { findEntityByPath } from '@/features/file-tree/util/path'
 import { useProjectContext } from '@/shared/context/project-context'
 import { useUserContext } from '@/shared/context/user-context'
 import { debugConsole } from '@/utils/debugging'
@@ -28,6 +31,8 @@ type ChatbotMessage = {
   role: 'user' | 'assistant' | 'status'
   text: string
   pending?: boolean
+  status?: AgentToolCallEvent['status']
+  toolName?: string
 }
 
 type AgentConversation = {
@@ -78,7 +83,7 @@ export default function ChatbotPanel() {
   const [messages, setMessages] = useState<ChatbotMessage[]>([])
   const [input, setInput] = useState('')
   const [isSending, setIsSending] = useState(false)
-  const [isLoadingMessages, setIsLoadingMessages] = useState(false)
+  const [_isLoadingMessages, setIsLoadingMessages] = useState(false)
   const [referenceText, setReferenceText] = useState<string | null>(null)
   const [referenceLines, setReferenceLines] = useState<{
     start: number
@@ -91,6 +96,9 @@ export default function ChatbotPanel() {
   const activeConversationIdRef = useRef<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const statusWrapperRef = useRef<HTMLDivElement>(null)
+  const editorManager = useEditorManagerContext()
+  const { fileTreeData } = useFileTreeData()
   const panelRef = useRef<HTMLElement>(null)
   const dragStartXRef = useRef<number | null>(null)
   const dragStartCenterXRef = useRef<number | null>(null)
@@ -104,6 +112,8 @@ export default function ChatbotPanel() {
     setChatDockDragOffset,
     setChatPanelSizeLeft,
     setChatPanelSizeRight,
+    setEditorPanelOpen,
+    setView,
   } = useLayoutContext()
 
   const apiPath = useCallback(
@@ -130,6 +140,167 @@ export default function ChatbotPanel() {
     textarea.style.overflowY =
       textarea.scrollHeight > maxHeight ? 'auto' : 'hidden'
   }, [])
+
+  // Busca recursivamente un archivo/doc por nombre y retorna su entidad y ruta completa
+  const findEntityByNameInTree = useCallback(
+    (
+      folder: any,
+      fileName: string,
+      currentPath: string = ''
+    ): { entity: any; type: 'fileRef' | 'doc'; fullPath: string } | null => {
+      // Buscar en docs
+      const doc = folder.docs?.find(
+        (d: any) => d.name === fileName
+      )
+      if (doc) {
+        const fullPath = currentPath ? `${currentPath}/${fileName}` : fileName
+        return { entity: doc, type: 'doc', fullPath }
+      }
+
+      // Buscar en fileRefs
+      const fileRef = folder.fileRefs?.find(
+        (f: any) => f.name === fileName
+      )
+      if (fileRef) {
+        const fullPath = currentPath ? `${currentPath}/${fileName}` : fileName
+        return { entity: fileRef, type: 'fileRef', fullPath }
+      }
+
+      // Buscar recursivamente en subcarpetas
+      if (folder.folders) {
+        for (const subfolder of folder.folders) {
+          const newPath = currentPath ? `${currentPath}/${subfolder.name}` : subfolder.name
+          const result = findEntityByNameInTree(
+            subfolder,
+            fileName,
+            newPath
+          )
+          if (result) return result
+        }
+      }
+
+      return null
+    },
+    []
+  )
+
+  const openEntityByPath = useCallback(
+    (fileName: string) => {
+      try {
+        if (!fileTreeData) {
+          debugConsole.warn('fileTreeData not available')
+          return
+        }
+        debugConsole.log('Trying to open file:', fileName)
+
+        // Primero intentar como path completo
+        let result = findEntityByPath(fileTreeData, fileName)
+        debugConsole.log('findEntityByPath result:', result)
+
+        // Si no encontró, buscar por nombre solamente
+        if (!result) {
+          debugConsole.log('Not found by full path, searching by name...')
+          result = findEntityByNameInTree(fileTreeData, fileName)
+          debugConsole.log('findEntityByNameInTree result:', result)
+        }
+
+        if (!result) {
+          debugConsole.warn('Entity not found for:', fileName)
+          return
+        }
+
+        if (result.type === 'fileRef') {
+          debugConsole.log('Opening fileRef with ID:', result.entity._id)
+          setEditorPanelOpen(true)
+          setView('file')
+          editorManager.openFileWithId(result.entity._id)
+        } else if (result.type === 'doc') {
+          debugConsole.log('Opening doc with ID:', result.entity._id)
+          setEditorPanelOpen(true)
+          setView('editor')
+          editorManager.openDocWithId(result.entity._id)
+        }
+      } catch (err) {
+        debugConsole.error('Error opening entity:', err)
+      }
+    },
+    [editorManager, fileTreeData, findEntityByNameInTree, setEditorPanelOpen, setView]
+  )
+
+  // Obtiene la ruta completa de un archivo buscándolo en el árbol
+  const getFullFilePathForTooltip = useCallback(
+    (fileName: string): string => {
+      if (!fileTreeData) return fileName
+
+      // Primero intentar como path completo
+      const resultByPath = findEntityByPath(fileTreeData, fileName)
+      if (resultByPath) return fileName
+
+      // Si no encontró, buscar por nombre
+      const result = findEntityByNameInTree(fileTreeData, fileName)
+      if (result) {
+        return result.fullPath
+      }
+
+      return fileName
+    },
+    [fileTreeData, findEntityByNameInTree]
+  )
+
+  const renderStatusText = useCallback((text: string) => {
+    const parts: Array<string | JSX.Element> = []
+    // Match: word chars/dots/slashes + dot + word chars (file extensions)
+    // Also match paths like: src/main.py, ./file.txt, error.txt
+    const regex = /([\w./-]*[\w-]+\.[\w-]+)/g
+    let lastIndex = 0
+    let match: RegExpExecArray | null
+
+    while ((match = regex.exec(text)) !== null) {
+      const matchText = match[0]
+      const idx = match.index
+
+      // Don't match if preceded by non-space (already part of longer word)
+      if (idx > 0) {
+        const prevChar = text[idx - 1]
+        if (/\w/.test(prevChar)) {
+          continue
+        }
+      }
+
+      // Don't match if followed by non-space (part of longer word)
+      const endIdx = idx + matchText.length
+      if (endIdx < text.length) {
+        const nextChar = text[endIdx]
+        if (/\w/.test(nextChar)) {
+          continue
+        }
+      }
+
+      if (idx > lastIndex) {
+        parts.push(text.slice(lastIndex, idx))
+      }
+
+      const key = `status-file-${idx}`
+      const fullPath = getFullFilePathForTooltip(matchText)
+      parts.push(
+        <button
+          key={key}
+          type="button"
+          className="ide-chatbot-status-file"
+          onClick={() => openEntityByPath(matchText)}
+          title={fullPath}
+        >
+          <code>{matchText}</code>
+        </button>
+      )
+      lastIndex = endIdx
+    }
+    if (lastIndex < text.length) {
+      parts.push(text.slice(lastIndex))
+    }
+
+    return <>{parts.map((p, i) => (typeof p === 'string' ? <span key={`s-${i}`}>{p}</span> : p))}</>
+  }, [openEntityByPath, getFullFilePathForTooltip])
 
   const canSend = useMemo(
     () => input.trim().length > 0 && !isSending,
@@ -166,11 +337,30 @@ export default function ChatbotPanel() {
 
   const appendMessage = useCallback((message: ChatbotMessage) => {
     setMessages(prev => {
-      if (prev.some(existing => existing.id === message.id)) {
+      const existingIndex = prev.findIndex(existing => existing.id === message.id)
+      if (existingIndex !== -1) {
+        if (message.role === 'status') {
+          const nextMessages = [...prev]
+          nextMessages[existingIndex] = {
+            ...nextMessages[existingIndex],
+            ...message,
+          }
+          return nextMessages
+        }
+
         return prev
       }
       return [...prev, message]
     })
+
+    if (message.role === 'status') {
+      setTimeout(() => {
+        statusWrapperRef.current?.scrollTo({
+          top: statusWrapperRef.current.scrollHeight,
+          behavior: 'smooth',
+        })
+      }, 10)
+    }
   }, [])
 
   const sortConversations = useCallback((items: AgentConversation[]) => {
@@ -205,6 +395,58 @@ export default function ChatbotPanel() {
   const closeChatbot = useCallback(() => {
     setChatIsOpen(false)
   }, [setChatIsOpen])
+
+  const handleNewChat = useCallback(async () => {
+    // Check if current chat is empty (no user messages)
+    const hasUserMessages = messages.some(msg => msg.role === 'user')
+    if (!hasUserMessages) {
+      // Don't create a new chat if current one is empty
+      return
+    }
+    await createConversation().catch(debugConsole.error)
+  }, [messages, createConversation])
+
+  const handleDeleteConversation = useCallback(
+    async (conversationId: string) => {
+      const conversation = conversations.find(c => c.id === conversationId)
+      if (!conversation) return
+
+      // Check if the conversation being deleted has content (not the current one)
+      const hasContent = conversation.lastMessageAt !== null
+      
+      // If conversation has content, ask for confirmation
+      if (hasContent) {
+        const confirmed = window.confirm(
+          `Are you sure you want to delete "${conversation.title}"? This cannot be undone.`
+        )
+        if (!confirmed) return
+      }
+
+      try {
+        await deleteJSON(apiPath(`/conversations/${conversationId}`))
+        
+        // Calculate remaining conversations
+        const remainingConversations = conversations.filter(
+          c => c.id !== conversationId
+        )
+        
+        // Remove from conversations list
+        setConversations(remainingConversations)
+        
+        // If this was the active conversation, switch to another or create new
+        if (activeConversationId === conversationId) {
+          if (remainingConversations.length > 0) {
+            setActiveConversationId(remainingConversations[0].id)
+          } else {
+            await createConversation()
+          }
+        }
+      } catch (error) {
+        debugConsole.error(error)
+      }
+    },
+    [apiPath, conversations, activeConversationId, createConversation]
+  )
 
   const clearReference = useCallback(() => {
     setReferenceText(null)
@@ -375,15 +617,164 @@ export default function ChatbotPanel() {
           : event.status === 'completed'
             ? `Finished ${subject}.`
             : `Could not finish ${subject}${event.error ? `: ${event.error}` : '.'}`
+      const statusId = event.toolCallId ?? `${event.runId}-${event.toolName}`
 
       return {
-        id: createMessageId('status'),
+        id: statusId,
         role: 'status',
         text,
+        status: event.status,
+        toolName: event.toolName,
       }
     },
-    [createMessageId, toolSubject]
+    [toolSubject]
   )
+
+  const simulateToolCall = useCallback((
+    toolName: string, 
+    input?: Record<string, unknown>, 
+    status: 'running' | 'completed' | 'error' = 'running',
+    durationMs: number = 1500
+  ) => {
+    const baseEvent = {
+      conversationId: activeConversationId || 'debug-conversation',
+      runId: `debug-run-${Date.now()}`,
+      toolName,
+      input,
+      timestamp: Date.now(),
+    }
+    
+    const statusId = `${baseEvent.runId}-${toolName}`
+
+    if (status === 'running') {
+      // Mostrar solo el estado running
+      appendMessage(toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'running' }))
+    } else if (status === 'completed') {
+      // Mostrar running -> completado con delay sobre el mismo nodo
+      appendMessage(toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'running' }))
+      setTimeout(() => {
+        appendMessage(toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'completed' }))
+        // Auto-scroll si está activo
+        if (shouldAutoScroll && messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+        }
+      }, durationMs)
+    } else if (status === 'error') {
+      // Mostrar running -> error
+      appendMessage(toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'running' }))
+      setTimeout(() => {
+        appendMessage(toolEventToMessage({ 
+          ...baseEvent, 
+          toolCallId: statusId,
+          status: 'error',
+          error: 'File not found or permission denied'
+        }))
+      }, durationMs)
+    }
+  }, [appendMessage, toolEventToMessage, activeConversationId, shouldAutoScroll])
+
+  const renderStatusIcon = useCallback((message: ChatbotMessage, isLast: boolean) => {
+    const toolName = message.toolName ?? ''
+    const status = message.status ?? 'running'
+
+    const toolIcon = (() => {
+      switch (toolName) {
+        case 'read_file':
+        case 'read_skill':
+        case 'get_outline':
+        case 'get_pdf_page':
+          return (
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 6h5a3 3 0 0 1 3 3v11a2 2 0 0 0-2-2H4z" />
+              <path d="M20 6h-5a3 3 0 0 0-3 3v11a2 2 0 0 1 2-2h5z" />
+            </svg>
+          )
+        case 'edit_file':
+          return (
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 20h4l10.5-10.5a1.4 1.4 0 0 0 0-2l-1-1a1.4 1.4 0 0 0-2 0L5 17v3Z" />
+              <path d="M13.5 6.5l4 4" />
+            </svg>
+          )
+        case 'create_file':
+          return (
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 4h6l4 4v12H7z" />
+              <path d="M13 4v4h4" />
+              <path d="M12 11v6M9 14h6" />
+            </svg>
+          )
+        case 'delete_file':
+          return (
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 7h14" />
+              <path d="M9 7V5h6v2" />
+              <path d="M8 7l1 12h6l1-12" />
+              <path d="M10 11v5M14 11v5" />
+            </svg>
+          )
+        case 'move_file':
+          return (
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h11" />
+              <path d="M11 4l4 3-4 3" />
+              <path d="M20 17H9" />
+              <path d="M13 14l-4 3 4 3" />
+            </svg>
+          )
+        case 'compile_and_check':
+        case 'check_syntax':
+          return (
+            <svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9,10 4,16 9,22" />
+              <polyline points="23,10 28,16 23,22" />
+              <line x1="19" y1="7" x2="13" y2="25" />
+            </svg>
+          )
+        case 'list_files':
+        case 'list_skills':
+          return (
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 6h13" />
+              <path d="M7 12h13" />
+              <path d="M7 18h13" />
+              <path d="M4 6h.01M4 12h.01M4 18h.01" />
+            </svg>
+          )
+        default:
+          return (
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="7" />
+            </svg>
+          )
+      }
+    })()
+
+    if (status === 'error') {
+      return (
+        <span className="status-icon ide-chatbot-status-icon ide-chatbot-status-icon-error" aria-hidden="true">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="8" />
+            <path d="M9 9l6 6M15 9l-6 6" />
+          </svg>
+          {!isLast && <span className="ide-chatbot-status-connector" aria-hidden="true" />}
+        </span>
+      )
+    }
+
+    return (
+      <span
+        className={classNames('status-icon', 'ide-chatbot-status-icon', {
+          'ide-chatbot-status-icon-running': status === 'running',
+          'ide-chatbot-status-icon-completed': status === 'completed',
+        })}
+        aria-hidden="true"
+      >
+        {toolIcon}
+        {!isLast && <span className="ide-chatbot-status-connector" aria-hidden="true" />}
+      </span>
+    )
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -749,6 +1140,27 @@ export default function ChatbotPanel() {
     setChatDockDragging,
   ])
 
+  const groupMessages = useCallback(() => {
+    const groups: Array<{ type: 'single'; message: ChatbotMessage } | { type: 'status-group'; messages: ChatbotMessage[] }> = []
+    
+    for (const message of messages) {
+      if (message.role === 'status') {
+        // Añadir a un grupo de status
+        const lastGroup = groups[groups.length - 1]
+        if (lastGroup && lastGroup.type === 'status-group') {
+          lastGroup.messages.push(message)
+        } else {
+          groups.push({ type: 'status-group', messages: [message] })
+        }
+      } else {
+        // Mensaje individual (user o assistant)
+        groups.push({ type: 'single', message })
+      }
+    }
+    
+    return groups
+  }, [messages])
+
   return (
     <section
       ref={panelRef}
@@ -781,13 +1193,31 @@ export default function ChatbotPanel() {
           overlayProps={{ placement: 'bottom' }}
         >
           <OLIconButton
-            onClick={() => {
-              createConversation().catch(debugConsole.error)
-            }}
+            onClick={handleNewChat}
             className="ide-chatbot-panel-header-button-subdued"
             icon="add"
             accessibilityLabel="New chat"
             size="sm"
+          />
+        </OLTooltip>
+        <OLTooltip
+          id="delete-chatbot-conversation"
+          description="Delete chat"
+          overlayProps={{ placement: 'bottom' }}
+        >
+          <OLIconButton
+            onClick={() => {
+              if (activeConversationId) {
+                handleDeleteConversation(activeConversationId).catch(
+                  debugConsole.error
+                )
+              }
+            }}
+            className="ide-chatbot-panel-header-button-subdued"
+            icon="delete"
+            accessibilityLabel="Delete chat"
+            size="sm"
+            disabled={!activeConversationId}
           />
         </OLTooltip>
         <OLTooltip
@@ -812,86 +1242,80 @@ export default function ChatbotPanel() {
           role="log"
           aria-live="polite"
         >
-          {messages.map(message => (
-            <article
-              key={message.id}
-              className={classNames('ide-chatbot-message', {
-                'ide-chatbot-message-user': message.role === 'user',
-                'ide-chatbot-message-bot': message.role === 'assistant',
-                'ide-chatbot-message-status': message.role === 'status',
-                'ide-chatbot-message-editing': message.id === editingMessageId,
-                'ide-chatbot-message-pending': message.pending,
-              })}
-              onMouseEnter={() => setHoveredMessageId(message.id)}
-              onMouseLeave={() => clearHoveredMessage(message.id)}
-            >
-              <div className="ide-chatbot-message-body">
-                {message.role === 'assistant' ? (
-                  <div className="ide-chatbot-message-content">
-                    <ChatbotMarkdown text={message.text} />
-                  </div>
-                ) : (
-                  <p className="ide-chatbot-message-content">{message.text}</p>
-                )}
-                {message.role === 'user' && !message.pending && (
-                  <div className="ide-chatbot-message-footer">
-                    <OLTooltip
-                      id={`edit-chatbot-message-${message.id}`}
-                      description="Edit message"
-                      overlayProps={{ placement: 'bottom' }}
-                    >
-                      <OLIconButton
-                        onClick={() => startEditingMessage(message.id)}
-                        className="ide-chatbot-message-footer-button"
-                        icon="edit"
-                        accessibilityLabel="Edit message"
-                        size="sm"
-                      />
-                    </OLTooltip>
-                    <OLTooltip
-                      id={`copy-chatbot-message-${message.id}`}
-                      description="Copy message"
-                      overlayProps={{ placement: 'bottom' }}
-                    >
-                      <OLIconButton
-                        onClick={() => copyMessage(message.text)}
-                        className="ide-chatbot-message-footer-button"
-                        icon="content_copy"
-                        accessibilityLabel="Copy message"
-                        size="sm"
-                      />
-                    </OLTooltip>
-                  </div>
-                )}
-                {message.role !== 'user' &&
-                  hoveredMessageId === message.id &&
-                  message.role !== 'status' && (
-                    <div className="ide-chatbot-message-actions">
-                      <OLTooltip
-                        id={`copy-chatbot-message-${message.id}`}
-                        description="Copy message"
-                        overlayProps={{ placement: 'bottom' }}
+          {(() => {
+            const groups = groupMessages()
+            
+            return (
+              <>
+                {groups.map((group, groupIndex) => {
+                  if (group.type === 'single') {
+                    const message = group.message
+                    return (
+                      <article
+                        key={message.id}
+                        className={classNames('ide-chatbot-message', {
+                          'ide-chatbot-message-user': message.role === 'user',
+                          'ide-chatbot-message-bot': message.role === 'assistant',
+                          'ide-chatbot-message-editing': message.id === editingMessageId,
+                          'ide-chatbot-message-pending': message.pending,
+                        })}
+                        onMouseEnter={() => setHoveredMessageId(message.id)}
+                        onMouseLeave={() => clearHoveredMessage(message.id)}
                       >
-                        <OLIconButton
-                          onClick={() => copyMessage(message.text)}
-                          className="ide-chatbot-message-copy-button"
-                          icon="content_copy"
-                          accessibilityLabel="Copy message"
-                          size="sm"
-                        />
-                      </OLTooltip>
-                    </div>
-                  )}
-              </div>
-            </article>
-          ))}
-          {isLoadingMessages && (
-            <article className="ide-chatbot-message ide-chatbot-message-status">
-              <div className="ide-chatbot-message-body">
-                <p className="ide-chatbot-message-content">Loading...</p>
-              </div>
-            </article>
-          )}
+                        <div className="ide-chatbot-message-body">
+                          {message.role === 'assistant' ? (
+                            <div className="ide-chatbot-message-content">
+                              <ChatbotMarkdown text={message.text} />
+                            </div>
+                          ) : (
+                            <p className="ide-chatbot-message-content">{message.text}</p>
+                          )}
+                          {message.role === 'user' && !message.pending && (
+                            <div className="ide-chatbot-message-footer">
+                              <OLTooltip id={`edit-chatbot-message-${message.id}`} description="Edit message" overlayProps={{ placement: 'bottom' }}>
+                                <OLIconButton onClick={() => startEditingMessage(message.id)} className="ide-chatbot-message-footer-button" icon="edit" accessibilityLabel="Edit message" size="sm" />
+                              </OLTooltip>
+                              <OLTooltip id={`copy-chatbot-message-${message.id}`} description="Copy message" overlayProps={{ placement: 'bottom' }}>
+                                <OLIconButton onClick={() => copyMessage(message.text)} className="ide-chatbot-message-footer-button" icon="content_copy" accessibilityLabel="Copy message" size="sm" />
+                              </OLTooltip>
+                            </div>
+                          )}
+                          {message.role !== 'user' && hoveredMessageId === message.id && message.role !== 'status' && (
+                            <div className="ide-chatbot-message-actions">
+                              <OLTooltip id={`copy-chatbot-message-${message.id}`} description="Copy message" overlayProps={{ placement: 'bottom' }}>
+                                <OLIconButton onClick={() => copyMessage(message.text)} className="ide-chatbot-message-copy-button" icon="content_copy" accessibilityLabel="Copy message" size="sm" />
+                              </OLTooltip>
+                            </div>
+                          )}
+                        </div>
+                      </article>
+                    )
+                  } else {
+                    // status-group
+                    return (
+                      <div key={`status-group-${groupIndex}`} ref={statusWrapperRef} className="ide-chatbot-status-wrapper">
+                        {group.messages.map((message, messageIndex) => (
+                          <article
+                            key={message.id}
+                            className={classNames('ide-chatbot-message', 'ide-chatbot-message-status', {
+                              'ide-chatbot-message-status-error': message.text.includes('Could not') || message.text.includes('Failed'),
+                              'is-pending': message.status === 'running'
+                            })}
+                            data-status={message.status ?? 'running'}
+                          >
+                            {renderStatusIcon(message, messageIndex === group.messages.length - 1)}
+                            <div className="ide-chatbot-message-body">
+                              <p className="ide-chatbot-message-content status-text">{renderStatusText(message.text)}</p>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    )
+                  }
+                })}
+              </>
+            )
+          })()}
         </div>
 
         {!shouldAutoScroll && (
@@ -920,6 +1344,80 @@ export default function ChatbotPanel() {
           </button>
         )}
       </div>
+
+      {process.env.NODE_ENV === 'development' && (
+        <div className="ide-chatbot-debug-panel" style={{
+          position: 'sticky',
+          bottom: '10px',
+          marginTop: '8px',
+          padding: '12px 8px',
+          borderTop: '1px solid var(--border-divider-themed)',
+          background: 'var(--bg-secondary-themed)',
+          borderRadius: '8px',
+          margin: '0 var(--spacing-04) var(--spacing-02)',
+          
+          minHeight: '160px',
+          maxHeight: '160px',
+          overflowY: 'auto',
+        }}>
+          <div style={{ 
+            fontSize: '10px', 
+            opacity: 0.6, 
+            fontWeight: 'bold', 
+            marginBottom: '8px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px'
+          }}>
+            Debug Console (Tools)
+          </div>
+
+          <div style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '6px',
+            justifyContent: 'flex-start'
+          }}>
+            <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px' }} 
+              onClick={() => simulateToolCall('list_files', {}, 'completed', 1500)}>📂 list</button>
+            
+            <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px' }} 
+              onClick={() => simulateToolCall('read_file', { path: 'src/main.py' }, 'completed', 1500)}>🔍 read</button>
+            
+            <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px' }} 
+              onClick={() => simulateToolCall('create_file', { path: 'new.py' }, 'completed', 1500)}>➕ create</button>
+            
+            <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px' }} 
+              onClick={() => simulateToolCall('edit_file', { path: 'src/config.py' }, 'completed', 2000)}>✏️ edit</button>
+            
+            <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px' }} 
+              onClick={() => simulateToolCall('delete_file', { path: 'temp.log' }, 'completed', 1200)}>🗑️ delete</button>
+            
+            <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px' }} 
+              onClick={() => simulateToolCall('move_file', { path: 'a.js', newPath: 'b.js' }, 'completed', 1500)}>🚚 move</button>
+            
+            <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px' }} 
+              onClick={() => simulateToolCall('get_outline', {}, 'completed', 1000)}>📋 outline</button>
+            
+            <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px' }} 
+              onClick={() => simulateToolCall('check_syntax', {}, 'completed', 1500)}>✅ syntax</button>
+            
+            <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px' }} 
+              onClick={() => simulateToolCall('compile_and_check', {}, 'completed', 2500)}>🔧 compile</button>
+            
+            <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px' }} 
+              onClick={() => simulateToolCall('get_pdf_page', { page: 5 }, 'completed', 1800)}>📄 pdf</button>
+            
+            <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px' }} 
+              onClick={() => simulateToolCall('list_skills', {}, 'completed', 1000)}>🧠 skills</button>
+            
+            <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px' }} 
+              onClick={() => simulateToolCall('read_skill', { path: 'refactor' }, 'completed', 1200)}>📖 read_sk</button>
+
+            <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px', background: '#dc3545', color: 'white' }} 
+              onClick={() => simulateToolCall('read_file', { path: 'error.txt' }, 'error', 1500)}>❌ ERROR</button>
+          </div>
+        </div>
+      )}
 
       {isEditing && (
         <div className="ide-chatbot-panel-editing-banner" role="status">
