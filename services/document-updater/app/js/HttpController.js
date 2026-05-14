@@ -99,7 +99,35 @@ async function getComment(req, res) {
   res.json(comment)
 }
 
-// return the doc from redis if present, but don't load it from mongo
+// Apply an agent edit and consolidate the resulting tracked changes into a
+// single (oldest → newest) pair per affected region. Implementation lives in
+// DocumentManager.agentReplace.
+async function agentReplace(req, res) {
+  const { project_id: projectId, doc_id: docId } = req.params
+  const { old_text: oldText, new_text: newText, user_id: userId } = req.body
+  if (!oldText || newText == null || !userId) {
+    return res.status(400).json({ error: 'old_text, new_text, user_id required' })
+  }
+  if (oldText === newText) {
+    return res.sendStatus(204)
+  }
+  const result = await DocumentManager.promises.agentReplaceWithLock(
+    projectId,
+    docId,
+    oldText,
+    newText,
+    userId
+  )
+  if (result.status === 404) {
+    logger.warn(
+      { projectId, docId, oldText },
+      'agent-replace: old_text not found'
+    )
+    return res.status(404).json({ error: result.error })
+  }
+  res.sendStatus(result.status)
+}
+
 async function peekDoc(req, res) {
   const docId = req.params.doc_id
   const projectId = req.params.project_id
@@ -355,7 +383,7 @@ async function acceptChanges(req, res) {
     `accepting ${changeIds.length} changes via http`
   )
   const timer = new Metrics.Timer('http.acceptChanges')
-  await DocumentManager.promises.acceptChangesWithLock(
+  const response = await DocumentManager.promises.acceptChangesWithLock(
     projectId,
     docId,
     changeIds
@@ -365,7 +393,7 @@ async function acceptChanges(req, res) {
     { projectId, docId },
     `accepted ${changeIds.length} changes via http`
   )
-  res.sendStatus(204) // No Content
+  res.json(response)
 }
 
 async function rejectChanges(req, res) {
@@ -545,6 +573,7 @@ async function unblockProject(req, res) {
 module.exports = {
   getDoc: expressify(getDoc),
   peekDoc: expressify(peekDoc),
+  agentReplace: expressify(agentReplace),
   getProjectDocsAndFlushIfOld: expressify(getProjectDocsAndFlushIfOld),
   getProjectLastUpdatedAt: expressify(getProjectLastUpdatedAt),
   getProjectRanges: expressify(getProjectRanges),

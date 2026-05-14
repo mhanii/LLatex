@@ -197,6 +197,10 @@ app.delete(
 
 app.post('/project/:project_id/block', HttpController.blockProject)
 app.post('/project/:project_id/unblock', HttpController.unblockProject)
+app.post(
+  '/project/:project_id/doc/:doc_id/agent-replace',
+  HttpController.agentReplace
+)
 
 app.get('/flush_queued_projects', HttpController.flushQueuedProjects)
 

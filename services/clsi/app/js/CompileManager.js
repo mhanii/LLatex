@@ -1,7 +1,12 @@
 import fsPromises from 'node:fs/promises'
+import fs from 'node:fs'
 import os from 'node:os'
 import Path from 'node:path'
-import { callbackify } from 'node:util'
+import crypto from 'node:crypto'
+import { callbackify, promisify } from 'node:util'
+import { execFile, spawn as spawnProcess } from 'node:child_process'
+
+const execFilePromise = promisify(execFile)
 import Settings from '@overleaf/settings'
 import logger from '@overleaf/logger'
 import OError from '@overleaf/o-error'
@@ -869,6 +874,138 @@ function _emitMetrics(request, status, stats, timings) {
   }
 }
 
+/**
+ * Find the path to the compiled PDF.
+ * After compilation the PDF is moved from the compile dir to the output dir
+ * (via qpdf optimization). Check the output dir first, then fall back to the
+ * compile dir for backwards compatibility.
+ */
+async function findPdfPath(projectId, userId) {
+  // Check output dir — this is where the PDF lives after _saveOutputFiles.
+  const outputDir = Path.join(
+    getOutputDir(projectId, userId),
+    OutputCacheManager.CACHE_SUBDIR
+  )
+  try {
+    const builds = await fsPromises.readdir(outputDir)
+    // Build IDs start with a hex timestamp — sort descending to check newest first.
+    for (const build of builds.sort().reverse()) {
+      const pdfPath = Path.join(outputDir, build, 'output.pdf')
+      try {
+        await fsPromises.access(pdfPath)
+        return pdfPath
+      } catch {
+        // This build has no PDF (e.g. failed compile), try the next one.
+      }
+    }
+  } catch {
+    // Output dir doesn't exist yet, fall through.
+  }
+
+  // Fall back to compile dir (brief window during compile, or legacy).
+  const compilePdfPath = Path.join(getCompileDir(projectId, userId), 'output.pdf')
+  try {
+    await fsPromises.access(compilePdfPath)
+    return compilePdfPath
+  } catch {
+    return null
+  }
+}
+
+async function getPdfInfo(projectId, userId) {
+  const pdfPath = await findPdfPath(projectId, userId)
+  if (!pdfPath) return null
+  try {
+    const { stdout } = await execFilePromise('pdfinfo', [pdfPath], {
+      timeout: 10000,
+    })
+    const m = stdout.match(/^Pages:\s+(\d+)/m)
+    return m ? { pageCount: parseInt(m[1], 10) } : null
+  } catch {
+    return null
+  }
+}
+
+async function getOutputLog(projectId, userId) {
+  // Check output cache first (successful builds move output.log there).
+  const outputCacheDir = Path.join(
+    getOutputDir(projectId, userId),
+    OutputCacheManager.CACHE_SUBDIR
+  )
+  try {
+    const builds = await fsPromises.readdir(outputCacheDir)
+    for (const build of builds.sort().reverse()) {
+      const logPath = Path.join(outputCacheDir, build, 'output.log')
+      try {
+        await fsPromises.access(logPath)
+        return await fsPromises.readFile(logPath, 'utf8')
+      } catch {
+        // Not in this build, try next.
+      }
+    }
+  } catch {
+    // Output cache dir doesn't exist, fall through.
+  }
+
+  // Fall back to compile dir (present right after a failed compile).
+  const compileLogPath = Path.join(getCompileDir(projectId, userId), 'output.log')
+  try {
+    return await fsPromises.readFile(compileLogPath, 'utf8')
+  } catch {
+    return null
+  }
+}
+
+async function getPdfPage(projectId, userId, page) {
+  const pdfPath = await findPdfPath(projectId, userId)
+  if (!pdfPath) return null
+  // pdftoppm's stdout mode ('-') produces 0 bytes in some poppler versions, so
+  // use a temp file. With -singlefile the output is exactly `${prefix}.png` —
+  // this avoids pdftoppm's page-number suffix which is zero-padded to the
+  // total page count (e.g. page 5 of 20 → `prefix-05.png`).
+  // Including page in the prefix keeps concurrent requests for different pages
+  // from clobbering each other.
+  const tmpPrefix = Path.join(os.tmpdir(), `pdf-page-${projectId}-${page}`)
+  const tmpFile = `${tmpPrefix}.png`
+  try {
+    await new Promise((resolve, reject) => {
+      const proc = spawnProcess('pdftoppm', [
+        '-png',
+        '-singlefile',
+        '-r',
+        '150',
+        '-f',
+        String(page),
+        '-l',
+        String(page),
+        pdfPath,
+        tmpPrefix,
+      ])
+      proc.on('error', reject)
+      proc.on('close', code => {
+        if (code !== 0) {
+          reject(new Error(`pdftoppm exited with code ${code}`))
+        } else {
+          resolve()
+        }
+      })
+    })
+    // pdftoppm exits 0 but writes no file when page is beyond the PDF range.
+    try {
+      return await fsPromises.readFile(tmpFile)
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        const rangeErr = new Error('page out of range')
+        rangeErr.code = 'PAGE_OUT_OF_RANGE'
+        throw rangeErr
+      }
+      throw err
+    }
+  } finally {
+    await fsPromises.unlink(tmpFile).catch(() => {})
+  }
+}
+
 export default {
   doCompileWithLock: callbackify(doCompileWithLock),
   stopCompile: callbackify(stopCompile),
@@ -891,5 +1028,8 @@ export default {
     syncFromCode,
     syncFromPdf,
     wordcount,
+    getPdfInfo,
+    getPdfPage,
+    getOutputLog,
   },
 }

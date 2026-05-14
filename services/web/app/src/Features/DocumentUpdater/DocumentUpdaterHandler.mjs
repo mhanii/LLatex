@@ -204,7 +204,7 @@ async function clearProjectState(projectId) {
  * @param {string[]} changeIds
  */
 async function acceptChanges(projectId, docId, changeIds, userId) {
-  await fetchNothing(
+  const { acceptedChangeIds } = await fetchJson(
     `${BASE_URL}/project/${projectId}/doc/${docId}/change/accept`,
     {
       method: 'POST',
@@ -214,6 +214,8 @@ async function acceptChanges(projectId, docId, changeIds, userId) {
   )
 
   await Modules.promises.hooks.fire('changesAccepted', projectId, docId, userId)
+
+  return { acceptedChangeIds }
 }
 
 /**

@@ -23,7 +23,9 @@ describe('HttpController', function () {
         setDocWithLock: sinon.stub(),
         flushDocIfLoadedWithLock: sinon.stub().resolves(),
         flushAndDeleteDocWithLock: sinon.stub().resolves(),
-        acceptChangesWithLock: sinon.stub().resolves(),
+        acceptChangesWithLock: sinon
+          .stub()
+          .resolves({ acceptedChangeIds: [] }),
         updateCommentStateWithLock: sinon.stub().resolves(),
         deleteCommentWithLock: sinon.stub().resolves(),
         appendToDocWithLock: sinon.stub(),
@@ -764,8 +766,10 @@ describe('HttpController', function () {
         )
       })
 
-      it('should return a successful No Content response', function () {
-        this.res.sendStatus.calledWith(204).should.equal(true)
+      it('should return the accepted change ids', function () {
+        this.res.json
+          .calledWith({ acceptedChangeIds: [] })
+          .should.equal(true)
       })
 
       it('should log the request', function () {

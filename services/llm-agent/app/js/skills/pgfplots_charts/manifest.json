@@ -1,0 +1,20 @@
+{
+  "templates": [
+    {
+      "file": "starter.tex",
+      "description": "Blank pgfplots axis with compat=1.18 — start here for any chart or data plot"
+    },
+    {
+      "file": "line_plot.tex",
+      "description": "Multi-series line chart with legend and axis labels — useful for time series, training curves, performance benchmarks, or any continuous-variable comparison"
+    },
+    {
+      "file": "bar_chart.tex",
+      "description": "Grouped bar chart with error bars — useful for experimental results, category comparisons, survey data, or any discrete-variable dataset"
+    },
+    {
+      "file": "surface_3d.tex",
+      "description": "3D surface with colormap and contour projection — useful for loss landscapes, parameter sensitivity, heatmaps, or any two-variable function visualisation"
+    }
+  ]
+}

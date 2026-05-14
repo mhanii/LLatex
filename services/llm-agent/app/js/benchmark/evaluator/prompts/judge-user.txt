@@ -1,0 +1,14 @@
+Task:
+${task}
+
+Reference solution:
+```latex
+${reference}
+```
+
+Model output:
+```latex
+${output}
+```
+
+Return the JSON object now.

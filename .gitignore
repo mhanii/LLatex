@@ -4,7 +4,26 @@
 # user defined files
 .env
 docker-compose.override.yml
+
+# project-local dev notes (not for upstream)
+CLAUDE.md
+.codex
+doc/Memoria_Beca_Hani.pdf
+
+# npm workspaces — root and per-service node_modules
+node_modules/
+services/*/node_modules/
+libraries/*/node_modules/
+server-ce/test/node_modules/
 node_modules
+
+# selinux debug artefacts
+develop/*.pp
+develop/*.te
+
+# editor swap files
+*.kate-swp
+*.swp
 
 # local compile artifacts (local build outputs, not for repo)
 develop/output/

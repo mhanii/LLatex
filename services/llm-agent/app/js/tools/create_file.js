@@ -1,0 +1,33 @@
+// @ts-check
+import { webUrl, basicAuth } from './utils.js'
+
+/**
+ * Create a new file in the project at the given path.
+ *
+ * @param {{ path: string, content?: string }} input
+ * @param {import('../types.js').RunContext} ctx
+ * @returns {Promise<{path: string, docId: string} | string>}
+ */
+export async function createFile({ path, content }, ctx) {
+  const res = await fetch(
+    `${webUrl()}/internal/project/${ctx.projectId}/agent/create-file`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: basicAuth(),
+      },
+      body: JSON.stringify({ path, content: content ?? '', userId: ctx.userId }),
+      signal: AbortSignal.timeout(30_000), // 30s timeout
+    }
+  )
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    return `Create failed: HTTP ${res.status} — ${body}`
+  }
+  const created = /** @type {{path: string, docId: string}} */ (await res.json())
+  if (ctx.context?.files && !ctx.context.files.some(f => f.path === created.path)) {
+    ctx.context.files.push({ path: created.path, docId: created.docId })
+  }
+  return created
+}

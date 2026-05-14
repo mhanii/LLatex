@@ -2,6 +2,7 @@
   "name": "overleaf",
   "private": true,
   "dependencies": {
+    "micromark-extension-gfm": "^3.0.0",
     "patch-package": "^8.0.0"
   },
   "devDependencies": {
@@ -69,6 +70,7 @@
     "server-ce/test",
     "services/analytics",
     "services/chat",
+    "services/llm-agent",
     "services/clsi",
     "services/clsi-cache",
     "services/clsi-perf",

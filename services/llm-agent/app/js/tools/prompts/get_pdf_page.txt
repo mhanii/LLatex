@@ -1,0 +1,1 @@
+Return a page of the most recently compiled PDF as a base64-encoded PNG. Call compile_and_check first to ensure an up-to-date PDF exists.

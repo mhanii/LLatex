@@ -100,47 +100,6 @@
   position: relative;
 }
 
-.ide-chatbot-panel-composer {
-  flex-shrink: 0 !important;
-  min-height: auto;
-  background-color: var(--chat-new-message-bg);
-  border-top: 1px solid var(--chat-new-message-border);
-}
-
-.ide-chatbot-panel-form {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 12px;
-  min-height: auto;
-  height: auto;
-}
-
-.ide-chatbot-panel-input {
-  flex: 1;
-  /* Allow JS to set inline height (do not force height) */
-  min-height: 32px !important;
-  /* Let JS control height via style="height:..."; but prevent it being smaller than 64px */
-  /* Do not set max-height so JS can manage growth/limits */
-  overflow-y: hidden !important; /* JS will toggle this as needed */
-  border: none !important;
-  resize: none !important;
-
-  &:focus,
-  &:focus-visible,
-  &:active {
-    outline: none !important;
-    border: none !important;
-    box-shadow: none !important;
-  }
-}
-
-.ide-chatbot-panel-send {
-  flex-shrink: 0;
-  /* keep default alignment; do not force align-self */
-  margin-bottom: 4px;
-}
-
 .chat-empty-state-placeholder {
   display: flex;
   justify-content: center;

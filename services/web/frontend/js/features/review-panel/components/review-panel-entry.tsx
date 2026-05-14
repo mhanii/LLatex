@@ -30,6 +30,7 @@ export const ReviewPanelEntry: FC<
     handleEnter?: () => void
     handleLeave?: () => void
     entryIndicator?: 'comment' | 'edit'
+    dataSource?: string
   }>
 > = ({
   children,
@@ -44,6 +45,7 @@ export const ReviewPanelEntry: FC<
   handleEnter,
   handleLeave,
   entryIndicator,
+  dataSource,
 }) => {
   const state = useCodeMirrorStateContext()
   const view = useCodeMirrorViewContext()
@@ -149,6 +151,7 @@ export const ReviewPanelEntry: FC<
   return (
     <div
       ref={entryRef}
+      data-source={dataSource}
       onMouseDown={() => {
         mousePressedRef.current = true
       }}
