@@ -204,8 +204,10 @@ async function scenario1_singleEdit(ctx) {
   )
 }
 
-async function scenario2_twoSeparateEdits(ctx) {
-  step('Scenario 2 · two non-overlapping edits → two independent pairs')
+async function scenario2_twoSeparateEditsSameLine(ctx) {
+  step(
+    'Scenario 2 · two non-overlapping edits on SAME line → per-line consolidation to ONE pair'
+  )
   const seed = 'AAA BBB CCC DDD EEE'
   await seedDoc(ctx.projectId, ctx.docId, seed)
 
@@ -216,12 +218,52 @@ async function scenario2_twoSeparateEdits(ctx) {
   const visible = after.lines.join('\n')
   assert(visible === 'AAA XXX CCC YYY EEE', `visible: "${visible}"`)
 
+  // Per-line consolidation: both edits collapse into one chip for the line.
+  // The consolidated pair carries the full oldest→newest span across both edits.
   const pairs = pairAgentChanges(pickAgentChanges(after.ranges))
-  assert(pairs.length === 2, `exactly two tracked pairs (got ${pairs.length})`)
+  assert(
+    pairs.length === 1,
+    `single consolidated pair on the line (got ${pairs.length})`
+  )
+  assert(
+    pairs[0].insert?.op.i === 'XXX CCC YYY',
+    `NEWEST = "XXX CCC YYY" (got "${pairs[0].insert?.op.i}")`
+  )
+  assert(
+    pairs[0].del?.op.d === 'BBB CCC DDD',
+    `OLDEST = "BBB CCC DDD" (got "${pairs[0].del?.op.d}")`
+  )
+}
+
+async function scenario2b_twoSeparateEditsDifferentLines(ctx) {
+  step(
+    'Scenario 2b · two non-overlapping edits on DIFFERENT lines → two independent pairs'
+  )
+  const seed = 'AAA BBB CCC\nDDD EEE FFF'
+  await seedDoc(ctx.projectId, ctx.docId, seed)
+
+  await editFile({ path: 'main.tex', oldText: 'BBB', newText: 'XXX' }, ctx)
+  await editFile({ path: 'main.tex', oldText: 'EEE', newText: 'YYY' }, ctx)
+
+  const after = await fetchDoc(ctx.projectId, ctx.docId)
+  const visible = after.lines.join('\n')
+  assert(visible === 'AAA XXX CCC\nDDD YYY FFF', `visible: "${visible}"`)
+
+  const pairs = pairAgentChanges(pickAgentChanges(after.ranges))
+  assert(
+    pairs.length === 2,
+    `two pairs — one per line (got ${pairs.length})`
+  )
   const inserts = pairs.map(p => p.insert.op.i).sort()
   const deletes = pairs.map(p => p.del.op.d).sort()
-  assert(JSON.stringify(inserts) === JSON.stringify(['XXX', 'YYY']), `inserts XXX, YYY`)
-  assert(JSON.stringify(deletes) === JSON.stringify(['BBB', 'DDD']), `deletes BBB, DDD`)
+  assert(
+    JSON.stringify(inserts) === JSON.stringify(['XXX', 'YYY']),
+    `inserts XXX, YYY`
+  )
+  assert(
+    JSON.stringify(deletes) === JSON.stringify(['BBB', 'EEE']),
+    `deletes BBB, EEE`
+  )
 }
 
 async function scenario3_overlappingDoubleChange(ctx) {
@@ -436,6 +478,96 @@ async function scenario9_multiLineBlockTwoLineDiffs(ctx) {
   )
 }
 
+async function scenario10_threeTurnsSameLine(ctx) {
+  step(
+    'Scenario 10 · three turns on the same line → cumulative consolidation'
+  )
+  // Simulates the user-described "double change" example extended to three.
+  // Each turn edits an already-changed word on the same line. The result must
+  // be ONE chip on the line: oldest input → newest output, with no
+  // intermediate states surfacing.
+  const seed = 'one two three'
+  await seedDoc(ctx.projectId, ctx.docId, seed)
+
+  await editFile({ path: 'main.tex', oldText: 'two', newText: 'TWO' }, ctx)
+  await editFile({ path: 'main.tex', oldText: 'TWO', newText: 'IIII' }, ctx)
+  await editFile({ path: 'main.tex', oldText: 'IIII', newText: 'final' }, ctx)
+
+  const after = await fetchDoc(ctx.projectId, ctx.docId)
+  assert(after.lines.join('\n') === 'one final three', `visible final state`)
+
+  const pairs = pairAgentChanges(pickAgentChanges(after.ranges))
+  assert(pairs.length === 1, `single consolidated pair (got ${pairs.length})`)
+  assert(pairs[0].insert?.op.i === 'final', `NEWEST = "final"`)
+  assert(
+    pairs[0].del?.op.d === 'two',
+    `OLDEST = "two" (NOT intermediates TWO/IIII) — got "${pairs[0].del?.op.d}"`
+  )
+}
+
+async function scenario11_multiTurnDifferentLinesPreserved(ctx) {
+  step(
+    'Scenario 11 · multi-turn edits on DIFFERENT lines → prior-turn pairs preserved'
+  )
+  // Guard against the "auto-accept previous changes" symptom. After three
+  // turns each touching a different line, all three pairs must coexist —
+  // no prior turn's tracked changes silently dropped.
+  const seed = 'alpha\nbeta\ngamma\ndelta'
+  await seedDoc(ctx.projectId, ctx.docId, seed)
+
+  await editFile({ path: 'main.tex', oldText: 'alpha', newText: 'AAAA' }, ctx)
+  await editFile({ path: 'main.tex', oldText: 'gamma', newText: 'GGGG' }, ctx)
+  await editFile({ path: 'main.tex', oldText: 'delta', newText: 'DDDD' }, ctx)
+
+  const after = await fetchDoc(ctx.projectId, ctx.docId)
+  assert(
+    after.lines.join('\n') === 'AAAA\nbeta\nGGGG\nDDDD',
+    `visible final state`
+  )
+
+  const pairs = pairAgentChanges(pickAgentChanges(after.ranges))
+  assert(
+    pairs.length === 3,
+    `three pairs preserved — one per touched line (got ${pairs.length})`
+  )
+  const inserts = pairs.map(p => p.insert?.op.i).sort()
+  const deletes = pairs.map(p => p.del?.op.d).sort()
+  assert(
+    JSON.stringify(inserts) === JSON.stringify(['AAAA', 'DDDD', 'GGGG']),
+    `inserts AAAA, GGGG, DDDD`
+  )
+  assert(
+    JSON.stringify(deletes) === JSON.stringify(['alpha', 'delta', 'gamma']),
+    `deletes alpha, gamma, delta`
+  )
+}
+
+async function scenario12_adjacentEdgeCase(ctx) {
+  step(
+    'Scenario 12 · adjacent prior pair (cEnd === pos) → consolidates via per-line'
+  )
+  // The exact configuration that the cEnd>=pos hack tried (incorrectly) to fix.
+  // Per-line consolidation handles it correctly without including unrelated
+  // boundary-adjacent inserts.
+  const seed = 'hello world'
+  await seedDoc(ctx.projectId, ctx.docId, seed)
+
+  // First: rewrite the leading word. Visible becomes "hi world", with prior
+  // insert "hi" ending exactly at the position of " world".
+  await editFile({ path: 'main.tex', oldText: 'hello', newText: 'hi' }, ctx)
+  // Second: rewrite the trailing word. The new edit's pos is exactly where
+  // the prior insert ends (whitespace start).
+  await editFile({ path: 'main.tex', oldText: 'world', newText: 'earth' }, ctx)
+
+  const after = await fetchDoc(ctx.projectId, ctx.docId)
+  assert(after.lines.join('\n') === 'hi earth', `visible: "hi earth"`)
+
+  const pairs = pairAgentChanges(pickAgentChanges(after.ranges))
+  assert(pairs.length === 1, `single consolidated pair (got ${pairs.length})`)
+  assert(pairs[0].insert?.op.i === 'hi earth', `NEWEST = "hi earth"`)
+  assert(pairs[0].del?.op.d === 'hello world', `OLDEST = "hello world"`)
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
   console.log(`\nTarget: WEB=${WEB_URL}  DOCUP=${DOCUP_URL}\n`)
@@ -448,7 +580,8 @@ async function main() {
     await login()
 
     await scenario1_singleEdit(await freshCtx(mongo, 's1'))
-    await scenario2_twoSeparateEdits(await freshCtx(mongo, 's2'))
+    await scenario2_twoSeparateEditsSameLine(await freshCtx(mongo, 's2'))
+    await scenario2b_twoSeparateEditsDifferentLines(await freshCtx(mongo, 's2b'))
     await scenario3_overlappingDoubleChange(await freshCtx(mongo, 's3'))
     await scenario4_overlappingLargerEdit(await freshCtx(mongo, 's4'))
     await scenario5_largeEditEngulfsTwo(await freshCtx(mongo, 's5'))
@@ -456,6 +589,9 @@ async function main() {
     await scenario7_collapseToNoOp(await freshCtx(mongo, 's7'))
     await scenario8_multiLineBlockOneLineDiff(await freshCtx(mongo, 's8'))
     await scenario9_multiLineBlockTwoLineDiffs(await freshCtx(mongo, 's9'))
+    await scenario10_threeTurnsSameLine(await freshCtx(mongo, 's10'))
+    await scenario11_multiTurnDifferentLinesPreserved(await freshCtx(mongo, 's11'))
+    await scenario12_adjacentEdgeCase(await freshCtx(mongo, 's12'))
 
     console.log(`\n${'─'.repeat(60)}\n  All track-changes scenarios passed.\n`)
   } finally {

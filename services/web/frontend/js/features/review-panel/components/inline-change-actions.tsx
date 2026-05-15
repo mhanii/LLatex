@@ -15,6 +15,8 @@ import {
 import { isDeleteChange, isInsertChange } from '@/utils/operations'
 import { canAggregate } from '../utils/can-aggregate'
 import MaterialIcon from '@/shared/components/material-icon'
+import { debugConsole } from '@/utils/debugging'
+import { captureException } from '@/infrastructure/error-reporter'
 
 type Entry = {
   primary: Change<EditOperation>
@@ -93,14 +95,24 @@ export const InlineChangeActions = memo(function InlineChangeActions() {
             ? 'addition'
             : 'deletion'
 
-        const handleAccept = () =>
-          agg
+        const handleAccept = () => {
+          const p = agg
             ? actions.acceptChanges(primary, agg)
             : actions.acceptChanges(primary)
-        const handleReject = () =>
-          agg
+          p.catch(err => {
+            debugConsole.error('accept changes failed', err)
+            captureException(err)
+          })
+        }
+        const handleReject = () => {
+          const p = agg
             ? actions.rejectChanges(primary, agg)
             : actions.rejectChanges(primary)
+          p.catch(err => {
+            debugConsole.error('reject changes failed', err)
+            captureException(err)
+          })
+        }
 
         // For user chips, offset horizontally to sit above the actual change
         // text rather than the line start.
@@ -108,9 +120,11 @@ export const InlineChangeActions = memo(function InlineChangeActions() {
         if (!isAgent) {
           try {
             const charCoords = view.coordsAtPos(primary.op.p)
-            const hostRect = host.getBoundingClientRect()
-            const offset = Math.max(0, charCoords.left - hostRect.left)
-            if (offset > 0) chipStyle = { marginLeft: offset }
+            if (charCoords) {
+              const hostRect = host.getBoundingClientRect()
+              const offset = Math.max(0, charCoords.left - hostRect.left)
+              if (offset > 0) chipStyle = { marginLeft: offset }
+            }
           } catch {
             // leave chip at line start
           }

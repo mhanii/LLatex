@@ -829,25 +829,37 @@ const DocumentManager = {
     }
     const opEnd = pos + oldText.length
 
-    // 2. Find AGENT tracked changes associated with the edit's region. Two
-    //    passes:
-    //      a) direct overlap with [pos, opEnd) — inserts that overlap the
-    //         interval, deletes strictly inside (NOT at opEnd, which is the
-    //         boundary AFTER the edit and belongs to the next region).
-    //      b) paired pickup — a tracked delete sitting exactly at
-    //         insert.p + insert.length (canAggregate convention) is the
-    //         OLDEST half of an already-included insert. Include it so the
-    //         original text reconstruction below sees the full pair, even
-    //         when the paired delete lands at the right boundary (opEnd).
+    // 2. Find AGENT tracked changes associated with the edit's region.
     //
-    //    If a USER change overlaps, mark mixed and skip consolidation —
-    //    we never overwrite user changes.
+    //    Pass a) direct overlap with [pos, opEnd):
+    //      - inserts: strictly cross the interval (cEnd > pos so an insert
+    //        that ends exactly at pos is NOT considered overlapping — that
+    //        belongs to the previous region, per Greptile P1 on PR #8).
+    //      - deletes: strictly inside [pos, opEnd) — NOT at opEnd, which is
+    //        the boundary AFTER the edit and belongs to the next region.
+    //
+    //    Pass b) paired pickup: a tracked delete sitting exactly at
+    //      insert.p + insert.length (canAggregate convention) is the OLDEST
+    //      half of an already-included insert. Include it so the original
+    //      text reconstruction below sees the full pair.
+    //
+    //    Pass c) per-line expansion: a line should end up with at most one
+    //      consolidated agent pair, regardless of intermediate sub-line edits.
+    //      Pull in any same-line agent changes (and their paired halves),
+    //      iterating until stable. Bail to standard OT if a HUMAN edit is on
+    //      the same line — we never overwrite user changes.
     const beforeChanges = before.ranges?.changes ?? []
     let regionStart = pos
     let regionEnd = opEnd
     const includedIds = new Set()
     const agentChangesInRegion = []
     let mixedWithUser = false
+
+    // Only consolidate agent changes made by the CURRENT user (same userId).
+    // A different user_id means a different actor (another collaborator's
+    // agent run, or a manual edit) — leave their changes alone.
+    const isOurAgentChange = c =>
+      c.metadata?.source === 'agent' && c.metadata?.user_id === userId
 
     for (const c of beforeChanges) {
       const cStart = c.op.p
@@ -857,7 +869,7 @@ const DocumentManager = {
         ? cStart < opEnd && cEnd > pos
         : cStart >= pos && cStart < opEnd
       if (!overlaps) continue
-      if (c.metadata?.source === 'agent') {
+      if (isOurAgentChange(c)) {
         agentChangesInRegion.push(c)
         includedIds.add(c.id)
         if (cStart < regionStart) regionStart = cStart
@@ -867,23 +879,95 @@ const DocumentManager = {
       }
     }
 
-    // Paired pickup: agent tracked deletes paired with an already-included
-    // insert (canAggregate: delete.p === insert.p + insert.length, same user).
-    for (const c of beforeChanges) {
-      if (includedIds.has(c.id)) continue
-      if (c.op.d == null) continue
-      if (c.metadata?.source !== 'agent') continue
-      const paired = beforeChanges.find(
-        o =>
-          includedIds.has(o.id) &&
-          o.op.i != null &&
-          o.op.p + o.op.i.length === c.op.p &&
-          o.metadata?.user_id === c.metadata?.user_id
-      )
-      if (paired) {
-        agentChangesInRegion.push(c)
-        includedIds.add(c.id)
-        if (c.op.p > regionEnd) regionEnd = c.op.p
+    // bounds (optional) constrains pickups to a [lineStart, lineEnd] window.
+    // When called from per-line expansion we MUST pass bounds — otherwise a
+    // multi-line tracked insert (its cEnd past the current line's \n) would
+    // pull in its paired delete from the next line, extending regionEnd past
+    // the \n and cascading subsequent while-loop iterations into adjacent
+    // lines. Greptile P2 on PR #13.
+    const pickupPairedDeletes = bounds => {
+      let added = false
+      for (const c of beforeChanges) {
+        if (includedIds.has(c.id)) continue
+        if (c.op.d == null) continue
+        if (!isOurAgentChange(c)) continue
+        if (
+          bounds &&
+          (c.op.p < bounds.lineStart || c.op.p > bounds.lineEnd)
+        ) {
+          continue
+        }
+        const paired = beforeChanges.find(
+          o =>
+            includedIds.has(o.id) &&
+            o.op.i != null &&
+            o.op.p + o.op.i.length === c.op.p &&
+            o.metadata?.user_id === c.metadata?.user_id
+        )
+        if (paired) {
+          agentChangesInRegion.push(c)
+          includedIds.add(c.id)
+          if (c.op.p > regionEnd) regionEnd = c.op.p
+          added = true
+        }
+      }
+      return added
+    }
+    pickupPairedDeletes(null)
+
+    // Per-line expansion: include all agent changes whose footprint sits on
+    // the same line(s) as the current region. This turns two adjacent or
+    // separated edits on a line into a single consolidated pair, fixing the
+    // "double chip" bug at the logic layer (not the UI layer).
+    if (!mixedWithUser) {
+      let changed = true
+      while (changed) {
+        changed = false
+        const lineStart =
+          regionStart === 0
+            ? 0
+            : beforeContent.lastIndexOf('\n', regionStart - 1) + 1
+        const tailRef = Math.max(regionStart, regionEnd - 1)
+        const nl = beforeContent.indexOf('\n', tailRef)
+        const lineEnd = nl === -1 ? beforeContent.length : nl
+        for (const c of beforeChanges) {
+          if (includedIds.has(c.id)) continue
+          const cStart = c.op.p
+          const isInsert = c.op.i != null
+          const cEnd = isInsert ? cStart + c.op.i.length : cStart
+          // Greptile P2 on PR #13: a delete has zero visible width (cEnd ===
+          // cStart), so the loose `cEnd > lineEnd` check lets a standalone
+          // delete at cStart === lineEnd (the \n position) through. That
+          // delete is at the cross-line boundary and shouldn't be pulled in
+          // by per-line expansion. Inserts ending at exactly lineEnd are
+          // fine (last char sits at lineEnd - 1, right before the \n), so
+          // we use separate bounds for insert vs delete.
+          const onLine = isInsert
+            ? cStart >= lineStart && cEnd <= lineEnd
+            : cStart >= lineStart && cStart < lineEnd
+          if (!onLine) continue
+          if (isOurAgentChange(c)) {
+            agentChangesInRegion.push(c)
+            includedIds.add(c.id)
+            if (cStart < regionStart) regionStart = cStart
+            if (cEnd > regionEnd) regionEnd = cEnd
+            changed = true
+          } else if (
+            c.metadata?.source === 'agent' &&
+            c.metadata?.user_id !== userId
+          ) {
+            // Different user's agent change on this line — leave it alone
+            // (don't consolidate), but it's also not "mixed with user" since
+            // the new edit doesn't directly overlap it. Just skip.
+            continue
+          } else {
+            // Human edit on the same line — skip consolidation entirely.
+            mixedWithUser = true
+            break
+          }
+        }
+        if (mixedWithUser) break
+        if (pickupPairedDeletes({ lineStart, lineEnd })) changed = true
       }
     }
 
@@ -952,13 +1036,13 @@ const DocumentManager = {
     // boundary.  Use strict < only for that case (Greptile P1 fix).
     const beforeChangeIds = new Set(beforeChanges.map(c => c.id))
 
-    // 7. Drop every agent tracked change inside the (post-update) region —
+    // 7. Drop every OUR-agent tracked change inside the (post-update) region —
     //    these are the messy ones plus whatever the standard OT path just
-    //    created. Keep everything else verbatim. Append a clean consolidated
-    //    pair iff oldest !== newest.
+    //    created. Keep everything else (non-agent, and other users' agent
+    //    changes) verbatim. Append a clean consolidated pair iff oldest !== newest.
     const cleanChanges = []
     for (const c of after.ranges?.changes ?? []) {
-      if (c.metadata?.source !== 'agent') {
+      if (c.metadata?.source !== 'agent' || c.metadata?.user_id !== userId) {
         cleanChanges.push(c)
         continue
       }
@@ -976,18 +1060,42 @@ const DocumentManager = {
 
     if (oldVersionText !== newVersionText) {
       const ts = new Date()
+      // Reuse IDs the OT just generated, or a prior pair's id we just
+      // consolidated. The frontend processes the same OT and produces the
+      // same RangesTracker IDs from `meta.tc = tcSeed`; if we invent new IDs
+      // here, the chip on the frontend is bound to an ID the server no
+      // longer holds, and accept silently filters to 0.
+      //
+      // Common case for the delete id: the OT delete fully absorbs the prior
+      // tracked insert and creates NO new tracked delete. We must then reuse
+      // a paired-delete id from agentChangesInRegion (frontend still has it).
+      // Without this, the synthesized `tcSeed + '000001'` collides with the
+      // OT-generated insert (which RangesTracker also gives id 000001) and
+      // both halves of the clean pair end up with the same id.
+      const otGenerated = (after.ranges?.changes ?? []).filter(
+        c =>
+          c.metadata?.source === 'agent' &&
+          c.metadata?.user_id === userId &&
+          !beforeChangeIds.has(c.id)
+      )
+      const otInsert = otGenerated.find(c => c.op.i != null)
+      const otDelete = otGenerated.find(c => c.op.d != null)
+      const priorInsert = agentChangesInRegion.find(c => c.op.i != null)
+      const priorDelete = agentChangesInRegion.find(c => c.op.d != null)
+      const insertId = otInsert?.id || priorInsert?.id || tcSeed + '000001'
+      const deleteId = otDelete?.id || priorDelete?.id || tcSeed + '000002'
       // Insert first, delete after — matches the canAggregate convention the
       // frontend uses to pair them as one block-level chip.
       if (newVersionText.length > 0) {
         cleanChanges.push({
-          id: tcSeed + '-i',
+          id: insertId,
           op: { p: regionStart, i: newVersionText },
           metadata: { user_id: userId, ts, source: 'agent' },
         })
       }
       if (oldVersionText.length > 0) {
         cleanChanges.push({
-          id: tcSeed + '-d',
+          id: deleteId,
           op: { p: regionStart + newVersionText.length, d: oldVersionText },
           metadata: { user_id: userId, ts, source: 'agent' },
         })
