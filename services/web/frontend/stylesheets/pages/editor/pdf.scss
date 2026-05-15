@@ -291,6 +291,8 @@
     .textLayer br::selection {
       background: transparent;
     }
+
+    // (button rule moved out — see .pdfjs-viewer-outer .pdfjs-selection-rewrite-button below)
   }
 
   .progress-thin {
@@ -406,6 +408,43 @@
 // so disable the overflow on the outer element
 .pdf-viewer .pdfjs-viewer.pdfjs-viewer-outer {
   overflow: hidden;
+}
+
+// Rewrite-selection button: must be a direct child of .pdfjs-viewer-outer so
+// it escapes the scroll/stacking context of .pdfjs-viewer-inner.
+// z-index must be above PDF.js layers (text layer, annotation layer, canvas)
+// which typically use z-indexes 1–10 within their own stacking context, but
+// .pdfjs-viewer-inner itself is absolutely positioned and renders above
+// anything with z-index < its own painting order.
+.pdf-viewer .pdfjs-viewer-outer .pdfjs-selection-rewrite-button {
+  position: absolute;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-02);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--border-radius-base);
+  background: white;
+  color: var(--content-primary);
+  padding: var(--spacing-02) var(--spacing-03);
+  font-size: var(--font-size-02);
+  line-height: 1;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
+  cursor: pointer;
+
+  svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  &:hover {
+    background: lightgray;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--focus-ring-color);
+    outline-offset: 1px;
+  }
 }
 
 :fullscreen {

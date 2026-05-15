@@ -54,6 +54,25 @@ async function notifyWebAgentComplete(projectId, payload) {
   }
 }
 
+async function notifyWebAgentToolCall(projectId, payload) {
+  const response = await fetch(
+    webUrl(`/internal/project/${projectId}/agent/tool-call`),
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: basicAuth(),
+      },
+      body: JSON.stringify(payload),
+    }
+  )
+  if (!response.ok) {
+    throw new Error(
+      `agent tool callback failed with HTTP ${response.status}`
+    )
+  }
+}
+
 /**
  * Entry point for the agent loop. Called without await (fire-and-forget)
  * so the HTTP response can return immediately with the runId.
@@ -85,7 +104,22 @@ export async function run(runId, input, startedAt, opts = {}) {
       projectId: input.projectId,
       userId: input.userId,
       runId,
+      conversationId: input.conversationId,
       context: input.context,
+      onToolEvent: async event => {
+        try {
+          await notifyWebAgentToolCall(input.projectId, {
+            conversationId: input.conversationId,
+            runId,
+            ...event,
+          })
+        } catch (notifyErr) {
+          logger.warn(
+            { err: notifyErr, runId, projectId: input.projectId },
+            'agent tool callback failed'
+          )
+        }
+      },
     }
     const tools = buildTools(runCtx, agent.allowedTools)
     const model = createModel(agent.model)
@@ -107,6 +141,14 @@ export async function run(runId, input, startedAt, opts = {}) {
       })
 
       const stepEnd = new Date()
+      // Persist reasoning per step so subsequent turns can replay it. Some
+      // models (DeepSeek-R1 family) require the prior assistant's reasoning
+      // to be round-tripped or they reject the next request. ReasoningPart's
+      // metadata field is providerOptions in @ai-sdk/provider-utils.
+      const reasoning = (result.reasoning ?? []).map(r => ({
+        text: r.text ?? '',
+        providerOptions: r.providerOptions ?? null,
+      }))
       await appendStep(runId, {
         name: 'llm.complete',
         startedAt: stepStart,
@@ -114,6 +156,7 @@ export async function run(runId, input, startedAt, opts = {}) {
         input: { messages },
         output: {
           text: result.text ?? '',
+          reasoning,
           toolCalls: result.toolCalls ?? [],
           toolResults: result.toolResults ?? [],
           finishReason: result.finishReason,
@@ -127,6 +170,20 @@ export async function run(runId, input, startedAt, opts = {}) {
           latencyMs: stepEnd.getTime() - stepStart.getTime(),
         },
       })
+
+      // Emit reasoning into the context BEFORE tool_calls so the rendered
+      // assistant message has reasoning parts at the start of its content.
+      for (const r of reasoning) {
+        if (!r.text) continue
+        await cm.add({
+          kind: 'reasoning',
+          role: 'assistant',
+          source: { kind: 'agent', ref: agent.name },
+          content: r.text,
+          addedBy: 'llm:assistant',
+          meta: { stepIndex: i, providerOptions: r.providerOptions },
+        })
+      }
 
       const toolCalls = result.toolCalls ?? []
       const toolResults = result.toolResults ?? []
@@ -186,13 +243,25 @@ export async function run(runId, input, startedAt, opts = {}) {
       if (!(result.toolCalls?.length > 0)) break
     }
 
-    const output = { type: 'text', content: finalText }
+    // If the loop exited without the model ever producing text (e.g. maxSteps
+    // exhausted by back-to-back tool calls), emit a fallback message — the web
+    // service rejects empty content with 400, which would otherwise leave the
+    // UI stuck in the pending state with no visible response.
+    const stepBudgetExhausted = !finalText
+    const content = stepBudgetExhausted
+      ? `Agent stopped after ${maxSteps} steps without producing a final response. Try a more focused request.`
+      : finalText
+    const output = {
+      type: stepBudgetExhausted ? 'error' : 'text',
+      content,
+    }
     await finalizeRun(runId, output, startedAt)
     try {
       await notifyWebAgentComplete(input.projectId, {
         conversationId: input.conversationId,
+        runId,
         userId: input.userId,
-        content: output.content,
+        content,
       })
     } catch (notifyErr) {
       logger.warn(
@@ -208,6 +277,7 @@ export async function run(runId, input, startedAt, opts = {}) {
       try {
         await notifyWebAgentComplete(input.projectId, {
           conversationId: input.conversationId,
+          runId,
           userId: input.userId,
           content: output.content,
         })

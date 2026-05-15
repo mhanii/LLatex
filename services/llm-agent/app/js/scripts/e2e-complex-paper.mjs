@@ -35,11 +35,7 @@ import { db, mongoClient } from '../mongodb.js'
 import { run as agentRun } from '../AgentManager.js'
 import { createRun } from '../AgentStore.js'
 
-const ADMIN_EMAIL = process.env.E2E_USER_EMAIL
-if (!ADMIN_EMAIL) {
-  console.error('E2E_USER_EMAIL is required (set to the seed admin user email).')
-  process.exit(2)
-}
+const ADMIN_EMAIL = process.env.E2E_USER_EMAIL ?? 'mohamedhani590@gmail.com'
 
 // ── Seed: truly empty ────────────────────────────────────────────────────────
 
@@ -298,7 +294,7 @@ async function runAgent(agentName, userMessage, projectId, userId, files, projec
   const startedAt = new Date()
   const runId = await createRun(projectId, input)
   console.log(`[${agentName}] runId=${runId}`)
-  await agentRun(runId, input, startedAt, { agentName, maxSteps: 40 })
+  await agentRun(runId, input, startedAt, { agentName, maxSteps: Number(process.env.E2E_MAX_STEPS ?? 80) })
   return /** @type {any} */ (await db.agentRuns.findOne({ _id: new ObjectId(runId) }))
 }
 

@@ -8,7 +8,7 @@ Located at `services/llm-agent/app/js/providers/vercelPortkey.js`.
 
 ```js
 import { createModel } from './providers/vercelPortkey.js'
-const model = createModel('@gemini/gemini-3.1-pro-preview')
+const model = createModel('@deepseek/deepseek-v4-flash')
 const result = await generateText({ model, tools, messages })
 ```
 

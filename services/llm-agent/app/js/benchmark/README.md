@@ -23,8 +23,8 @@ Put your Portkey key in `develop/.env` (gitignored — copy from `develop/.env.e
 
 ```
 PORTKEY_API_KEY=Sbf**********************5bG
-LLM_MODEL=@gemini/gemini-3.1-pro-preview
-LLM_JUDGE_MODEL=@gemini/gemini-3.1-pro-preview   # optional; falls back to LLM_MODEL
+LLM_MODEL=@deepseek/deepseek-v4-flash
+LLM_JUDGE_MODEL=@deepseek/deepseek-v4-pro   # optional; falls back to LLM_MODEL
 ```
 
 `develop/docker-compose.yml` forwards these vars into the `llm-agent` container automatically. With Portkey you typically don't need a virtual key — just pass the `@provider/model` id and Portkey routes it.

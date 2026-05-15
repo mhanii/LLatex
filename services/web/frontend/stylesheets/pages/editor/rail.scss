@@ -100,6 +100,13 @@ body {
     object-fit: contain;
   }
 
+  .ide-rail-chatbot-open-icon {
+    display: block;
+    width: 20px;
+    height: 20px;
+    margin: 6px auto 0;
+  }
+
   &.open-rail {
     color: var(--ide-rail-link-active-color);
     background-color: var(--ide-rail-link-active-background);

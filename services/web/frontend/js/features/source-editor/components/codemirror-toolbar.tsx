@@ -33,6 +33,9 @@ import Breadcrumbs from '@/features/source-editor/extensions/breadcrumbs'
 import classNames from 'classnames'
 import { useUserSettingsContext } from '@/shared/context/user-settings-context'
 import { useFeatureFlag } from '@/shared/context/split-test-context'
+import { useLayoutContext } from '@/shared/context/layout-context'
+import OLTooltip from '@/shared/components/ol/ol-tooltip'
+import MaterialIcon from '@/shared/components/material-icon'
 import importOverleafModules from '../../../../macros/import-overleaf-module.macro'
 
 const sourceEditorToolbarComponents = importOverleafModules(
@@ -79,6 +82,11 @@ const Toolbar = memo(function Toolbar() {
     onToggle: setOverflowOpen,
     ref: overflowRef,
   } = useDropdown()
+  const { setEditorPanelOpen } = useLayoutContext()
+
+  const closeEditorView = useCallback(() => {
+    setEditorPanelOpen(false)
+  }, [setEditorPanelOpen])
 
   const buildOverflow = useCallback(
     (element: Element) => {
@@ -212,6 +220,19 @@ const Toolbar = memo(function Toolbar() {
               )
             )}
             <ToggleSearchButton state={state} />
+            <OLTooltip
+              id="source-editor-close-view"
+              description={t('close')}
+              overlayProps={{ placement: 'bottom' }}
+            >
+              <button
+                className="ol-cm-toolbar-button"
+                onClick={closeEditorView}
+                aria-label={t('close')}
+              >
+                <MaterialIcon type="close" />
+              </button>
+            </OLTooltip>
             <SwitchToPDFButton />
             <DetacherSynctexControl />
             <DetachCompileButtonWrapper />

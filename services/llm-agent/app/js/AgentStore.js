@@ -33,6 +33,23 @@ export async function createRun(projectId, input) {
 }
 
 /**
+ * Fetch the steps array for a given run. Used by the chat-history seeder to
+ * replay a prior assistant turn's tool calls, outputs, and reasoning when the
+ * conversation continues. Returns [] if the run is not found.
+ *
+ * @param {string} runId
+ * @returns {Promise<Array<import('./types.js').RunStep>>}
+ */
+export async function getStepsForRun(runId) {
+  if (!runId || !ObjectId.isValid(runId)) return []
+  const doc = await db.agentRuns.findOne(
+    { _id: new ObjectId(runId) },
+    { projection: { steps: 1 } }
+  )
+  return doc?.steps ?? []
+}
+
+/**
  * @param {string} runId
  * @param {import('./types.js').RunStep} step
  */

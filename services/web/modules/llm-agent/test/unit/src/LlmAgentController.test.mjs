@@ -17,6 +17,7 @@ let EditorController
 let EditorRealTimeController
 let LlmAgentApiHandler
 let ProjectCreationHandler
+let AgentConversationManager
 let LlmAgentController
 
 describe('LlmAgentController', function () {
@@ -33,6 +34,16 @@ describe('LlmAgentController', function () {
 
     ChatApiHandler = {
       promises: {
+        getThread: vi.fn().mockResolvedValue({
+          messages: [
+            {
+              id: MESSAGE_ID,
+              user_id: USER_ID,
+              content: 'hello agent',
+              timestamp: 1,
+            },
+          ],
+        }),
         sendComment: vi.fn().mockResolvedValue({
           id: MESSAGE_ID,
           user_id: USER_ID,
@@ -47,6 +58,21 @@ describe('LlmAgentController', function () {
     }
     vi.doMock('../../../../../app/src/Features/Chat/ChatApiHandler.mjs', () => ({
       default: ChatApiHandler,
+    }))
+
+    vi.doMock('../../../../../app/src/Features/Chat/ChatManager.mjs', () => ({
+      default: {
+        promises: {
+          injectUserInfoIntoThreads: vi.fn().mockImplementation(async threads => {
+            for (const thread of Object.values(threads)) {
+              for (const message of thread.messages) {
+                message.user = { id: message.user_id }
+              }
+            }
+            return threads
+          }),
+        },
+      },
     }))
 
     ProjectGetter = {
@@ -155,6 +181,40 @@ describe('LlmAgentController', function () {
       default: LlmAgentApiHandler,
     }))
 
+    AgentConversationManager = {
+      promises: {
+        createConversation: vi.fn().mockResolvedValue({
+          id: CONVERSATION_ID,
+          title: 'New chat',
+          updatedAt: 1,
+        }),
+        listConversations: vi.fn().mockResolvedValue([
+          { id: CONVERSATION_ID, title: 'hello agent', updatedAt: 1 },
+        ]),
+        getConversation: vi.fn().mockResolvedValue({
+          id: CONVERSATION_ID,
+          title: 'hello agent',
+          updatedAt: 1,
+        }),
+        ensureConversation: vi.fn().mockResolvedValue({
+          id: CONVERSATION_ID,
+          title: 'hello agent',
+          updatedAt: 1,
+        }),
+        recordMessage: vi.fn().mockResolvedValue(undefined),
+        getMessageRoles: vi
+          .fn()
+          .mockResolvedValue(new Map([[MESSAGE_ID, 'user']])),
+        getMessageMetadata: vi
+          .fn()
+          .mockResolvedValue(new Map([[MESSAGE_ID, { role: 'user', runId: null }]])),
+        recordRun: vi.fn().mockResolvedValue(undefined),
+      },
+    }
+    vi.doMock('../../../app/src/AgentConversationManager.mjs', () => ({
+      default: AgentConversationManager,
+    }))
+
     ProjectCreationHandler = {
       promises: {
         createProjectFromSnippet: vi.fn().mockResolvedValue({
@@ -207,12 +267,21 @@ describe('LlmAgentController', function () {
       expect(body.conversationId).toBe(CONVERSATION_ID)
     })
 
-    it('emits new-chat-message to the project room', async function () {
+    it('calls ensureConversation with userId for ownership enforcement', async function () {
+      const req = makeReq({ conversationId: CONVERSATION_ID })
+      await LlmAgentController.sendMessage(req, makeRes(), vi.fn())
+
+      expect(
+        AgentConversationManager.promises.ensureConversation
+      ).toHaveBeenCalledWith(PROJECT_ID, CONVERSATION_ID, USER_ID, 'hello agent')
+    })
+
+    it('emits agent:message to the project room', async function () {
       await LlmAgentController.sendMessage(makeReq(), makeRes(), vi.fn())
 
       expect(EditorRealTimeController.emitToRoom).toHaveBeenCalledWith(
         PROJECT_ID,
-        'new-chat-message',
+        'agent:message',
         expect.any(Object)
       )
     })
@@ -255,6 +324,85 @@ describe('LlmAgentController', function () {
         'hello agent'
       )
     })
+
+    it('records the user message as an agent conversation message', async function () {
+      const req = makeReq({ conversationId: CONVERSATION_ID })
+      await LlmAgentController.sendMessage(req, makeRes(), vi.fn())
+
+      expect(AgentConversationManager.promises.recordMessage).toHaveBeenCalledWith(
+        PROJECT_ID,
+        CONVERSATION_ID,
+        expect.objectContaining({ id: MESSAGE_ID }),
+        'user'
+      )
+    })
+  })
+
+  describe('agent conversations', function () {
+    it('creates a conversation', async function () {
+      const req = { params: { project_id: PROJECT_ID }, session: {} }
+      const res = makeRes()
+      await LlmAgentController.createConversation(req, res, vi.fn())
+
+      expect(AgentConversationManager.promises.createConversation).toHaveBeenCalledWith(
+        PROJECT_ID,
+        USER_ID
+      )
+      expect(res.statusCode).toBe(201)
+    })
+
+    it('lists conversations scoped to the logged-in user', async function () {
+      const req = { params: { project_id: PROJECT_ID }, session: {} }
+      const res = makeRes()
+      await LlmAgentController.listConversations(req, res, vi.fn())
+
+      expect(
+        AgentConversationManager.promises.listConversations
+      ).toHaveBeenCalledWith(PROJECT_ID, USER_ID)
+      expect(JSON.parse(res.body)[0].id).toBe(CONVERSATION_ID)
+    })
+
+    it('returns 403 from listConversations when no user is in session', async function () {
+      SessionManager.getLoggedInUserId.mockReturnValue(null)
+      const req = { params: { project_id: PROJECT_ID }, session: {} }
+      const res = makeRes()
+      await LlmAgentController.listConversations(req, res, vi.fn())
+      expect(res.statusCode).toBe(403)
+    })
+
+    it('loads messages with agent roles', async function () {
+      const req = {
+        params: {
+          project_id: PROJECT_ID,
+          conversation_id: CONVERSATION_ID,
+        },
+        session: {},
+      }
+      const res = makeRes()
+      await LlmAgentController.getConversationMessages(req, res, vi.fn())
+
+      expect(
+        AgentConversationManager.promises.getConversation
+      ).toHaveBeenCalledWith(PROJECT_ID, CONVERSATION_ID, USER_ID)
+      expect(JSON.parse(res.body)[0]).toMatchObject({
+        id: MESSAGE_ID,
+        role: 'user',
+      })
+    })
+
+    it('returns 403 from getConversationMessages when no user is in session', async function () {
+      SessionManager.getLoggedInUserId.mockReturnValue(null)
+      const req = {
+        params: {
+          project_id: PROJECT_ID,
+          conversation_id: CONVERSATION_ID,
+        },
+        session: {},
+      }
+      const res = makeRes()
+      await LlmAgentController.getConversationMessages(req, res, vi.fn())
+      expect(res.statusCode).toBe(403)
+    })
   })
 
   describe('sendMessage — validation', function () {
@@ -272,13 +420,13 @@ describe('LlmAgentController', function () {
       expect(res.statusCode).toBe(400)
     })
 
-    it('forwards an error via next() when no user is in session', async function () {
+    it('returns 403 when no user is in session', async function () {
       SessionManager.getLoggedInUserId.mockReturnValue(null)
 
-      const next = vi.fn()
-      await LlmAgentController.sendMessage(makeReq(), makeRes(), next)
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
 
-      expect(next).toHaveBeenCalledWith(expect.any(Error))
+      expect(res.statusCode).toBe(403)
     })
 
     it('returns 404 when project cannot be loaded', async function () {
@@ -305,8 +453,11 @@ describe('LlmAgentController', function () {
       )
       expect(EditorRealTimeController.emitToRoom).toHaveBeenCalledWith(
         PROJECT_ID,
-        'new-chat-message',
-        expect.objectContaining({ id: MESSAGE_ID })
+        'agent:message',
+        expect.objectContaining({
+          conversationId: CONVERSATION_ID,
+          message: expect.objectContaining({ id: MESSAGE_ID }),
+        })
       )
       expect(res.statusCode).toBe(204)
     })
@@ -328,6 +479,51 @@ describe('LlmAgentController', function () {
         CONVERSATION_ID,
         USER_ID,
         'stub'
+      )
+      expect(res.statusCode).toBe(204)
+    })
+
+    it('returns 500 when an existing chat message cannot be loaded', async function () {
+      ChatApiHandler.promises.getThreadMessage.mockResolvedValueOnce(null)
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: { conversationId: CONVERSATION_ID, messageId: MESSAGE_ID },
+      }
+      const res = makeRes()
+      await LlmAgentController.agentComplete(req, res, vi.fn())
+
+      expect(
+        AgentConversationManager.promises.recordMessage
+      ).not.toHaveBeenCalled()
+      expect(EditorRealTimeController.emitToRoom).not.toHaveBeenCalled()
+      expect(res.statusCode).toBe(500)
+      expect(JSON.parse(res.body)).toEqual({
+        error: 'agent completion message was not found',
+      })
+    })
+
+    it('emits tool call progress events', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          runId: RUN_ID,
+          toolName: 'compile_and_check',
+          status: 'running',
+        },
+      }
+      const res = makeRes()
+      await LlmAgentController.agentToolCall(req, res, vi.fn())
+
+      expect(EditorRealTimeController.emitToRoom).toHaveBeenCalledWith(
+        PROJECT_ID,
+        'agent:tool-call',
+        expect.objectContaining({
+          conversationId: CONVERSATION_ID,
+          runId: RUN_ID,
+          toolName: 'compile_and_check',
+          status: 'running',
+        })
       )
       expect(res.statusCode).toBe(204)
     })
