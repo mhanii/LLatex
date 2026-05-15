@@ -854,7 +854,7 @@ const DocumentManager = {
       const isInsert = c.op.i != null
       const cEnd = isInsert ? cStart + c.op.i.length : cStart
       const overlaps = isInsert
-        ? cStart < opEnd && cEnd > pos
+        ? cStart < opEnd && cEnd >= pos
         : cStart >= pos && cStart < opEnd
       if (!overlaps) continue
       if (c.metadata?.source === 'agent') {

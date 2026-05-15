@@ -1080,6 +1080,94 @@ describe('DocumentManager', function () {
       })
     })
 
+    describe('with an adjacent prior agent insert (cEnd === pos)', function () {
+      // Adjacent-pair consolidation: a prior agent pair whose insert ends
+      // exactly at `pos` (the new edit's start) should be included in the
+      // region so that both pairs get merged into one consolidated pair.
+      // Without this, two separate pairs coexist on the same line → double chip.
+      beforeEach(async function () {
+        // Before: visible "hiworld" — prior pair Insert("hi",0)+Delete("hello",2)
+        this.beforeRanges = {
+          changes: [
+            {
+              id: 'adj-i',
+              op: { p: 0, i: 'hi' }, // ends at pos 2, which equals the new edit's pos
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'adj-d',
+              op: { p: 2, d: 'hello' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+          ],
+          comments: [],
+        }
+        // After OT (delete "world" at 2, insert "earth" at 2):
+        // ranges-tracker shifts the old delete and adds a new OT pair.
+        this.afterRanges = {
+          changes: [
+            {
+              id: 'adj-i',
+              op: { p: 0, i: 'hi' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'adj-d',
+              op: { p: 7, d: 'hello' }, // shifted by newText.length (5)
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'seed-i',
+              op: { p: 2, i: 'earth' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'seed-d',
+              op: { p: 7, d: 'world' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+          ],
+          comments: [],
+        }
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['hiworld'],
+            version: 5,
+            ranges: this.beforeRanges,
+          })
+          .onSecondCall()
+          .resolves({
+            lines: ['hiearth'],
+            version: 6,
+            ranges: this.afterRanges,
+          })
+
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'world', // starts at pos 2 = end of prior insert "hi"
+          'earth',
+          this.user_id
+        )
+      })
+
+      it('consolidates the adjacent prior pair into one', function () {
+        this.RedisManager.promises.updateDocument.called.should.equal(true)
+      })
+
+      it('produces ONE pair with oldest="helloworld" and newest="hiearth"', function () {
+        const call = this.RedisManager.promises.updateDocument.lastCall
+        const ranges = call.args[5]
+        expect(ranges.changes).to.have.lengthOf(2)
+        const insert = ranges.changes.find(c => c.op.i != null)
+        const del = ranges.changes.find(c => c.op.d != null)
+        expect(insert.op).to.deep.equal({ p: 0, i: 'hiearth' })
+        expect(del.op).to.deep.equal({ p: 7, d: 'helloworld' })
+      })
+    })
+
     describe('returns 204 without delegating when oldText === newText', function () {
       // Greptile P2 regression: the no-op guard must live in agentReplace
       // itself, not just the HTTP layer.
