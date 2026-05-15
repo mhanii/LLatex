@@ -879,12 +879,24 @@ const DocumentManager = {
       }
     }
 
-    const pickupPairedDeletes = () => {
+    // bounds (optional) constrains pickups to a [lineStart, lineEnd] window.
+    // When called from per-line expansion we MUST pass bounds — otherwise a
+    // multi-line tracked insert (its cEnd past the current line's \n) would
+    // pull in its paired delete from the next line, extending regionEnd past
+    // the \n and cascading subsequent while-loop iterations into adjacent
+    // lines. Greptile P2 on PR #13.
+    const pickupPairedDeletes = bounds => {
       let added = false
       for (const c of beforeChanges) {
         if (includedIds.has(c.id)) continue
         if (c.op.d == null) continue
         if (!isOurAgentChange(c)) continue
+        if (
+          bounds &&
+          (c.op.p < bounds.lineStart || c.op.p > bounds.lineEnd)
+        ) {
+          continue
+        }
         const paired = beforeChanges.find(
           o =>
             includedIds.has(o.id) &&
@@ -901,7 +913,7 @@ const DocumentManager = {
       }
       return added
     }
-    pickupPairedDeletes()
+    pickupPairedDeletes(null)
 
     // Per-line expansion: include all agent changes whose footprint sits on
     // the same line(s) as the current region. This turns two adjacent or
@@ -923,7 +935,17 @@ const DocumentManager = {
           const cStart = c.op.p
           const isInsert = c.op.i != null
           const cEnd = isInsert ? cStart + c.op.i.length : cStart
-          if (cStart < lineStart || cEnd > lineEnd) continue
+          // Greptile P2 on PR #13: a delete has zero visible width (cEnd ===
+          // cStart), so the loose `cEnd > lineEnd` check lets a standalone
+          // delete at cStart === lineEnd (the \n position) through. That
+          // delete is at the cross-line boundary and shouldn't be pulled in
+          // by per-line expansion. Inserts ending at exactly lineEnd are
+          // fine (last char sits at lineEnd - 1, right before the \n), so
+          // we use separate bounds for insert vs delete.
+          const onLine = isInsert
+            ? cStart >= lineStart && cEnd <= lineEnd
+            : cStart >= lineStart && cStart < lineEnd
+          if (!onLine) continue
           if (isOurAgentChange(c)) {
             agentChangesInRegion.push(c)
             includedIds.add(c.id)
@@ -945,7 +967,7 @@ const DocumentManager = {
           }
         }
         if (mixedWithUser) break
-        if (pickupPairedDeletes()) changed = true
+        if (pickupPairedDeletes({ lineStart, lineEnd })) changed = true
       }
     }
 
@@ -1038,18 +1060,42 @@ const DocumentManager = {
 
     if (oldVersionText !== newVersionText) {
       const ts = new Date()
+      // Reuse IDs the OT just generated, or a prior pair's id we just
+      // consolidated. The frontend processes the same OT and produces the
+      // same RangesTracker IDs from `meta.tc = tcSeed`; if we invent new IDs
+      // here, the chip on the frontend is bound to an ID the server no
+      // longer holds, and accept silently filters to 0.
+      //
+      // Common case for the delete id: the OT delete fully absorbs the prior
+      // tracked insert and creates NO new tracked delete. We must then reuse
+      // a paired-delete id from agentChangesInRegion (frontend still has it).
+      // Without this, the synthesized `tcSeed + '000001'` collides with the
+      // OT-generated insert (which RangesTracker also gives id 000001) and
+      // both halves of the clean pair end up with the same id.
+      const otGenerated = (after.ranges?.changes ?? []).filter(
+        c =>
+          c.metadata?.source === 'agent' &&
+          c.metadata?.user_id === userId &&
+          !beforeChangeIds.has(c.id)
+      )
+      const otInsert = otGenerated.find(c => c.op.i != null)
+      const otDelete = otGenerated.find(c => c.op.d != null)
+      const priorInsert = agentChangesInRegion.find(c => c.op.i != null)
+      const priorDelete = agentChangesInRegion.find(c => c.op.d != null)
+      const insertId = otInsert?.id || priorInsert?.id || tcSeed + '000001'
+      const deleteId = otDelete?.id || priorDelete?.id || tcSeed + '000002'
       // Insert first, delete after — matches the canAggregate convention the
       // frontend uses to pair them as one block-level chip.
       if (newVersionText.length > 0) {
         cleanChanges.push({
-          id: tcSeed + '-i',
+          id: insertId,
           op: { p: regionStart, i: newVersionText },
           metadata: { user_id: userId, ts, source: 'agent' },
         })
       }
       if (oldVersionText.length > 0) {
         cleanChanges.push({
-          id: tcSeed + '-d',
+          id: deleteId,
           op: { p: regionStart + newVersionText.length, d: oldVersionText },
           metadata: { user_id: userId, ts, source: 'agent' },
         })

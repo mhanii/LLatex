@@ -16,6 +16,7 @@ import { isDeleteChange, isInsertChange } from '@/utils/operations'
 import { canAggregate } from '../utils/can-aggregate'
 import MaterialIcon from '@/shared/components/material-icon'
 import { debugConsole } from '@/utils/debugging'
+import { captureException } from '@/infrastructure/error-reporter'
 
 type Entry = {
   primary: Change<EditOperation>
@@ -98,13 +99,19 @@ export const InlineChangeActions = memo(function InlineChangeActions() {
           const p = agg
             ? actions.acceptChanges(primary, agg)
             : actions.acceptChanges(primary)
-          p.catch(err => debugConsole.error('accept changes failed', err))
+          p.catch(err => {
+            debugConsole.error('accept changes failed', err)
+            captureException(err)
+          })
         }
         const handleReject = () => {
           const p = agg
             ? actions.rejectChanges(primary, agg)
             : actions.rejectChanges(primary)
-          p.catch(err => debugConsole.error('reject changes failed', err))
+          p.catch(err => {
+            debugConsole.error('reject changes failed', err)
+            captureException(err)
+          })
         }
 
         // For user chips, offset horizontally to sit above the actual change
