@@ -345,11 +345,6 @@
   .ide-chatbot-message-status {
     margin: 0;
   }
-
-  &:has(.ide-chatbot-status-group-toggle:not(.ide-chatbot-status-group-toggle-collapsed)) {
-    max-height: none;
-    overflow-y: visible;
-  }
 }
 
 .ide-chatbot-status-group-toggle {
