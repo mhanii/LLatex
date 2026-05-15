@@ -99,7 +99,6 @@ const buildChipContainerDecorations = (
   const decorations = []
   const changes = data.ranges.changes
   const docLength = state.doc.length
-  const agentChipLines = new Set<number>()
   let i = 0
 
   while (i < changes.length) {
@@ -120,13 +119,6 @@ const buildChipContainerDecorations = (
       const refPos = primary.op.p
       if (refPos < 0 || refPos > docLength) continue
       const lineStart = state.doc.lineAt(refPos).from
-      // Agent chips are block-level (one per line). Skip if this line already
-      // has a chip — two agent pairs on the same line would otherwise produce
-      // two overlapping chip containers at the same lineStart position.
-      if (primary.metadata?.source === 'agent') {
-        if (agentChipLines.has(lineStart)) continue
-        agentChipLines.add(lineStart)
-      }
       decorations.push(
         Decoration.widget({
           widget: new ChipContainerWidget(primary.id),

@@ -113,9 +113,11 @@ export const InlineChangeActions = memo(function InlineChangeActions() {
         if (!isAgent) {
           try {
             const charCoords = view.coordsAtPos(primary.op.p)
-            const hostRect = host.getBoundingClientRect()
-            const offset = Math.max(0, charCoords.left - hostRect.left)
-            if (offset > 0) chipStyle = { marginLeft: offset }
+            if (charCoords) {
+              const hostRect = host.getBoundingClientRect()
+              const offset = Math.max(0, charCoords.left - hostRect.left)
+              if (offset > 0) chipStyle = { marginLeft: offset }
+            }
           } catch {
             // leave chip at line start
           }

@@ -1168,6 +1168,161 @@ describe('DocumentManager', function () {
       })
     })
 
+    describe('with a prior agent pair on the same line, non-adjacent', function () {
+      // Per-line consolidation: two separate-position edits on the same line
+      // should collapse to one consolidated pair. Without this, two chips
+      // appear on the same line (the original "double chip" bug).
+      beforeEach(async function () {
+        // Before: visible "hi mars" — prior pair Insert("hi",0)+Delete("hello",2).
+        // The new edit is on "mars" (pos=3), separated from the prior pair by " ".
+        this.beforeRanges = {
+          changes: [
+            {
+              id: 'pri-i',
+              op: { p: 0, i: 'hi' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'pri-d',
+              op: { p: 2, d: 'hello' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+          ],
+          comments: [],
+        }
+        this.afterRanges = {
+          changes: [
+            {
+              id: 'pri-i',
+              op: { p: 0, i: 'hi' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'pri-d',
+              op: { p: 2, d: 'hello' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'new-i',
+              op: { p: 3, i: 'earth' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'new-d',
+              op: { p: 8, d: 'mars' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+          ],
+          comments: [],
+        }
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['hi mars'],
+            version: 5,
+            ranges: this.beforeRanges,
+          })
+          .onSecondCall()
+          .resolves({
+            lines: ['hi earth'],
+            version: 6,
+            ranges: this.afterRanges,
+          })
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'mars',
+          'earth',
+          this.user_id
+        )
+      })
+      it('collapses both prior pair and new edit into ONE clean pair', function () {
+        const call = this.RedisManager.promises.updateDocument.lastCall
+        const ranges = call.args[5]
+        expect(ranges.changes).to.have.lengthOf(2)
+        const insert = ranges.changes.find(c => c.op.i != null)
+        const del = ranges.changes.find(c => c.op.d != null)
+        expect(insert.op).to.deep.equal({ p: 0, i: 'hi earth' })
+        expect(del.op).to.deep.equal({ p: 8, d: 'hello mars' })
+      })
+    })
+
+    describe('per-line consolidation skips when a HUMAN edit is on the line', function () {
+      // If a non-agent (user) change is anywhere on the line as the agent edit,
+      // bail out of consolidation so we never rewrite human content.
+      beforeEach(async function () {
+        this.beforeRanges = {
+          changes: [
+            {
+              id: 'human-i',
+              op: { p: 0, i: 'hi' },
+              metadata: { user_id: 'human-user', source: 'manual' },
+            },
+          ],
+          comments: [],
+        }
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['hi mars'],
+            version: 5,
+            ranges: this.beforeRanges,
+          })
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'mars',
+          'earth',
+          this.user_id
+        )
+      })
+      it('does NOT consolidate (standard OT path only)', function () {
+        this.RedisManager.promises.updateDocument.called.should.equal(false)
+      })
+    })
+
+    describe('per-line consolidation only includes OUR agent (same user_id)', function () {
+      // A different agent run's tracked change on the same line should NOT
+      // be absorbed into our consolidation — leave it alone.
+      beforeEach(async function () {
+        this.beforeRanges = {
+          changes: [
+            {
+              id: 'other-i',
+              op: { p: 0, i: 'hi' },
+              metadata: { user_id: 'other-agent-run', source: 'agent' },
+            },
+            {
+              id: 'other-d',
+              op: { p: 2, d: 'hello' },
+              metadata: { user_id: 'other-agent-run', source: 'agent' },
+            },
+          ],
+          comments: [],
+        }
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['hi mars'],
+            version: 5,
+            ranges: this.beforeRanges,
+          })
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'mars',
+          'earth',
+          this.user_id
+        )
+      })
+      it('does NOT consolidate (different user)', function () {
+        this.RedisManager.promises.updateDocument.called.should.equal(false)
+      })
+    })
+
     describe('returns 204 without delegating when oldText === newText', function () {
       // Greptile P2 regression: the no-op guard must live in agentReplace
       // itself, not just the HTTP layer.
