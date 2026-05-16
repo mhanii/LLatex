@@ -513,33 +513,14 @@
         var(--green-60, #58cb84) 50%,
         #f8fafc 75%,
         var(--green-50, #94b896) 100%
-      /* stylelint-disable-next-line property-no-vendor-prefix */
-      -webkit-background-clip: text;
-      background-clip: text;
-      animation: shine-text 3s linear infinite;
+        );
+        background-size: 200% auto;
+        background-position: -200% center;
+        color: transparent;
+        -webkit-background-clip: text;
+        background-clip: text;
+        animation: shine-text 3s linear infinite;
     }
-
-    .status-icon {
-       animation: shine-icon 3s ease-in-out infinite;
-     }
-
-     .status-icon svg {
-       animation: shine-svg 3s ease-in-out infinite;
-    }
-  }
-}
-
-@keyframes shine-icon {
-  0% {
-    filter: drop-shadow(0 0 2px rgba(88, 147, 203, 0));
-  }
-
-  50% {
-    filter: drop-shadow(0 0 8px rgba(88, 147, 203, 0.8));
-  }
-
-  100% {
-    filter: drop-shadow(0 0 2px rgba(88, 147, 203, 0));
   }
 }
 
