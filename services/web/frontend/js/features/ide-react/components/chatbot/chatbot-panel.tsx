@@ -523,6 +523,8 @@ export default function ChatbotPanel() {
     )
   }, [])
 
+  const [autoCompactedGroupIds, setAutoCompactedGroupIds] = useState<string[]>([])
+
   useEffect(() => {
     const validGroupIds = new Set(statusGroupIds)
 
@@ -535,9 +537,9 @@ export default function ChatbotPanel() {
       const next = prev.filter(id => validGroupIds.has(id))
       return next.length === prev.length ? prev : next
     })
-  }, [statusGroupIds])
 
-  const [autoCompactedGroupIds, setAutoCompactedGroupIds] = useState<string[]>([])
+    setAutoCompactedGroupIds(prev => prev.filter(id => validGroupIds.has(id)))
+  }, [statusGroupIds])
 
   // Auto-close previous status groups when assistant sends a message
   useEffect(() => {
@@ -1372,56 +1374,45 @@ export default function ChatbotPanel() {
 
   useEffect(() => {
     const container = messagesContainerRef.current
-    if (!container) return
-
-    const scrollToLatestStatus = () => {
-      const statusWrappers = container.querySelectorAll('.ide-chatbot-status-wrapper')
-      if (statusWrappers.length === 0) return
-      
-      const lastWrapper = statusWrappers[statusWrappers.length - 1]
-      const lastStatusMessages = lastWrapper.querySelectorAll('.ide-chatbot-message-status')
-      
-      if (lastStatusMessages.length > 0) {
-        const lastMessage = lastStatusMessages[lastStatusMessages.length - 1]
-        lastMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-      } else {
-        lastWrapper.scrollIntoView({ behavior: 'smooth', block: 'end' })
-      }
-    }
-
-    const lastMessage = messages[messages.length - 1]
-    const isLastMessageStatus = lastMessage?.role === 'status'
-
-    if (shouldAutoScroll) {
-      if (isLastMessageStatus) {
-        // Usar requestAnimationFrame para asegurar que el DOM esté actualizado
-        requestAnimationFrame(() => {
-          scrollToLatestStatus()
-        })
-      } else {
-        container.scrollTop = container.scrollHeight
-      }
-    }
-  }, [messages, shouldAutoScroll])
-
-  useEffect(() => {
-    if (!shouldAutoScroll) {
-      return
-    }
-
-    const container = messagesContainerRef.current
     if (!container) {
       return
     }
+
+    container.addEventListener('scroll', handleMessagesScroll, {
+      passive: true,
+    })
+
+    return () => {
+      container.removeEventListener('scroll', handleMessagesScroll)
+    }
+  }, [handleMessagesScroll])
+
+  useEffect(() => {
+    const container = messagesContainerRef.current
+    if (!container || !shouldAutoScroll) return
 
     const lastMessage = messages[messages.length - 1]
     const isLastMessageStatus = lastMessage?.role === 'status'
 
     if (isLastMessageStatus) {
-      scrollToLatestStatusMessages()
-    } else {
-      container.scrollTop = container.scrollHeight
+      requestAnimationFrame(() => {
+        const statusWrappers = container.querySelectorAll('.ide-chatbot-status-wrapper')
+        if (statusWrappers.length === 0) return
+
+        const lastWrapper = statusWrappers[statusWrappers.length - 1]
+        const lastStatusMessages = lastWrapper.querySelectorAll('.ide-chatbot-message-status')
+
+        if (lastStatusMessages.length > 0) {
+          const lastStatusMessage = lastStatusMessages[lastStatusMessages.length - 1]
+          lastStatusMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        } else {
+          lastWrapper.scrollIntoView({ behavior: 'smooth', block: 'end' })
+        }
+      })
+      return
     }
+
+    container.scrollTop = container.scrollHeight
   }, [messages, shouldAutoScroll])
 
   useEffect(() => {

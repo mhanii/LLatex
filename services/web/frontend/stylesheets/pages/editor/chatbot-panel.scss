@@ -508,15 +508,11 @@
       opacity: 1;
       background: linear-gradient(
         90deg,
-        #94b896 0%,
+        var(--green-50, #94b896) 0%,
         #f8fafc 25%,
-        #58cb84 50%,
+        var(--green-60, #58cb84) 50%,
         #f8fafc 75%,
-        #94b896 100%
-      );
-      background-size: 200% auto;
-      background-position: -200% center;
-      color: transparent;
+        var(--green-50, #94b896) 100%
       /* stylelint-disable-next-line property-no-vendor-prefix */
       -webkit-background-clip: text;
       background-clip: text;
@@ -553,7 +549,7 @@
   }
 
   50% {
-    stroke: #58cb84;
+    stroke: var(--green-60, #58cb84);
   }
 }
 
