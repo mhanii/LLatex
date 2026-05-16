@@ -557,7 +557,7 @@ export default function ChatbotPanel() {
       
       setCollapsedStatusGroupIds(prev => [...prev, ...groupsToAutoCompact])
       
-      setExpandedStatusGroupIds(prev => prev)
+      setExpandedStatusGroupIds(prev => prev.filter(id => !groupsToAutoCompact.includes(id)))
     }
   }, [messages, statusGroupIds, autoCompactedGroupIds])
 
