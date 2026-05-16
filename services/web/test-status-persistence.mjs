@@ -5,6 +5,10 @@
  * Usage: npm run test:status-persistence (from services/web)
  */
 
+// NOTE: This script expects to be run from the services/web directory.
+// If you run it from the repository root, update the import path to:
+//   ./services/web/app/src/infrastructure/mongodb.mjs
+// or move this script to the repo root and change the import accordingly.
 import { db, ObjectId } from './app/src/infrastructure/mongodb.mjs'
 
 async function testStatusPersistence() {
