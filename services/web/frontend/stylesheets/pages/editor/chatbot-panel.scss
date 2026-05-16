@@ -422,6 +422,11 @@
     max-height: none;
     overflow-y: visible;
   }
+
+  .ide-chatbot-status-wrapper:not(:has(.ide-chatbot-status-group-toggle)) & {
+    max-height: none;
+    overflow-y: visible;
+  }
   
   &::-webkit-scrollbar {
     width: 4px;
