@@ -314,22 +314,7 @@
   position: relative;
 
   &::before {
-    content: '';
-    position: sticky;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 32px;
-    background: linear-gradient(
-      to bottom,
-      var(--bg-primary-themed) 0%,
-      var(--bg-primary-themed) 30%,
-      transparent 100%
-    );
-    pointer-events: none;
-    z-index: 2;
-    display: block;
-    margin-bottom: -32px;
+    display: none;
   }
 
   &:has(.ide-chatbot-status-group-toggle:not(.ide-chatbot-status-group-toggle-collapsed)) {
@@ -511,6 +496,7 @@
     
     .status-text {
       opacity: 1;
+      color: var(--content-secondary-themed);
       background: linear-gradient(
         90deg,
         var(--green-50, #94b896) 0%,
@@ -525,6 +511,17 @@
         -webkit-background-clip: text;
         background-clip: text;
         animation: shine-text 3s linear infinite;
+
+        transform: translateZ(0);
+        will-change: background-position;
+    }
+
+    &:not(.is-pending) .status-text {
+      transition: color 0.2s ease-out;
+      background: none;
+      -webkit-background-clip: unset;
+      background-clip: unset;
+      color: var(--content-secondary-themed);
     }
   }
 }
