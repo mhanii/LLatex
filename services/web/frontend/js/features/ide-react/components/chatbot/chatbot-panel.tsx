@@ -36,6 +36,15 @@ type ChatbotMessage = {
   toolName?: string
 }
 
+type ChatbotMessageGroup =
+  | { type: 'single'; message: ChatbotMessage }
+  | {
+      type: 'status-group'
+      id: string
+      messages: ChatbotMessage[]
+      summary: string
+    }
+
 type AgentConversation = {
   id: string
   createdBy: string
@@ -74,6 +83,155 @@ type ChatbotPrefillPayload = {
   } | null
 }
 
+type StatusSummaryDescriptor = {
+  key: string
+  label: string
+  singular?: string
+  plural?: string
+  countable?: boolean
+}
+
+const STATUS_SUMMARY_DESCRIPTORS: Record<string, StatusSummaryDescriptor> = {
+  read_file: {
+    key: 'read-file',
+    label: 'Read',
+    singular: 'file',
+    plural: 'files',
+    countable: true,
+  },
+  read_skill: {
+    key: 'read-skill',
+    label: 'Read',
+    singular: 'skill',
+    plural: 'skills',
+    countable: true,
+  },
+  get_outline: {
+    key: 'get-outline',
+    label: 'Read outline',
+  },
+  get_pdf_page: {
+    key: 'get-pdf-page',
+    label: 'Read',
+    singular: 'PDF page',
+    plural: 'PDF pages',
+    countable: true,
+  },
+  create_file: {
+    key: 'create-file',
+    label: 'Created',
+    singular: 'file',
+    plural: 'files',
+    countable: true,
+  },
+  edit_file: {
+    key: 'edit-file',
+    label: 'Edited',
+    singular: 'file',
+    plural: 'files',
+    countable: true,
+  },
+  delete_file: {
+    key: 'delete-file',
+    label: 'Deleted',
+    singular: 'file',
+    plural: 'files',
+    countable: true,
+  },
+  move_file: {
+    key: 'move-file',
+    label: 'Moved',
+    singular: 'file',
+    plural: 'files',
+    countable: true,
+  },
+  list_files: {
+    key: 'list-files',
+    label: 'Listed files',
+  },
+  list_skills: {
+    key: 'list-skills',
+    label: 'Listed skills',
+  },
+  check_syntax: {
+    key: 'check-syntax',
+    label: 'Checked syntax',
+  },
+  compile_and_check: {
+    key: 'compile-and-check',
+    label: 'Compiled project',
+  },
+}
+
+function summarizeStatusGroup(messages: ChatbotMessage[]) {
+  const groupedParts = new Map<string, { descriptor: StatusSummaryDescriptor; count: number }>()
+
+  for (const message of messages) {
+    const descriptor = STATUS_SUMMARY_DESCRIPTORS[message.toolName ?? ''] ?? {
+      key: message.toolName ?? 'unknown-tool',
+      label: message.toolName?.replaceAll('_', ' ') ?? 'Worked',
+      countable: false,
+    }
+
+    const existing = groupedParts.get(descriptor.key)
+    if (existing) {
+      existing.count += 1
+      continue
+    }
+
+    groupedParts.set(descriptor.key, { descriptor, count: 1 })
+  }
+
+  const parts = Array.from(groupedParts.values()).map(({ descriptor, count }) => {
+    if (!descriptor.countable) {
+      return count === 1 ? descriptor.label : `${descriptor.label} x${count}`
+    }
+
+    const noun = count === 1 ? descriptor.singular ?? 'item' : descriptor.plural ?? 'items'
+    return `${descriptor.label} ${count} ${noun}`
+  })
+
+  if (parts.length === 0) {
+    return 'Agent is working'
+  }
+
+  if (parts.length === 1) {
+    return parts[0]
+  }
+
+  if (parts.length === 2) {
+    return `${parts[0]} and ${parts[1]}`
+  }
+
+  return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`
+}
+
+function buildMessageGroups(messages: ChatbotMessage[]): ChatbotMessageGroup[] {
+  const groups: ChatbotMessageGroup[] = []
+
+  for (const message of messages) {
+    if (message.role === 'status') {
+      const lastGroup = groups[groups.length - 1]
+      if (lastGroup && lastGroup.type === 'status-group') {
+        lastGroup.messages.push(message)
+        lastGroup.summary = summarizeStatusGroup(lastGroup.messages)
+      } else {
+        groups.push({
+          type: 'status-group',
+          id: message.id,
+          messages: [message],
+          summary: summarizeStatusGroup([message]),
+        })
+      }
+      continue
+    }
+
+    groups.push({ type: 'single', message })
+  }
+
+  return groups
+}
+
 export default function ChatbotPanel() {
   const { projectId } = useProjectContext()
   const user = useUserContext()
@@ -94,11 +252,12 @@ export default function ChatbotPanel() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null)
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true)
+  const [expandedStatusGroupIds, setExpandedStatusGroupIds] = useState<string[]>([])
+  const [collapsedStatusGroupIds, setCollapsedStatusGroupIds] = useState<string[]>([])
   const counterRef = useRef(0)
   const activeConversationIdRef = useRef<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
-  const statusWrapperRef = useRef<HTMLDivElement>(null)
   const editorManager = useEditorManagerContext()
   const { fileTreeData } = useFileTreeData()
   const panelRef = useRef<HTMLElement>(null)
@@ -304,6 +463,159 @@ export default function ChatbotPanel() {
     return <>{parts.map((p, i) => (typeof p === 'string' ? <span key={`s-${i}`}>{p}</span> : p))}</>
   }, [openEntityByPath, getFullFilePathForTooltip])
 
+  const scrollToLatestStatusMessages = useCallback(() => {
+    const container = messagesContainerRef.current
+    if (!container) return
+
+    const statusWrappers = container.querySelectorAll('.ide-chatbot-status-wrapper')
+    if (statusWrappers && statusWrappers.length > 0) {
+      const lastWrapper = statusWrappers[statusWrappers.length - 1]
+      const messagesList = lastWrapper.querySelector('.ide-chatbot-status-messages-list')
+      
+      if (messagesList && messagesList.children.length > 0) {
+        const lastMessage = messagesList.children[messagesList.children.length - 1]
+        lastMessage.scrollIntoView({ behavior: 'auto', block: 'nearest' })
+      }
+    }
+  }, [])
+
+  const scrollToLatestStatusMessage = useCallback(() => {
+    const container = messagesContainerRef.current
+    if (!container) return
+
+    setTimeout(() => {
+      const statusWrappers = container.querySelectorAll('.ide-chatbot-status-wrapper')
+      if (statusWrappers.length === 0) return
+      
+      const lastWrapper = statusWrappers[statusWrappers.length - 1]
+      
+      const messagesList = lastWrapper.querySelector('.ide-chatbot-status-messages-list')
+      if (messagesList && messagesList.children.length > 0) {
+        const lastMessage = messagesList.children[messagesList.children.length - 1]
+        lastMessage.scrollIntoView({ behavior: 'auto', block: 'nearest' })
+      } else {
+        lastWrapper.scrollIntoView({ behavior: 'auto', block: 'end' })
+      }
+    }, 10)
+  }, [])
+
+  const messageGroups = useMemo(() => buildMessageGroups(messages), [messages])
+
+  const statusGroupIds = useMemo(
+    () => messageGroups.filter(group => group.type === 'status-group').map(group => group.id),
+    [messageGroups]
+  )
+
+  const latestStatusGroupId = useMemo(() => {
+    for (let index = messageGroups.length - 1; index >= 0; index -= 1) {
+      const group = messageGroups[index]
+      if (group.type === 'status-group') {
+        return group.id
+      }
+    }
+
+    return null
+  }, [messageGroups])
+
+  const isStatusGroupExpanded = useCallback(
+    (groupId: string) => {
+      if (collapsedStatusGroupIds.includes(groupId)) {
+        return false
+      }
+
+      if (groupId === latestStatusGroupId) {
+        return true
+      }
+
+      return expandedStatusGroupIds.includes(groupId)
+    },
+    [collapsedStatusGroupIds, expandedStatusGroupIds, latestStatusGroupId]
+  )
+
+  const handleMessagesScroll = useCallback(() => {
+    const container = messagesContainerRef.current
+    if (!container) {
+      return
+    }
+
+    const { scrollTop, scrollHeight, clientHeight } = container
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
+    setShouldAutoScroll(isNearBottom)
+  }, [])
+
+  const toggleStatusGroup = useCallback((groupId: string, isExpanded: boolean) => {
+    if (isExpanded) {
+      setExpandedStatusGroupIds(prev => prev.filter(id => id !== groupId))
+      setCollapsedStatusGroupIds(prev =>
+        prev.includes(groupId) ? prev : [...prev, groupId]
+      )
+    } else {
+      setCollapsedStatusGroupIds(prev => prev.filter(id => id !== groupId))
+      setExpandedStatusGroupIds(prev =>
+        prev.includes(groupId) ? prev : [...prev, groupId]
+      )
+    }
+    
+    setTimeout(() => {
+      const container = messagesContainerRef.current
+      if (container) {
+        container.dispatchEvent(new Event('scroll', { bubbles: true }))
+        handleMessagesScroll()
+      }
+    }, 0)
+  }, [handleMessagesScroll])
+
+  const [autoCompactedGroupIds, setAutoCompactedGroupIds] = useState<string[]>([])
+
+  useEffect(() => {
+    const validGroupIds = new Set(statusGroupIds)
+
+    setExpandedStatusGroupIds(prev => {
+      const next = prev.filter(id => validGroupIds.has(id))
+      return next.length === prev.length ? prev : next
+    })
+
+    setCollapsedStatusGroupIds(prev => {
+      const next = prev.filter(id => validGroupIds.has(id))
+      return next.length === prev.length ? prev : next
+    })
+
+    setAutoCompactedGroupIds(prev => prev.filter(id => validGroupIds.has(id)))
+  }, [statusGroupIds])
+
+  const shouldAutoScrollRef = useRef(shouldAutoScroll)
+
+  useEffect(() => {
+    shouldAutoScrollRef.current = shouldAutoScroll
+  }, [shouldAutoScroll])
+
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1]
+    if (!lastMessage || lastMessage.role !== 'assistant') {
+      return
+    }
+
+    const groupsToAutoCompact = statusGroupIds.filter(
+      id => !autoCompactedGroupIds.includes(id)
+    )
+
+    if (groupsToAutoCompact.length > 0) {
+      setAutoCompactedGroupIds(prev => [...prev, ...groupsToAutoCompact])
+      
+      setCollapsedStatusGroupIds(prev => [...prev, ...groupsToAutoCompact])
+      
+      setExpandedStatusGroupIds(prev => prev.filter(id => !groupsToAutoCompact.includes(id)))
+    
+      if (shouldAutoScrollRef.current) {
+        scrollToLatestStatusMessages()
+      }
+    }
+  }, [messages, statusGroupIds, autoCompactedGroupIds])
+
+  const shouldShowToggleForGroup = useCallback((groupId: string) => {
+    return autoCompactedGroupIds.includes(groupId)
+  }, [autoCompactedGroupIds])
+
   const canSend = useMemo(
     () => input.trim().length > 0 && !isSending,
     [input, isSending]
@@ -350,21 +662,17 @@ export default function ChatbotPanel() {
           }
           return nextMessages
         }
-
         return prev
       }
       return [...prev, message]
     })
-
-    if (message.role === 'status') {
+    
+    if (message.role === 'status' && shouldAutoScroll) {
       setTimeout(() => {
-        statusWrapperRef.current?.scrollTo({
-          top: statusWrapperRef.current.scrollHeight,
-          behavior: 'smooth',
-        })
+        scrollToLatestStatusMessage()
       }, 10)
     }
-  }, [])
+  }, [shouldAutoScroll, scrollToLatestStatusMessage])
 
   const sortConversations = useCallback((items: AgentConversation[]) => {
     return [...items].sort((a, b) => b.updatedAt - a.updatedAt)
@@ -651,31 +959,52 @@ export default function ChatbotPanel() {
     const statusId = `${baseEvent.runId}-${toolName}`
 
     if (status === 'running') {
-      // Mostrar solo el estado running
-      appendMessage(toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'running' }))
+      const runningMessage = toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'running' })
+      appendMessage(runningMessage)
+      if (shouldAutoScroll) {
+        setTimeout(() => {
+          scrollToLatestStatusMessage()
+        }, 10)
+      }
     } else if (status === 'completed') {
-      // Mostrar running -> completado con delay sobre el mismo nodo
-      appendMessage(toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'running' }))
+      const runningMessage = toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'running' })
+      appendMessage(runningMessage)
+      if (shouldAutoScroll) {
+        setTimeout(() => {
+          scrollToLatestStatusMessage()
+        }, 10)
+      }
+      
       setTimeout(() => {
-        appendMessage(toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'completed' }))
-        // Auto-scroll si está activo
+        const completedMessage = toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'completed' })
+        appendMessage(completedMessage)
         if (shouldAutoScroll && messagesContainerRef.current) {
-          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+          scrollToLatestStatusMessage()
         }
       }, durationMs)
     } else if (status === 'error') {
-      // Mostrar running -> error
-      appendMessage(toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'running' }))
+      const runningMessage = toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'running' })
+      appendMessage(runningMessage)
+      if (shouldAutoScroll) {
+        setTimeout(() => {
+          scrollToLatestStatusMessage()
+        }, 10)
+      }
+      
       setTimeout(() => {
-        appendMessage(toolEventToMessage({ 
+        const errorMessage = toolEventToMessage({ 
           ...baseEvent, 
           toolCallId: statusId,
           status: 'error',
           error: 'File not found or permission denied'
-        }))
+        })
+        appendMessage(errorMessage)
+        if (shouldAutoScroll) {
+          scrollToLatestStatusMessage()
+        }
       }, durationMs)
     }
-  }, [appendMessage, toolEventToMessage, activeConversationId, shouldAutoScroll])
+  }, [appendMessage, toolEventToMessage, activeConversationId, shouldAutoScroll, scrollToLatestStatusMessage])
 
   const renderStatusIcon = useCallback((message: ChatbotMessage, isLast: boolean) => {
     const toolName = message.toolName ?? ''
@@ -880,6 +1209,12 @@ export default function ChatbotPanel() {
         return
       }
       appendMessage(toolEventToMessage(payload))
+      
+      // if (payload.status === 'running' && shouldAutoScroll) {
+      //   setTimeout(() => {
+      //     scrollToLatestStatusMessage()
+      //   }, 50)
+      // }
     }
 
     socket.on('agent:message', receivedAgentMessage)
@@ -896,6 +1231,8 @@ export default function ChatbotPanel() {
     toolEventToMessage,
     upsertConversation,
     user.id,
+    shouldAutoScroll,
+    scrollToLatestStatusMessage,
   ])
 
   useEffect(() => {
@@ -1091,17 +1428,6 @@ export default function ChatbotPanel() {
     }
   }
 
-  const handleMessagesScroll = useCallback(() => {
-    const container = messagesContainerRef.current
-    if (!container) {
-      return
-    }
-
-    const { scrollTop, scrollHeight, clientHeight } = container
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
-    setShouldAutoScroll(isNearBottom)
-  }, [])
-
   const jumpToLatestMessage = useCallback(() => {
     const container = messagesContainerRef.current
     if (!container) {
@@ -1118,23 +1444,24 @@ export default function ChatbotPanel() {
       return
     }
 
-    container.addEventListener('scroll', handleMessagesScroll)
+    container.addEventListener('scroll', handleMessagesScroll, {
+      passive: true,
+    })
+
     return () => {
       container.removeEventListener('scroll', handleMessagesScroll)
     }
   }, [handleMessagesScroll])
 
   useEffect(() => {
-    if (!shouldAutoScroll) {
-      return
-    }
-
     const container = messagesContainerRef.current
-    if (!container) {
-      return
-    }
+    if (!container || !shouldAutoScroll) return
 
-    container.scrollTop = container.scrollHeight
+    const lastMessage = messages[messages.length - 1]
+    
+    if (lastMessage && lastMessage.role !== 'status') {
+      container.scrollTop = container.scrollHeight
+    }
   }, [messages, shouldAutoScroll])
 
   useEffect(() => {
@@ -1176,27 +1503,6 @@ export default function ChatbotPanel() {
     setChatDockDragOffset,
     setChatDockDragging,
   ])
-
-  const groupMessages = useCallback(() => {
-    const groups: Array<{ type: 'single'; message: ChatbotMessage } | { type: 'status-group'; messages: ChatbotMessage[] }> = []
-    
-    for (const message of messages) {
-      if (message.role === 'status') {
-        // Añadir a un grupo de status
-        const lastGroup = groups[groups.length - 1]
-        if (lastGroup && lastGroup.type === 'status-group') {
-          lastGroup.messages.push(message)
-        } else {
-          groups.push({ type: 'status-group', messages: [message] })
-        }
-      } else {
-        // Mensaje individual (user o assistant)
-        groups.push({ type: 'single', message })
-      }
-    }
-    
-    return groups
-  }, [messages])
 
   return (
     <section
@@ -1279,80 +1585,111 @@ export default function ChatbotPanel() {
           role="log"
           aria-live="polite"
         >
-          {(() => {
-            const groups = groupMessages()
-            
-            return (
-              <>
-                {groups.map((group, groupIndex) => {
-                  if (group.type === 'single') {
-                    const message = group.message
-                    return (
-                      <article
-                        key={message.id}
-                        className={classNames('ide-chatbot-message', {
-                          'ide-chatbot-message-user': message.role === 'user',
-                          'ide-chatbot-message-bot': message.role === 'assistant',
-                          'ide-chatbot-message-editing': message.id === editingMessageId,
-                          'ide-chatbot-message-pending': message.pending,
-                        })}
-                        onMouseEnter={() => setHoveredMessageId(message.id)}
-                        onMouseLeave={() => clearHoveredMessage(message.id)}
-                      >
-                        <div className="ide-chatbot-message-body">
-                          {message.role === 'assistant' ? (
-                            <div className="ide-chatbot-message-content">
-                              <ChatbotMarkdown text={message.text} />
-                            </div>
-                          ) : (
-                            <p className="ide-chatbot-message-content">{message.text}</p>
-                          )}
-                          {message.role === 'user' && !message.pending && (
-                            <div className="ide-chatbot-message-footer">
-                              <OLTooltip id={`edit-chatbot-message-${message.id}`} description="Edit message" overlayProps={{ placement: 'bottom' }}>
-                                <OLIconButton onClick={() => startEditingMessage(message.id)} className="ide-chatbot-message-footer-button" icon="edit" accessibilityLabel="Edit message" size="sm" />
-                              </OLTooltip>
-                              <OLTooltip id={`copy-chatbot-message-${message.id}`} description="Copy message" overlayProps={{ placement: 'bottom' }}>
-                                <OLIconButton onClick={() => copyMessage(message.text)} className="ide-chatbot-message-footer-button" icon="content_copy" accessibilityLabel="Copy message" size="sm" />
-                              </OLTooltip>
-                            </div>
-                          )}
-                          {message.role !== 'user' && hoveredMessageId === message.id && message.role !== 'status' && (
-                            <div className="ide-chatbot-message-actions">
-                              <OLTooltip id={`copy-chatbot-message-${message.id}`} description="Copy message" overlayProps={{ placement: 'bottom' }}>
-                                <OLIconButton onClick={() => copyMessage(message.text)} className="ide-chatbot-message-copy-button" icon="content_copy" accessibilityLabel="Copy message" size="sm" />
-                              </OLTooltip>
-                            </div>
-                          )}
+          <>
+            {messageGroups.map(group => {
+              if (group.type === 'single') {
+                const message = group.message
+                return (
+                  <article
+                    key={message.id}
+                    className={classNames('ide-chatbot-message', {
+                      'ide-chatbot-message-user': message.role === 'user',
+                      'ide-chatbot-message-bot': message.role === 'assistant',
+                      'ide-chatbot-message-editing': message.id === editingMessageId,
+                      'ide-chatbot-message-pending': message.pending,
+                    })}
+                    onMouseEnter={() => setHoveredMessageId(message.id)}
+                    onMouseLeave={() => clearHoveredMessage(message.id)}
+                  >
+                    <div className="ide-chatbot-message-body">
+                      {message.role === 'assistant' ? (
+                        <div className="ide-chatbot-message-content">
+                          <ChatbotMarkdown text={message.text} />
                         </div>
-                      </article>
-                    )
-                  } else {
-                    // status-group
-                    return (
-                      <div key={`status-group-${groupIndex}`} ref={statusWrapperRef} className="ide-chatbot-status-wrapper">
-                        {group.messages.map((message, messageIndex) => (
-                          <article
-                            key={message.id}
-                            className={classNames('ide-chatbot-message', 'ide-chatbot-message-status', {
-                              'ide-chatbot-message-status-error': message.text.includes('Could not') || message.text.includes('Failed'),
-                              'is-pending': message.status === 'running'
-                            })}
-                            data-status={message.status ?? 'running'}
-                          >
-                            {renderStatusIcon(message, messageIndex === group.messages.length - 1)}
-                            <div className="ide-chatbot-message-body">
-                              <p className="ide-chatbot-message-content status-text">{renderStatusText(message.text)}</p>
-                            </div>
-                          </article>
-                        ))}
-                      </div>
-                    )
-                  }
-                })}
-              </>
-            )
-          })()}
+                      ) : (
+                        <p className="ide-chatbot-message-content">{message.text}</p>
+                      )}
+                      {message.role === 'user' && !message.pending && (
+                        <div className="ide-chatbot-message-footer">
+                          <OLTooltip id={`edit-chatbot-message-${message.id}`} description="Edit message" overlayProps={{ placement: 'bottom' }}>
+                            <OLIconButton onClick={() => startEditingMessage(message.id)} className="ide-chatbot-message-footer-button" icon="edit" accessibilityLabel="Edit message" size="sm" />
+                          </OLTooltip>
+                          <OLTooltip id={`copy-chatbot-message-${message.id}`} description="Copy message" overlayProps={{ placement: 'bottom' }}>
+                            <OLIconButton onClick={() => copyMessage(message.text)} className="ide-chatbot-message-footer-button" icon="content_copy" accessibilityLabel="Copy message" size="sm" />
+                          </OLTooltip>
+                        </div>
+                      )}
+                      {message.role !== 'user' && hoveredMessageId === message.id && message.role !== 'status' && (
+                        <div className="ide-chatbot-message-actions">
+                          <OLTooltip id={`copy-chatbot-message-${message.id}`} description="Copy message" overlayProps={{ placement: 'bottom' }}>
+                            <OLIconButton onClick={() => copyMessage(message.text)} className="ide-chatbot-message-copy-button" icon="content_copy" accessibilityLabel="Copy message" size="sm" />
+                          </OLTooltip>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                )
+              }
+
+              const isExpanded = isStatusGroupExpanded(group.id)
+              const showToggle = shouldShowToggleForGroup(group.id) // Ya no pasamos isExpanded
+
+              return (
+                <div key={group.id} className="ide-chatbot-status-wrapper">
+                  {showToggle && (
+                    <button
+                      type="button"
+                      className={classNames('ide-chatbot-status-group-toggle', {
+                        'ide-chatbot-status-group-toggle-collapsed': !isExpanded,
+                      })}
+                      onClick={() => toggleStatusGroup(group.id, isExpanded)}
+                      aria-expanded={isExpanded}
+                      aria-label={isExpanded ? 'Collapse status messages' : 'Expand status messages'}
+                    >
+                      <span className="ide-chatbot-status-group-toggle-icon" aria-hidden="true">
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="14"
+                          height="14"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          {isExpanded ? <path d="M6 14l6-6 6 6" /> : <path d="M6 10l6 6 6-6" />}
+                        </svg>
+                      </span>
+                      <span className="ide-chatbot-status-group-toggle-text">{group.summary}</span>
+                      {group.messages.some(message => message.status === 'running') && (
+                        <span className="ide-chatbot-status-group-badge">In progress...</span>
+                      )}
+                    </button>
+                  )}
+
+                  {isExpanded && (
+                    <div className="ide-chatbot-status-messages-list">
+                      {group.messages.map((message, messageIndex) => (
+                        <article
+                          key={message.id}
+                          className={classNames('ide-chatbot-message', 'ide-chatbot-message-status', {
+                            'ide-chatbot-message-status-error': message.text.includes('Could not') || message.text.includes('Failed'),
+                            'is-pending': message.status === 'running',
+                          })}
+                          data-status={message.status ?? 'running'}
+                        >
+                          {renderStatusIcon(message, messageIndex === group.messages.length - 1)}
+                          <div className="ide-chatbot-message-body">
+                            <p className="ide-chatbot-message-content status-text">{renderStatusText(message.text)}</p>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+              })}
+          </>
         </div>
 
         {!shouldAutoScroll && (

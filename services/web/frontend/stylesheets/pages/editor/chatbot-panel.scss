@@ -310,9 +310,108 @@
   display: flex;
   flex-direction: column;
   margin: var(--spacing-02) 0;
-  border-radius: var(--border-radius-base);
   background: transparent;
-  border: 1px solid var(--border-divider-themed);
+  position: relative;
+
+  &::before {
+    display: none;
+  }
+
+  &:has(.ide-chatbot-status-group-toggle:not(.ide-chatbot-status-group-toggle-collapsed)) {
+    max-height: none;
+    overflow-y: visible;
+    
+    &::before {
+      opacity: 0;
+      pointer-events: none;
+    }
+  }
+
+  .ide-chatbot-message-status {
+    margin: 0;
+  }
+}
+
+.ide-chatbot-status-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-02);
+  width: 100%;
+  padding: var(--spacing-02) var(--spacing-03);
+  background: transparent !important;
+  border: none !important;
+  font-size: var(--font-size-01);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 150ms ease;
+  text-align: left;
+  position: relative;
+  z-index: 2;
+
+  .ide-chatbot-status-group-toggle-text {
+    color: var(--content-disabled-themed);
+    transition: color 150ms ease;
+  }
+
+  .ide-chatbot-status-group-toggle-icon {
+    color: var(--content-secondary-themed);
+    transition: color 150ms ease;
+  }
+
+  &:hover {
+    background: transparent !important;
+    border: none !important;
+    
+    .ide-chatbot-status-group-toggle-text {
+      color: var(--green-60) !important;
+    }
+    
+    .ide-chatbot-status-group-toggle-icon {
+      color: var(--green-60) !important;
+    }
+  }
+
+  &:active {
+    background: transparent !important;
+  }
+
+  &:focus {
+    background: transparent !important;
+    outline: none;
+  }
+
+  &:focus-visible {
+    background: transparent !important;
+    outline: 2px solid var(--border-prominent-themed);
+    outline-offset: 2px;
+  }
+
+  &::-moz-focus-inner {
+    border: 0;
+    padding: 0;
+  }
+
+  @supports (box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1)) {
+    &:not(:focus-within) {
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+  }
+}
+
+.ide-chatbot-status-messages-list {
+  position: relative;
+  max-height: calc(200px - 60px);
+  overflow-y: auto;
+
+  .ide-chatbot-status-group-toggle:not(.ide-chatbot-status-group-toggle-collapsed) + & {
+    max-height: none;
+    overflow-y: visible;
+  }
+
+  .ide-chatbot-status-wrapper:not(:has(.ide-chatbot-status-group-toggle)) & {
+    max-height: none;
+    overflow-y: visible;
+  }
   
   &::-webkit-scrollbar {
     width: 4px;
@@ -322,10 +421,29 @@
     background: var(--border-divider-themed);
     border-radius: 10px;
   }
+}
 
-  .ide-chatbot-message-status {
-    margin: 0;
-  }
+.ide-chatbot-status-group-toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 150ms ease;
+}
+
+.ide-chatbot-status-group-toggle-text {
+  flex: 1;
+  font-family: inherit;
+  transition: color 150ms ease;
+}
+
+.ide-chatbot-status-group-badge {
+  font-size: var(--font-size-00);
+  padding: 2px 6px;
+  background: var(--green-60);
+  color: white;
+  border-radius: 12px;
+  font-weight: normal;
 }
 
 .ide-chatbot-message-status {
@@ -378,44 +496,33 @@
     
     .status-text {
       opacity: 1;
+      color: var(--content-secondary-themed);
       background: linear-gradient(
         90deg,
-        #94b896 0%,
+        var(--green-50, #94b896) 0%,
         #f8fafc 25%,
-        #58cb84 50%,
+        var(--green-60, #58cb84) 50%,
         #f8fafc 75%,
-        #94b896 100%
-      );
-      background-size: 200% auto;
-      background-position: -200% center;
-      color: transparent;
-      /* stylelint-disable-next-line property-no-vendor-prefix */
-      -webkit-background-clip: text;
-      background-clip: text;
-      animation: shine-text 3s linear infinite;
+        var(--green-50, #94b896) 100%
+        );
+        background-size: 200% auto;
+        background-position: -200% center;
+        color: transparent;
+        -webkit-background-clip: text;
+        background-clip: text;
+        animation: shine-text 3s linear infinite;
+
+        transform: translateZ(0);
+        will-change: background-position;
     }
 
-    .status-icon {
-       animation: shine-icon 3s ease-in-out infinite;
-     }
-
-     .status-icon svg {
-       animation: shine-svg 3s ease-in-out infinite;
+    &:not(.is-pending) .status-text {
+      transition: color 0.2s ease-out;
+      background: none;
+      -webkit-background-clip: unset;
+      background-clip: unset;
+      color: var(--content-secondary-themed);
     }
-  }
-}
-
-@keyframes shine-icon {
-  0% {
-    filter: drop-shadow(0 0 2px rgba(88, 147, 203, 0));
-  }
-
-  50% {
-    filter: drop-shadow(0 0 8px rgba(88, 147, 203, 0.8));
-  }
-
-  100% {
-    filter: drop-shadow(0 0 2px rgba(88, 147, 203, 0));
   }
 }
 
@@ -425,7 +532,7 @@
   }
 
   50% {
-    stroke: #58cb84;
+    stroke: var(--green-60, #58cb84);
   }
 }
 
