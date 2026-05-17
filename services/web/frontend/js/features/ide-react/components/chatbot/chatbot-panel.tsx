@@ -467,12 +467,36 @@ export default function ChatbotPanel() {
     const container = messagesContainerRef.current
     if (!container) return
 
-    // Buscar el último grupo de estado
     const statusWrappers = container.querySelectorAll('.ide-chatbot-status-wrapper')
     if (statusWrappers && statusWrappers.length > 0) {
       const lastWrapper = statusWrappers[statusWrappers.length - 1]
-      lastWrapper.scrollIntoView({ behavior: 'smooth', block: 'end' })
+      const messagesList = lastWrapper.querySelector('.ide-chatbot-status-messages-list')
+      
+      if (messagesList && messagesList.children.length > 0) {
+        const lastMessage = messagesList.children[messagesList.children.length - 1]
+        lastMessage.scrollIntoView({ behavior: 'auto', block: 'nearest' })
+      }
     }
+  }, [])
+
+  const scrollToLatestStatusMessage = useCallback(() => {
+    const container = messagesContainerRef.current
+    if (!container) return
+
+    setTimeout(() => {
+      const statusWrappers = container.querySelectorAll('.ide-chatbot-status-wrapper')
+      if (statusWrappers.length === 0) return
+      
+      const lastWrapper = statusWrappers[statusWrappers.length - 1]
+      
+      const messagesList = lastWrapper.querySelector('.ide-chatbot-status-messages-list')
+      if (messagesList && messagesList.children.length > 0) {
+        const lastMessage = messagesList.children[messagesList.children.length - 1]
+        lastMessage.scrollIntoView({ behavior: 'auto', block: 'nearest' })
+      } else {
+        lastWrapper.scrollIntoView({ behavior: 'auto', block: 'end' })
+      }
+    }, 10)
   }, [])
 
   const messageGroups = useMemo(() => buildMessageGroups(messages), [messages])
@@ -508,20 +532,38 @@ export default function ChatbotPanel() {
     [collapsedStatusGroupIds, expandedStatusGroupIds, latestStatusGroupId]
   )
 
+  const handleMessagesScroll = useCallback(() => {
+    const container = messagesContainerRef.current
+    if (!container) {
+      return
+    }
+
+    const { scrollTop, scrollHeight, clientHeight } = container
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
+    setShouldAutoScroll(isNearBottom)
+  }, [])
+
   const toggleStatusGroup = useCallback((groupId: string, isExpanded: boolean) => {
     if (isExpanded) {
       setExpandedStatusGroupIds(prev => prev.filter(id => id !== groupId))
       setCollapsedStatusGroupIds(prev =>
         prev.includes(groupId) ? prev : [...prev, groupId]
       )
-      return
+    } else {
+      setCollapsedStatusGroupIds(prev => prev.filter(id => id !== groupId))
+      setExpandedStatusGroupIds(prev =>
+        prev.includes(groupId) ? prev : [...prev, groupId]
+      )
     }
-
-    setCollapsedStatusGroupIds(prev => prev.filter(id => id !== groupId))
-    setExpandedStatusGroupIds(prev =>
-      prev.includes(groupId) ? prev : [...prev, groupId]
-    )
-  }, [])
+    
+    setTimeout(() => {
+      const container = messagesContainerRef.current
+      if (container) {
+        container.dispatchEvent(new Event('scroll', { bubbles: true }))
+        handleMessagesScroll()
+      }
+    }, 0)
+  }, [handleMessagesScroll])
 
   const [autoCompactedGroupIds, setAutoCompactedGroupIds] = useState<string[]>([])
 
@@ -558,6 +600,10 @@ export default function ChatbotPanel() {
       setCollapsedStatusGroupIds(prev => [...prev, ...groupsToAutoCompact])
       
       setExpandedStatusGroupIds(prev => prev.filter(id => !groupsToAutoCompact.includes(id)))
+    
+      if (shouldAutoScroll) {
+        scrollToLatestStatusMessages()
+      }
     }
   }, [messages, statusGroupIds, autoCompactedGroupIds])
 
@@ -600,6 +646,8 @@ export default function ChatbotPanel() {
   )
 
   const appendMessage = useCallback((message: ChatbotMessage) => {
+    let isNewMessage = false
+    
     setMessages(prev => {
       const existingIndex = prev.findIndex(existing => existing.id === message.id)
       if (existingIndex !== -1) {
@@ -609,22 +657,25 @@ export default function ChatbotPanel() {
             ...nextMessages[existingIndex],
             ...message,
           }
+          if (shouldAutoScroll) {
+            setTimeout(() => {
+              scrollToLatestStatusMessage()
+            }, 10)
+          }
           return nextMessages
         }
-
         return prev
       }
+      isNewMessage = true
       return [...prev, message]
     })
 
-    if (message.role === 'status') {
-      setTimeout(() => {
-        if (shouldAutoScroll) {
-          scrollToLatestStatusMessages()
-        }
-      }, 10)
-    }
-  }, [shouldAutoScroll, scrollToLatestStatusMessages])
+    // if (isNewMessage && shouldAutoScroll && message.role === 'status') {
+    //   setTimeout(() => {
+    //     scrollToLatestStatusMessage()
+    //   }, 10)
+    // }
+  }, [shouldAutoScroll, scrollToLatestStatusMessage])
 
   const sortConversations = useCallback((items: AgentConversation[]) => {
     return [...items].sort((a, b) => b.updatedAt - a.updatedAt)
@@ -911,31 +962,52 @@ export default function ChatbotPanel() {
     const statusId = `${baseEvent.runId}-${toolName}`
 
     if (status === 'running') {
-      // Mostrar solo el estado running
-      appendMessage(toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'running' }))
+      const runningMessage = toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'running' })
+      appendMessage(runningMessage)
+      if (shouldAutoScroll) {
+        setTimeout(() => {
+          scrollToLatestStatusMessage()
+        }, 10)
+      }
     } else if (status === 'completed') {
-      // Mostrar running -> completado con delay sobre el mismo nodo
-      appendMessage(toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'running' }))
+      const runningMessage = toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'running' })
+      appendMessage(runningMessage)
+      if (shouldAutoScroll) {
+        setTimeout(() => {
+          scrollToLatestStatusMessage()
+        }, 10)
+      }
+      
       setTimeout(() => {
-        appendMessage(toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'completed' }))
-        // Auto-scroll si está activo
+        const completedMessage = toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'completed' })
+        appendMessage(completedMessage)
         if (shouldAutoScroll && messagesContainerRef.current) {
-          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+          scrollToLatestStatusMessage()
         }
       }, durationMs)
     } else if (status === 'error') {
-      // Mostrar running -> error
-      appendMessage(toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'running' }))
+      const runningMessage = toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'running' })
+      appendMessage(runningMessage)
+      if (shouldAutoScroll) {
+        setTimeout(() => {
+          scrollToLatestStatusMessage()
+        }, 10)
+      }
+      
       setTimeout(() => {
-        appendMessage(toolEventToMessage({ 
+        const errorMessage = toolEventToMessage({ 
           ...baseEvent, 
           toolCallId: statusId,
           status: 'error',
           error: 'File not found or permission denied'
-        }))
+        })
+        appendMessage(errorMessage)
+        if (shouldAutoScroll) {
+          scrollToLatestStatusMessage()
+        }
       }, durationMs)
     }
-  }, [appendMessage, toolEventToMessage, activeConversationId, shouldAutoScroll])
+  }, [appendMessage, toolEventToMessage, activeConversationId, shouldAutoScroll, scrollToLatestStatusMessage])
 
   const renderStatusIcon = useCallback((message: ChatbotMessage, isLast: boolean) => {
     const toolName = message.toolName ?? ''
@@ -1140,6 +1212,12 @@ export default function ChatbotPanel() {
         return
       }
       appendMessage(toolEventToMessage(payload))
+      
+      // if (payload.status === 'running' && shouldAutoScroll) {
+      //   setTimeout(() => {
+      //     scrollToLatestStatusMessage()
+      //   }, 50)
+      // }
     }
 
     socket.on('agent:message', receivedAgentMessage)
@@ -1156,6 +1234,8 @@ export default function ChatbotPanel() {
     toolEventToMessage,
     upsertConversation,
     user.id,
+    shouldAutoScroll,
+    scrollToLatestStatusMessage,
   ])
 
   useEffect(() => {
@@ -1351,17 +1431,6 @@ export default function ChatbotPanel() {
     }
   }
 
-  const handleMessagesScroll = useCallback(() => {
-    const container = messagesContainerRef.current
-    if (!container) {
-      return
-    }
-
-    const { scrollTop, scrollHeight, clientHeight } = container
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
-    setShouldAutoScroll(isNearBottom)
-  }, [])
-
   const jumpToLatestMessage = useCallback(() => {
     const container = messagesContainerRef.current
     if (!container) {
@@ -1392,27 +1461,10 @@ export default function ChatbotPanel() {
     if (!container || !shouldAutoScroll) return
 
     const lastMessage = messages[messages.length - 1]
-    const isLastMessageStatus = lastMessage?.role === 'status'
-
-    if (isLastMessageStatus) {
-      requestAnimationFrame(() => {
-        const statusWrappers = container.querySelectorAll('.ide-chatbot-status-wrapper')
-        if (statusWrappers.length === 0) return
-
-        const lastWrapper = statusWrappers[statusWrappers.length - 1]
-        const lastStatusMessages = lastWrapper.querySelectorAll('.ide-chatbot-message-status')
-
-        if (lastStatusMessages.length > 0) {
-          const lastStatusMessage = lastStatusMessages[lastStatusMessages.length - 1]
-          lastStatusMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-        } else {
-          lastWrapper.scrollIntoView({ behavior: 'smooth', block: 'end' })
-        }
-      })
-      return
+    
+    if (lastMessage && lastMessage.role !== 'status') {
+      container.scrollTop = container.scrollHeight
     }
-
-    container.scrollTop = container.scrollHeight
   }, [messages, shouldAutoScroll])
 
   useEffect(() => {
