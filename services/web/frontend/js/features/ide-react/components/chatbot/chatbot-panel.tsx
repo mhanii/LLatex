@@ -583,7 +583,12 @@ export default function ChatbotPanel() {
     setAutoCompactedGroupIds(prev => prev.filter(id => validGroupIds.has(id)))
   }, [statusGroupIds])
 
-  // Auto-close previous status groups when assistant sends a message
+  const shouldAutoScrollRef = useRef(shouldAutoScroll)
+
+  useEffect(() => {
+    shouldAutoScrollRef.current = shouldAutoScroll
+  }, [shouldAutoScroll])
+
   useEffect(() => {
     const lastMessage = messages[messages.length - 1]
     if (!lastMessage || lastMessage.role !== 'assistant') {
@@ -601,7 +606,7 @@ export default function ChatbotPanel() {
       
       setExpandedStatusGroupIds(prev => prev.filter(id => !groupsToAutoCompact.includes(id)))
     
-      if (shouldAutoScroll) {
+      if (shouldAutoScrollRef.current) {
         scrollToLatestStatusMessages()
       }
     }
@@ -646,8 +651,6 @@ export default function ChatbotPanel() {
   )
 
   const appendMessage = useCallback((message: ChatbotMessage) => {
-    let isNewMessage = false
-    
     setMessages(prev => {
       const existingIndex = prev.findIndex(existing => existing.id === message.id)
       if (existingIndex !== -1) {
@@ -657,24 +660,18 @@ export default function ChatbotPanel() {
             ...nextMessages[existingIndex],
             ...message,
           }
-          if (shouldAutoScroll) {
-            setTimeout(() => {
-              scrollToLatestStatusMessage()
-            }, 10)
-          }
           return nextMessages
         }
         return prev
       }
-      isNewMessage = true
       return [...prev, message]
     })
-
-    // if (isNewMessage && shouldAutoScroll && message.role === 'status') {
-    //   setTimeout(() => {
-    //     scrollToLatestStatusMessage()
-    //   }, 10)
-    // }
+    
+    if (message.role === 'status' && shouldAutoScroll) {
+      setTimeout(() => {
+        scrollToLatestStatusMessage()
+      }, 10)
+    }
   }, [shouldAutoScroll, scrollToLatestStatusMessage])
 
   const sortConversations = useCallback((items: AgentConversation[]) => {
