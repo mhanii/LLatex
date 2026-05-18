@@ -133,11 +133,14 @@ export const SettingsModalProvider: FC<React.PropsWithChildren> = ({
                 key: 'pdfViewer',
                 component: <PDFViewerSetting />,
               },
-              {
-                key: 'write-and-cite-settings',
-                component: <ReferenceSearchSetting />,
-                hidden: !ReferenceSearchSetting,
-              },
+              ...(ReferenceSearchSetting
+                ? [
+                    {
+                      key: 'write-and-cite-settings',
+                      component: <ReferenceSearchSetting />,
+                    },
+                  ]
+                : []),
             ],
           },
           {
