@@ -97,7 +97,10 @@ const reviewPanelStorageKey = `ui.reviewPanelOpen.${getMeta('ol-project_id')}`
 
 export const LayoutProvider: FC<React.PropsWithChildren> = ({ children }) => {
   const clampChatPanelSize = useCallback(
-    (value: number) => Math.max(5, Math.min(40, value)),
+    (value: number | null) => {
+      if (value == null) return 20
+      return Math.max(5, Math.min(40, value))
+    },
     []
   )
 

@@ -59,17 +59,20 @@ export const useConversationUtilities = (
       try {
         await deleteJSON(apiPath(`/conversations/${conversationId}`))
 
-        const remainingConversations = conversations.filter(c => c.id !== conversationId)
+        setConversations(prev => {
+          const next = prev.filter(c => c.id !== conversationId)
 
-        setConversations(prev => prev.filter(c => c.id !== conversationId))
-
-        if (activeConversationId === conversationId) {
-          if (remainingConversations.length > 0) {
-            setActiveConversationId(remainingConversations[0].id)
-          } else {
-            await createConversation()
+          if (activeConversationId === conversationId) {
+            if (next.length > 0) {
+              setActiveConversationId(next[0].id)
+            } else {
+              // fire-and-forget: create a new conversation if none remain
+              createConversation().catch(debugConsole.error)
+            }
           }
-        }
+
+          return next
+        })
       } catch (error) {
         debugConsole.error(error)
       }
