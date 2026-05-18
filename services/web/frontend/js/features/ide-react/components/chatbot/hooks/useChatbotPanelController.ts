@@ -197,21 +197,6 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     }, 10)
   }, [messagesContainerRef])
 
-  const scrollToLatestStatusMessages = useCallback(() => {
-    const container = messagesContainerRef.current
-    if (!container) return
-
-    const statusWrappers = container.querySelectorAll('.ide-chatbot-status-wrapper')
-    if (statusWrappers.length === 0) return
-
-    const lastWrapper = statusWrappers[statusWrappers.length - 1]
-    const messagesList = lastWrapper.querySelector('.ide-chatbot-status-messages-list')
-    if (messagesList && messagesList.children.length > 0) {
-      const lastMessage = messagesList.children[messagesList.children.length - 1]
-      lastMessage.scrollIntoView({ behavior: 'auto', block: 'nearest' })
-    }
-  }, [messagesContainerRef])
-
   const focusInputAtEnd = useCallback((text: string) => {
     setInput(text)
     window.requestAnimationFrame(() => {
@@ -519,9 +504,9 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     setExpandedStatusGroupIds(prev => prev.filter(id => !groupsToAutoCompact.includes(id)))
 
     if (shouldAutoScrollRef.current) {
-      scrollToLatestStatusMessages()
+      scrollToLatestStatusMessage()
     }
-  }, [autoCompactedGroupIds, computedStatusGroupIds, messages, scrollToLatestStatusMessages, setAutoCompactedGroupIds, setCollapsedStatusGroupIds, setExpandedStatusGroupIds, shouldAutoScrollRef])
+  }, [autoCompactedGroupIds, computedStatusGroupIds, messages, scrollToLatestStatusMessage, setAutoCompactedGroupIds, setCollapsedStatusGroupIds, setExpandedStatusGroupIds, shouldAutoScrollRef])
 
   useEffect(() => {
     let cancelled = false
@@ -722,7 +707,6 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
 
   return {
     scrollToLatestStatusMessage,
-    scrollToLatestStatusMessages,
     focusInputAtEnd,
     renderStatusTextLocal,
     startEditingMessage,

@@ -58,16 +58,11 @@ export const useConversationUtilities = (
 
       try {
         await deleteJSON(apiPath(`/conversations/${conversationId}`))
-        
-        // Calculate remaining conversations
-        const remainingConversations = conversations.filter(
-          c => c.id !== conversationId
-        )
-        
-        // Remove from conversations list
-        setConversations(() => remainingConversations)
-        
-        // If this was the active conversation, switch to another or create new
+
+        const remainingConversations = conversations.filter(c => c.id !== conversationId)
+
+        setConversations(prev => prev.filter(c => c.id !== conversationId))
+
         if (activeConversationId === conversationId) {
           if (remainingConversations.length > 0) {
             setActiveConversationId(remainingConversations[0].id)
