@@ -35,7 +35,7 @@ describe('<ChatbotPanel />', function () {
   }
 
   function stubAgentApi() {
-    fetchStub = sinon.stub(globalThis, 'fetch').callsFake((input, options) => {
+    fetchStub = sinon.stub(globalThis, 'fetch').callsFake(async (input, options) => {
       const url = input.toString()
       const method = options?.method ?? 'GET'
 

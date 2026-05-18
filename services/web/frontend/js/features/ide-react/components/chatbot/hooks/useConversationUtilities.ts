@@ -1,0 +1,89 @@
+import { useCallback } from 'react'
+import { AgentConversation, ChatbotMessage } from '../types/chatbot-types'
+import { postJSON, deleteJSON } from '@/infrastructure/fetch-json'
+import { debugConsole } from '@/utils/debugging'
+
+export const useConversationUtilities = (
+  apiPath: (path: string) => string,
+  setConversations: (fn: (prev: AgentConversation[]) => AgentConversation[]) => void,
+  activeConversationId: string | null,
+  setActiveConversationId: (id: string | null) => void,
+  setMessages: React.Dispatch<React.SetStateAction<ChatbotMessage[]>>,
+  conversations: AgentConversation[]
+) => {
+  const sortConversations = useCallback((items: AgentConversation[]) => {
+    return [...items].sort((a, b) => b.updatedAt - a.updatedAt)
+  }, [])
+
+  const upsertConversation = useCallback(
+    (conversation: AgentConversation) => {
+      setConversations(prev => {
+        const index = prev.findIndex(item => item.id === conversation.id)
+        if (index === -1) {
+          return sortConversations([conversation, ...prev])
+        }
+        const next = [...prev]
+        next[index] = { ...next[index], ...conversation }
+        return sortConversations(next)
+      })
+    },
+    [setConversations, sortConversations]
+  )
+
+  const createConversation = useCallback(async () => {
+    const conversation = await postJSON<AgentConversation>(
+      apiPath('/conversations')
+    )
+    upsertConversation(conversation)
+    setActiveConversationId(conversation.id)
+    setMessages([])
+    return conversation
+  }, [apiPath, upsertConversation, setActiveConversationId, setMessages])
+
+  const handleDeleteConversation = useCallback(
+    async (conversationId: string) => {
+      const conversation = conversations.find(c => c.id === conversationId)
+      if (!conversation) return
+
+      // Check if the conversation being deleted has content (not the current one)
+      const hasContent = conversation.lastMessageAt !== null
+      
+      // If conversation has content, ask for confirmation
+      if (hasContent) {
+        const confirmed = window.confirm(
+          `Are you sure you want to delete "${conversation.title}"? This cannot be undone.`
+        )
+        if (!confirmed) return
+      }
+
+      try {
+        await deleteJSON(apiPath(`/conversations/${conversationId}`))
+
+        setConversations(prev => {
+          const next = prev.filter(c => c.id !== conversationId)
+
+          if (activeConversationId === conversationId) {
+            if (next.length > 0) {
+              setActiveConversationId(next[0].id)
+            } else {
+              // fire-and-forget: create a new conversation if none remain
+              createConversation().catch(debugConsole.error)
+            }
+          }
+
+          return next
+        })
+      } catch (error) {
+        debugConsole.error(error)
+      }
+    },
+    [apiPath, conversations, activeConversationId, createConversation, setConversations, setActiveConversationId]
+  )
+
+  return {
+    sortConversations,
+    upsertConversation,
+    createConversation,
+    handleDeleteConversation,
+  }
+}
