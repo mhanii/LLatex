@@ -27,7 +27,7 @@ export const useChatbotState = () => {
   const panelRef = useRef<HTMLElement>(null)
   const shouldAutoScrollRef = useRef(shouldAutoScroll)
 
-  const messageGroups = buildMessageGroups(messages)
+  const messageGroups = useMemo(() => buildMessageGroups(messages), [messages])
 
   return {
     conversations,
