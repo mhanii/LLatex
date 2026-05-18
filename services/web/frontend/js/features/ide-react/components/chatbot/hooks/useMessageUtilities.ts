@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import React, { useCallback } from 'react'
 import { ChatbotMessage, AgentServerMessage } from '../types/chatbot-types'
 
 export const useMessageUtilities = (
@@ -6,7 +6,7 @@ export const useMessageUtilities = (
   messages: ChatbotMessage[],
   setMessages: (fn: (prev: ChatbotMessage[]) => ChatbotMessage[]) => void,
   counterRef: React.MutableRefObject<number>,
-  shouldAutoScroll: boolean,
+  shouldAutoScrollRef: React.MutableRefObject<boolean>,
   scrollToLatestStatusMessage: () => void
 ) => {
   const createMessageId = useCallback(
@@ -45,12 +45,12 @@ export const useMessageUtilities = (
       return [...prev, message]
     })
     
-    if (message.role === 'status' && shouldAutoScroll) {
+    if (message.role === 'status' && shouldAutoScrollRef.current) {
       setTimeout(() => {
         scrollToLatestStatusMessage()
       }, 10)
     }
-  }, [setMessages, shouldAutoScroll, scrollToLatestStatusMessage])
+  }, [setMessages, scrollToLatestStatusMessage])
 
   const clearReference = useCallback(
     (setReferenceText: (val: null) => void, setReferenceLines: (val: null) => void) => {

@@ -79,7 +79,7 @@ export default function ChatbotPanel() {
     state.messages,
     state.setMessages,
     state.counterRef,
-    state.shouldAutoScroll,
+    state.shouldAutoScrollRef,
     scrollToLatestStatusMessage
   )
 
