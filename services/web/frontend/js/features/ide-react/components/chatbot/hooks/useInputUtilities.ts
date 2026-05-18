@@ -6,8 +6,7 @@ export const useInputUtilities = (
   setInput: (text: string) => void,
   setReferenceText: (text: string | null) => void,
   setReferenceLines: (lines: { start: number; end: number } | null) => void,
-  setEditingMessageId: (id: string | null) => void,
-  focusInputAtEndCallback: (text: string) => void
+  setEditingMessageId: (id: string | null) => void
 ) => {
   const resizeInput = useCallback(() => {
     const textarea = inputRef.current
