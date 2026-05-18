@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef } from 'react'
 import { getJSON, postJSON } from '@/infrastructure/fetch-json'
 import { debugConsole } from '@/utils/debugging'
 import { resolveChatDockSide } from '../../../util/chat-dock'
@@ -6,11 +6,12 @@ import { consumePendingChatbotPrefill, listenToChatbotPrefill } from '../chatbot
 import { ChatbotMessage, AgentConversation, AgentServerMessage, AgentToolCallEvent } from '../types/chatbot-types'
 import { toolEventToMessage } from '../utils/tool-utils'
 import { renderStatusText } from '../utils/render-utils'
+import { findEntityByPath } from '@/features/file-tree/util/path'
 import { useStatusGroupUtilities } from './useStatusGroupUtilities'
 
 export type ChatbotPanelControllerArgs = {
   projectId: string
-  userId: string
+  userId: string | null
   socket: any
   conversations: AgentConversation[]
   setConversations: React.Dispatch<React.SetStateAction<AgentConversation[]>>
@@ -63,11 +64,14 @@ export type ChatbotPanelControllerArgs = {
   statusGroupIds: string[]
   autoCompactedGroupIds: string[]
   setAutoCompactedGroupIds: React.Dispatch<React.SetStateAction<string[]>>
+  fileTreeData?: any
+  editorManager?: any
+  setHoveredMessageId?: React.Dispatch<React.SetStateAction<string | null>>
+  messageGroups: any[]
 }
 
 export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   const {
-    projectId,
     userId,
     socket,
     conversations,
@@ -98,7 +102,6 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     inputRef,
     messagesContainerRef,
     panelRef,
-    counterRef,
     apiPath,
     createConversation,
     appendMessage,
@@ -106,7 +109,6 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     createMessageId,
     resizeInput,
     applyPrefill,
-    finishChatDockDrag,
     handleMessagesScroll,
     setChatIsOpen,
     chatDockSide,
@@ -118,10 +120,10 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     setChatPanelSizeRight,
     setEditorPanelOpen,
     setView,
-    statusGroupIds,
     autoCompactedGroupIds,
     setAutoCompactedGroupIds,
   } = args
+  const { fileTreeData, editorManager, setHoveredMessageId, messageGroups } = args
 
   const dragStartXRef = useRef<number | null>(null)
   const dragStartCenterXRef = useRef<number | null>(null)
@@ -223,12 +225,10 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   const openEntityByPath = useCallback(
     (fileName: string) => {
       try {
-        if (!args['fileTreeData']) {
-          debugConsole.warn('fileTreeData not available')
+        if (!fileTreeData || !editorManager) {
+          debugConsole.warn('fileTreeData or editorManager not available')
           return
         }
-        const fileTreeData = args['fileTreeData']
-        const editorManager = args['editorManager']
         debugConsole.log('Trying to open file:', fileName)
 
         let result = findEntityByPath(fileTreeData, fileName)
@@ -251,19 +251,18 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         debugConsole.error('Error opening entity:', error)
       }
     },
-    [args, setEditorPanelOpen, setView]
+    [fileTreeData, editorManager, setEditorPanelOpen, setView]
   )
 
   const getFullFilePathForTooltipLocal = useCallback(
     (fileName: string) => {
-      const fileTreeData = args['fileTreeData']
       if (!fileTreeData) return fileName
       const result = findEntityByPath(fileTreeData, fileName)
       if (result) return fileName
       const named = findEntityByNameInTree(fileTreeData, fileName)
       return named ? named.fullPath : fileName
     },
-    [args]
+    [fileTreeData]
   )
 
   const renderStatusTextLocal = useCallback(
@@ -289,10 +288,10 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   }, [focusInputAtEnd, setEditingMessageId])
 
   const clearHoveredMessage = useCallback((messageId: string) => {
-    args['setHoveredMessageId']((currentMessageId: string | null) =>
+    setHoveredMessageId?.((currentMessageId: string | null) =>
       currentMessageId === messageId ? null : currentMessageId
     )
-  }, [args])
+  }, [setHoveredMessageId])
 
   const copyMessage = useCallback((content: string) => {
     navigator.clipboard?.writeText(content).catch(() => {})
@@ -476,6 +475,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     setMessages,
     setReferenceLines,
     setReferenceText,
+    setEditingMessageId,
   ])
 
   const handleSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
@@ -505,7 +505,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     isStatusGroupExpanded,
     toggleStatusGroup,
   } = useStatusGroupUtilities(
-    (args as any).messageGroups,
+    messageGroups,
     expandedStatusGroupIds,
     collapsedStatusGroupIds,
     setExpandedStatusGroupIds,
@@ -777,19 +777,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   }
 }
 
-function findEntityByPath(fileTreeData: any, fileName: string): any {
-  if (!fileTreeData) return null
-  const stack = [fileTreeData]
-  while (stack.length > 0) {
-    const folder = stack.pop()
-    const match = folder?.docs?.find((doc: any) => doc.name === fileName) ?? folder?.fileRefs?.find((fileRef: any) => fileRef.name === fileName)
-    if (match) {
-      return { entity: match, type: folder.docs?.includes(match) ? 'doc' : 'fileRef' }
-    }
-    if (folder?.folders) stack.push(...folder.folders)
-  }
-  return null
-}
+
 
 function findEntityByNameInTree(folder: any, fileName: string, currentPath = ''): { entity: any; type: 'fileRef' | 'doc'; fullPath: string } | null {
   const doc = folder.docs?.find((d: any) => d.name === fileName)

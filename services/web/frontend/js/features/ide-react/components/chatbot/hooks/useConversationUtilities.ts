@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import { AgentConversation } from '../types/chatbot-types'
+import { AgentConversation, ChatbotMessage } from '../types/chatbot-types'
 import { postJSON, deleteJSON } from '@/infrastructure/fetch-json'
 import { debugConsole } from '@/utils/debugging'
 
@@ -8,7 +8,7 @@ export const useConversationUtilities = (
   setConversations: (fn: (prev: AgentConversation[]) => AgentConversation[]) => void,
   activeConversationId: string | null,
   setActiveConversationId: (id: string | null) => void,
-  setMessages: (fn: (prev: any[]) => any[]) => void,
+  setMessages: React.Dispatch<React.SetStateAction<ChatbotMessage[]>>,
   conversations: AgentConversation[]
 ) => {
   const sortConversations = useCallback((items: AgentConversation[]) => {

@@ -1,6 +1,4 @@
 import { useCallback, useMemo } from 'react'
-import { ChatbotMessage } from '../types/chatbot-types'
-
 export const useStatusGroupUtilities = (
   messageGroups: any[],
   expandedStatusGroupIds: string[],

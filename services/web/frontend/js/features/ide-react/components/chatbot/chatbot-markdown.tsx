@@ -11,10 +11,12 @@ const LINK_TARGET = '_blank'
 export const ChatbotMarkdown: FC<{ text: string }> = ({ text }) => {
   const components = useMemo(
     () => ({
-      a: (props: any) => (
-        <a {...props} rel={LINK_REL} target={LINK_TARGET} className="chatbot-link" />
+      a: ({ children, ...props }: any) => (
+        <a {...props} rel={LINK_REL} target={LINK_TARGET} className="chatbot-link">
+          {children}
+        </a>
       ),
-      code: ({node, inline, className, children, ...props}: any) => {
+      code: ({ className, children, ...props }: any) => {
         return (
           <code className={className} {...props}>
             {children}

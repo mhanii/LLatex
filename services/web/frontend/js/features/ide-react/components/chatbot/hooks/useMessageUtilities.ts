@@ -14,7 +14,7 @@ export const useMessageUtilities = (
       counterRef.current += 1
       return `${prefix}-${counterRef.current}`
     },
-    []
+    [counterRef]
   )
 
   const toChatbotMessage = useCallback(

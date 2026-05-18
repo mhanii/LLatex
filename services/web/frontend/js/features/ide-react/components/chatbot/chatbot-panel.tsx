@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useIdeContext } from '@/shared/context/ide-context'
 import { useLayoutContext } from '@/shared/context/layout-context'
 import { useEditorManagerContext } from '@/features/ide-react/context/editor-manager-context'
@@ -36,6 +36,8 @@ export default function ChatbotPanel() {
 
   const state = useChatbotState()
   const [autoCompactedGroupIds, setAutoCompactedGroupIds] = useState<string[]>([])
+  const messagesContainerRef = state.messagesContainerRef
+  const setShouldAutoScroll = state.setShouldAutoScroll
 
   state.activeConversationIdRef.current = state.activeConversationId
 
@@ -45,7 +47,7 @@ export default function ChatbotPanel() {
   )
 
   const scrollToLatestStatusMessage = useCallback(() => {
-    const container = state.messagesContainerRef.current
+    const container = messagesContainerRef.current
     if (!container) return
 
     setTimeout(() => {
@@ -61,16 +63,16 @@ export default function ChatbotPanel() {
         lastWrapper.scrollIntoView({ behavior: 'auto', block: 'end' })
       }
     }, 10)
-  }, [state.messagesContainerRef])
+  }, [messagesContainerRef])
 
   const handleMessagesScroll = useCallback(() => {
-    const container = state.messagesContainerRef.current
+    const container = messagesContainerRef.current
     if (!container) return
 
     const { scrollTop, scrollHeight, clientHeight } = container
     const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
-    state.setShouldAutoScroll(isNearBottom)
-  }, [state.messagesContainerRef, state.setShouldAutoScroll])
+    setShouldAutoScroll(isNearBottom)
+  }, [messagesContainerRef, setShouldAutoScroll])
 
   const { createMessageId, toChatbotMessage, appendMessage } = useMessageUtilities(
     user,
@@ -80,6 +82,10 @@ export default function ChatbotPanel() {
     state.shouldAutoScroll,
     scrollToLatestStatusMessage
   )
+
+  const handleConversationChange = state.setActiveConversationId
+  const handleMessageHover = state.setHoveredMessageId
+  const handleInputChange = state.setInput
 
   const { createConversation, handleDeleteConversation } = useConversationUtilities(
     apiPath,
@@ -96,7 +102,6 @@ export default function ChatbotPanel() {
     state.setReferenceText,
     state.setReferenceLines,
     state.setEditingMessageId,
-    () => {}
   )
 
   const controller = useChatbotPanelController({
@@ -160,7 +165,21 @@ export default function ChatbotPanel() {
     autoCompactedGroupIds,
     setAutoCompactedGroupIds,
     messageGroups: state.messageGroups,
-  } as any)
+  })
+
+  const handleNewChat = controller.handleNewChat
+  const handleCloseChatbot = controller.closeChatbot
+  const handleHeaderPointerDown = controller.handleChatHeaderPointerDown
+  const handleMessageLeave = controller.clearHoveredMessage
+  const handleEditMessage = controller.startEditingMessage
+  const handleCopyMessage = controller.copyMessage
+  const handleToggleStatusGroup = controller.toggleStatusGroup
+  const handleJumpToLatestMessage = controller.jumpToLatestMessage
+  const handleInputKeyDown = controller.handleInputKeyDown
+  const handleSubmit = controller.handleSubmit
+  const handleClearReference = controller.clearReference
+  const handleCancelEdit = controller.cancelEditing
+  const handleSimulateToolCall = controller.simulateToolCall
 
   const canSend = useMemo(
     () => state.input.trim().length > 0 && !state.isSending,
@@ -177,44 +196,44 @@ export default function ChatbotPanel() {
       <ChatbotHeader
         conversations={state.conversations}
         activeConversationId={state.activeConversationId}
-        onConversationChange={state.setActiveConversationId}
-        onNewChat={controller.handleNewChat}
+        onConversationChange={handleConversationChange}
+        onNewChat={handleNewChat}
         onDeleteConversation={handleDeleteConversation}
-        onClose={controller.closeChatbot}
-        onPointerDown={controller.handleChatHeaderPointerDown}
+        onClose={handleCloseChatbot}
+        onPointerDown={handleHeaderPointerDown}
       />
 
       <ChatbotMessagesContainer
         messageGroups={state.messageGroups}
         editingMessageId={state.editingMessageId}
         hoveredMessageId={state.hoveredMessageId}
-        onMessageHover={state.setHoveredMessageId}
-        onMessageLeave={controller.clearHoveredMessage}
-        onEditMessage={controller.startEditingMessage}
-        onCopyMessage={controller.copyMessage}
-        onToggleStatusGroup={controller.toggleStatusGroup}
+        onMessageHover={handleMessageHover}
+        onMessageLeave={handleMessageLeave}
+        onEditMessage={handleEditMessage}
+        onCopyMessage={handleCopyMessage}
+        onToggleStatusGroup={handleToggleStatusGroup}
         isStatusGroupExpanded={controller.isStatusGroupExpanded}
         shouldShowToggleForGroup={controller.shouldShowToggleForGroup}
         renderStatusText={controller.renderStatusTextLocal}
         messagesContainerRef={state.messagesContainerRef}
         shouldAutoScroll={state.shouldAutoScroll}
-        onJumpToLatestMessage={controller.jumpToLatestMessage}
+        onJumpToLatestMessage={handleJumpToLatestMessage}
       />
 
-      <ChatbotDebugPanel onSimulateToolCall={controller.simulateToolCall} />
+      <ChatbotDebugPanel onSimulateToolCall={handleSimulateToolCall} />
 
       <ChatbotComposer
         inputValue={state.input}
-        onInputChange={state.setInput}
-        onKeyDown={controller.handleInputKeyDown}
-        onSubmit={controller.handleSubmit}
+        onInputChange={handleInputChange}
+        onKeyDown={handleInputKeyDown}
+        onSubmit={handleSubmit}
         inputRef={state.inputRef}
         canSend={canSend}
         referenceText={state.referenceText}
         referenceLines={state.referenceLines}
-        onClearReference={controller.clearReference}
+        onClearReference={handleClearReference}
         isEditing={state.editingMessageId !== null}
-        onCancelEdit={controller.cancelEditing}
+        onCancelEdit={handleCancelEdit}
       />
     </section>
   )

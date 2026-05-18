@@ -2,7 +2,6 @@ import React from 'react'
 import OLTooltip from '@/shared/components/ol/ol-tooltip'
 import OLIconButton from '@/shared/components/ol/ol-icon-button'
 import { AgentConversation } from '../types/chatbot-types'
-import { debugConsole } from '@/utils/debugging'
 
 interface ChatbotHeaderProps {
   conversations: AgentConversation[]

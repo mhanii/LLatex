@@ -1,7 +1,7 @@
 import React from 'react'
 import { MessageItem } from './MessageItem'
 import { StatusGroup } from './StatusGroup'
-import { ChatbotMessageGroup, ChatbotMessage } from '../types/chatbot-types'
+import { ChatbotMessageGroup } from '../types/chatbot-types'
 
 interface ChatbotMessagesContainerProps {
   messageGroups: ChatbotMessageGroup[]

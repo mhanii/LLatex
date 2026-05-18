@@ -1,6 +1,4 @@
 import React from 'react'
-import { AgentToolCallEvent } from '../types/chatbot-types'
-import { toolEventToMessage } from '../utils/tool-utils'
 
 interface ChatbotDebugPanelProps {
   onSimulateToolCall: (

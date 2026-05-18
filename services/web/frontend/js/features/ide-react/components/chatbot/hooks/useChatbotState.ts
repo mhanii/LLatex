@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import { ChatbotMessage, AgentConversation } from '../types/chatbot-types'
 import { buildMessageGroups } from '../utils/message-grouping'
 
