@@ -43,6 +43,10 @@ export const ChangesUsersProvider: FC<React.PropsWithChildren> = ({
     getJSON<ChangesUser[]>(`/project/${projectId}/changes/users`)
       .then(data => setChangesUsers(new Map(data.map(item => [item.id, item]))))
       .catch(error => {
+        if (error?.response?.status === 404) {
+          setChangesUsers(new Map())
+          return
+        }
         debugConsole.error(error)
         captureException(error)
       })

@@ -96,6 +96,11 @@ function setLayoutInLocalStorage(pdfLayout: IdeLayout) {
 const reviewPanelStorageKey = `ui.reviewPanelOpen.${getMeta('ol-project_id')}`
 
 export const LayoutProvider: FC<React.PropsWithChildren> = ({ children }) => {
+  const clampChatPanelSize = useCallback(
+    (value: number) => Math.max(5, Math.min(40, value)),
+    []
+  )
+
   // what to show in the "flat" view (editor or pdf)
   const [view, _setView] = useState<IdeView | null>('editor')
   const [editorPanelOpen, setEditorPanelOpen] = useState(false)
@@ -160,11 +165,23 @@ export const LayoutProvider: FC<React.PropsWithChildren> = ({ children }) => {
 
   const [chatPanelSizeLeft, setChatPanelSizeLeft] = usePersistedState(
     'ui.chatPanelSize.left',
-    20
+    20,
+    {
+      converter: {
+        toPersisted: clampChatPanelSize,
+        fromPersisted: clampChatPanelSize,
+      },
+    }
   )
   const [chatPanelSizeRight, setChatPanelSizeRight] = usePersistedState(
     'ui.chatPanelSize.right',
-    20
+    20,
+    {
+      converter: {
+        toPersisted: clampChatPanelSize,
+        fromPersisted: clampChatPanelSize,
+      },
+    }
   )
 
   // whether the review pane is open
