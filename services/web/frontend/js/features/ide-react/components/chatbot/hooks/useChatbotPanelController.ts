@@ -6,7 +6,7 @@ import { consumePendingChatbotPrefill, listenToChatbotPrefill } from '../chatbot
 import { ChatbotMessage, AgentConversation, AgentServerMessage, AgentToolCallEvent } from '../types/chatbot-types'
 import { toolEventToMessage } from '../utils/tool-utils'
 import { renderStatusText } from '../utils/render-utils'
-import { findEntityByPath } from '@/features/file-tree/util/path'
+import { getFullFilePathForTooltip, openEntityByPathUtil } from '../utils/file-operations'
 import { useStatusGroupUtilities } from './useStatusGroupUtilities'
 
 export type ChatbotPanelControllerArgs = {
@@ -49,7 +49,6 @@ export type ChatbotPanelControllerArgs = {
   createMessageId: (prefix: 'user' | 'assistant' | 'status') => string
   resizeInput: () => void
   applyPrefill: (payload: { text?: string; referenceText?: string; referenceLines?: { start: number; end: number } | null }) => void
-  finishChatDockDrag: (clientX: number) => void
   handleMessagesScroll: () => void
   setChatIsOpen: (open: boolean) => void
   chatDockSide: string
@@ -61,7 +60,6 @@ export type ChatbotPanelControllerArgs = {
   setChatPanelSizeRight?: (size: number) => void
   setEditorPanelOpen: (open: boolean) => void
   setView: (view: any) => void
-  statusGroupIds: string[]
   autoCompactedGroupIds: string[]
   setAutoCompactedGroupIds: React.Dispatch<React.SetStateAction<string[]>>
   fileTreeData?: any
@@ -224,43 +222,19 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
 
   const openEntityByPath = useCallback(
     (fileName: string) => {
-      try {
-        if (!fileTreeData || !editorManager) {
-          debugConsole.warn('fileTreeData or editorManager not available')
-          return
-        }
-        debugConsole.log('Trying to open file:', fileName)
-
-        let result = findEntityByPath(fileTreeData, fileName)
-        if (!result) {
-          result = findEntityByNameInTree(fileTreeData, fileName)
-        }
-
-        if (!result) return
-
-        if (result.type === 'fileRef') {
-          setEditorPanelOpen(true)
-          setView('file')
-          editorManager.openFileWithId(result.entity._id)
-        } else if (result.type === 'doc') {
-          setEditorPanelOpen(true)
-          setView('editor')
-          editorManager.openDocWithId(result.entity._id)
-        }
-      } catch (error) {
-        debugConsole.error('Error opening entity:', error)
+      if (!fileTreeData || !editorManager) {
+        debugConsole.warn('fileTreeData or editorManager not available')
+        return
       }
+
+      openEntityByPathUtil(fileName, fileTreeData, editorManager, setEditorPanelOpen, setView)
     },
-    [fileTreeData, editorManager, setEditorPanelOpen, setView]
+    [editorManager, fileTreeData, setEditorPanelOpen, setView]
   )
 
   const getFullFilePathForTooltipLocal = useCallback(
     (fileName: string) => {
-      if (!fileTreeData) return fileName
-      const result = findEntityByPath(fileTreeData, fileName)
-      if (result) return fileName
-      const named = findEntityByNameInTree(fileTreeData, fileName)
-      return named ? named.fullPath : fileName
+      return getFullFilePathForTooltip(fileName, fileTreeData)
     },
     [fileTreeData]
   )
@@ -775,30 +749,4 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     computedStatusGroupIds,
     handleChatHeaderPointerDown,
   }
-}
-
-
-
-function findEntityByNameInTree(folder: any, fileName: string, currentPath = ''): { entity: any; type: 'fileRef' | 'doc'; fullPath: string } | null {
-  const doc = folder.docs?.find((d: any) => d.name === fileName)
-  if (doc) {
-    const fullPath = currentPath ? `${currentPath}/${fileName}` : fileName
-    return { entity: doc, type: 'doc', fullPath }
-  }
-
-  const fileRef = folder.fileRefs?.find((f: any) => f.name === fileName)
-  if (fileRef) {
-    const fullPath = currentPath ? `${currentPath}/${fileName}` : fileName
-    return { entity: fileRef, type: 'fileRef', fullPath }
-  }
-
-  if (folder.folders) {
-    for (const subfolder of folder.folders) {
-      const newPath = currentPath ? `${currentPath}/${subfolder.name}` : subfolder.name
-      const result = findEntityByNameInTree(subfolder, fileName, newPath)
-      if (result) return result
-    }
-  }
-
-  return null
 }

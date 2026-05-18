@@ -1,40 +1,34 @@
 import { debugConsole } from '@/utils/debugging'
 import { findEntityByPath } from '@/features/file-tree/util/path'
 
+const normalizeLookupPath = (path: string) => path.replace(/^\.?\/+/, '').replace(/^\/+/, '')
+
 export const findEntityByNameInTree = (
   folder: any,
   fileName: string,
   currentPath: string = ''
 ): { entity: any; type: 'fileRef' | 'doc'; fullPath: string } | null => {
-  // Buscar en docs
-  const doc = folder.docs?.find(
-    (d: any) => d.name === fileName
-  )
-  if (doc) {
-    const fullPath = currentPath ? `${currentPath}/${fileName}` : fileName
-    return { entity: doc, type: 'doc', fullPath }
-  }
+  const lookupPath = normalizeLookupPath(fileName)
+  const normalizedCurrentPath = normalizeLookupPath(currentPath)
 
-  // Buscar en fileRefs
-  const fileRef = folder.fileRefs?.find(
-    (f: any) => f.name === fileName
-  )
-  if (fileRef) {
-    const fullPath = currentPath ? `${currentPath}/${fileName}` : fileName
-    return { entity: fileRef, type: 'fileRef', fullPath }
-  }
-
-  // Buscar recursivamente en subcarpetas
-  if (folder.folders) {
-    for (const subfolder of folder.folders) {
-      const newPath = currentPath ? `${currentPath}/${subfolder.name}` : subfolder.name
-      const result = findEntityByNameInTree(
-        subfolder,
-        fileName,
-        newPath
-      )
-      if (result) return result
+  for (const doc of folder.docs ?? []) {
+    const fullPath = normalizedCurrentPath ? `${normalizedCurrentPath}/${doc.name}` : doc.name
+    if (fullPath === lookupPath || fullPath.endsWith(`/${lookupPath}`)) {
+      return { entity: doc, type: 'doc', fullPath }
     }
+  }
+
+  for (const fileRef of folder.fileRefs ?? []) {
+    const fullPath = normalizedCurrentPath ? `${normalizedCurrentPath}/${fileRef.name}` : fileRef.name
+    if (fullPath === lookupPath || fullPath.endsWith(`/${lookupPath}`)) {
+      return { entity: fileRef, type: 'fileRef', fullPath }
+    }
+  }
+
+  for (const subfolder of folder.folders ?? []) {
+    const newPath = normalizedCurrentPath ? `${normalizedCurrentPath}/${subfolder.name}` : subfolder.name
+    const result = findEntityByNameInTree(subfolder, lookupPath, newPath)
+    if (result) return result
   }
 
   return null

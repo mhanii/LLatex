@@ -144,7 +144,6 @@ export default function ChatbotPanel() {
     createMessageId,
     resizeInput,
     applyPrefill,
-    finishChatDockDrag: () => {},
     handleMessagesScroll,
     setChatIsOpen,
     chatDockSide,
@@ -159,9 +158,6 @@ export default function ChatbotPanel() {
     fileTreeData,
     editorManager,
     setHoveredMessageId: state.setHoveredMessageId,
-    statusGroupIds: state.messageGroups
-      .filter(group => group.type === 'status-group')
-      .map(group => group.id),
     autoCompactedGroupIds,
     setAutoCompactedGroupIds,
     messageGroups: state.messageGroups,
