@@ -601,14 +601,23 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     const groupsToAutoCompact = computedStatusGroupIds.filter(id => !autoCompactedGroupIds.includes(id))
     if (groupsToAutoCompact.length === 0) return
 
+    const container = messagesContainerRef.current
+    let savedScrollTop: number | null = null
+    
+    if (container && !shouldAutoScrollRef.current) {
+      savedScrollTop = container.scrollTop
+    }
+
     setAutoCompactedGroupIds(prev => [...prev, ...groupsToAutoCompact])
     setCollapsedStatusGroupIds(prev => [...prev, ...groupsToAutoCompact])
     setExpandedStatusGroupIds(prev => prev.filter(id => !groupsToAutoCompact.includes(id)))
 
-    if (shouldAutoScrollRef.current) {
-      scrollToLatestStatusMessage()
+    if (container && savedScrollTop !== null) {
+      requestAnimationFrame(() => {
+        container.scrollTop = savedScrollTop
+      })
     }
-  }, [autoCompactedGroupIds, computedStatusGroupIds, messages, scrollToLatestStatusMessage, setAutoCompactedGroupIds, setCollapsedStatusGroupIds, setExpandedStatusGroupIds, shouldAutoScrollRef])
+  }, [autoCompactedGroupIds, computedStatusGroupIds, messages, setAutoCompactedGroupIds, setCollapsedStatusGroupIds, setExpandedStatusGroupIds, shouldAutoScrollRef, messagesContainerRef])
 
   useEffect(() => {
     let cancelled = false
