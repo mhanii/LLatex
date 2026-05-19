@@ -579,6 +579,11 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   }, [setMessagesWithRef])
 
   const completePendingToolsForConversation = useCallback((conversationId: string) => {
+    // Clear stale pending events first
+    if (pendingStatusEventsRef.current[conversationId]) {
+      delete pendingStatusEventsRef.current[conversationId]
+    }
+    
     // Complete any pending status messages for this conversation
     setMessagesWithRef(prev => {
       let hasChanges = false
@@ -590,7 +595,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
           return {
             ...message,
             status: 'completed' as const,
-            text: message.text.replace(/^Agent is\b/, 'Finished')
+            text: message.text.replace(/^Agent is (.*?)\.\.\.$/, 'Finished $1.')
           }
         }
         return message
