@@ -205,7 +205,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
 
   const flushPendingStatusMessages = useCallback(
     (conversationId: string) => {
-      const pendingEvents = pendingStatusEventsRef.current[conversationId]
+      const pendingEvents = pendingStatusEventsRef.current[conversationId] || []
       if (!pendingEvents || pendingEvents.length === 0) {
         return
       }
@@ -235,6 +235,9 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         }
 
         appendMessage(toolEventToMessage(pendingEvent))
+      }
+      if (pendingEvents.length > 0) {
+        delete pendingStatusEventsRef.current[conversationId]
       }
     },
     [appendMessage]
@@ -546,6 +549,16 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     setCollapsedStatusGroupIds,
     handleMessagesScroll
   )
+
+  // Clear pending events when conversation changes
+  useEffect(() => {
+    // Clean up pending events for the previous conversation
+    return () => {
+      if (activeConversationId) {
+        delete pendingStatusEventsRef.current[activeConversationId]
+      }
+    }
+  }, [activeConversationId])
 
   useEffect(() => {
     shouldAutoScrollRef.current = shouldAutoScroll
