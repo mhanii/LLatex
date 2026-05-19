@@ -552,6 +552,191 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     handleMessagesScroll
   )
 
+  const simulateFullConversation = useCallback(async () => {
+    if (isSending) {
+      debugConsole.warn('Already sending a message, cannot simulate conversation')
+      return
+    }
+
+    setIsSending(true)
+
+    // Create a unique conversation ID for this simulation if needed
+    const simConversationId = activeConversationId || `sim-conv-${Date.now()}`
+    const simRunId = `sim-run-${Date.now()}`
+
+    try {
+      // 1. User sends message
+      const userMessageId = createMessageId('user')
+      appendMessage({
+        id: userMessageId,
+        role: 'user',
+        text: 'Analyze the project structure and create a config file',
+        conversationId: simConversationId,
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 300))
+
+      // 2. Agent decides to list files first
+      const tool1Id = `${simRunId}-list_files`
+      handleToolCallEvent({
+        conversationId: simConversationId,
+        runId: simRunId,
+        toolCallId: tool1Id,
+        toolName: 'list_files',
+        status: 'running',
+        input: {},
+        timestamp: Date.now(),
+      })
+
+      // 3. Wait for "server" to process and respond with completion
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      handleToolCallEvent({
+        conversationId: simConversationId,
+        runId: simRunId,
+        toolCallId: tool1Id,
+        toolName: 'list_files',
+        status: 'completed',
+        input: {},
+        timestamp: Date.now(),
+      })
+
+      // Agent "thinks" about the results
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      // 4. Based on list_files results, agent reads main.py
+      const tool2Id = `${simRunId}-read_file`
+      handleToolCallEvent({
+        conversationId: simConversationId,
+        runId: simRunId,
+        toolCallId: tool2Id,
+        toolName: 'read_file',
+        status: 'running',
+        input: { path: 'src/main.py' },
+        timestamp: Date.now(),
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 1200))
+      handleToolCallEvent({
+        conversationId: simConversationId,
+        runId: simRunId,
+        toolCallId: tool2Id,
+        toolName: 'read_file',
+        status: 'completed',
+        input: { path: 'src/main.py' },
+        timestamp: Date.now(),
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 400))
+
+      // 5. Agent reads config.py based on understanding from main.py
+      const tool3Id = `${simRunId}-read_file_2`
+      handleToolCallEvent({
+        conversationId: simConversationId,
+        runId: simRunId,
+        toolCallId: tool3Id,
+        toolName: 'read_file',
+        status: 'running',
+        input: { path: 'src/config.py' },
+        timestamp: Date.now(),
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      handleToolCallEvent({
+        conversationId: simConversationId,
+        runId: simRunId,
+        toolCallId: tool3Id,
+        toolName: 'read_file',
+        status: 'completed',
+        input: { path: 'src/config.py' },
+        timestamp: Date.now(),
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      // 6. Agent creates new config file
+      const tool4Id = `${simRunId}-create_file`
+      handleToolCallEvent({
+        conversationId: simConversationId,
+        runId: simRunId,
+        toolCallId: tool4Id,
+        toolName: 'create_file',
+        status: 'running',
+        input: { path: 'src/new_config.yaml' },
+        timestamp: Date.now(),
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 800))
+      handleToolCallEvent({
+        conversationId: simConversationId,
+        runId: simRunId,
+        toolCallId: tool4Id,
+        toolName: 'create_file',
+        status: 'completed',
+        input: { path: 'src/new_config.yaml' },
+        timestamp: Date.now(),
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 400))
+
+      // 7. Agent edits the new file
+      const tool5Id = `${simRunId}-edit_file`
+      handleToolCallEvent({
+        conversationId: simConversationId,
+        runId: simRunId,
+        toolCallId: tool5Id,
+        toolName: 'edit_file',
+        status: 'running',
+        input: { path: 'src/new_config.yaml' },
+        timestamp: Date.now(),
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 600))
+      handleToolCallEvent({
+        conversationId: simConversationId,
+        runId: simRunId,
+        toolCallId: tool5Id,
+        toolName: 'edit_file',
+        status: 'completed',
+        input: { path: 'src/new_config.yaml' },
+        timestamp: Date.now(),
+      })
+
+      // 8. Agent formulates final response
+      await new Promise(resolve => setTimeout(resolve, 800))
+      
+      // Simulate receiving the assistant message via WebSocket
+      // In a real app, this would come from socket.on('agent:message')
+      const assistantMessageId = createMessageId('assistant')
+      appendMessage({
+        id: assistantMessageId,
+        role: 'assistant',
+        text: "I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?",
+        conversationId: simConversationId,
+      })
+
+      // Auto-scroll to bottom
+      setTimeout(() => {
+        if (messagesContainerRef.current && shouldAutoScrollRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+        }
+      }, 100)
+
+    } catch (error) {
+      debugConsole.error('Error in simulation:', error)
+    } finally {
+      setIsSending(false)
+    }
+  }, [
+    activeConversationId,
+    appendMessage,
+    createMessageId,
+    handleToolCallEvent,
+    isSending,
+    messagesContainerRef,
+    setIsSending,
+    shouldAutoScrollRef,
+  ])
+
   // Clear pending events when conversation changes
   useEffect(() => {
     // Store the current conversation ID for cleanup
@@ -831,6 +1016,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     closeChatbot,
     handleNewChat,
     simulateToolCall,
+    simulateFullConversation,
     submitMessage,
     handleSubmit,
     handleInputKeyDown,

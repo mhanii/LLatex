@@ -7,11 +7,28 @@ interface ChatbotDebugPanelProps {
     status?: 'running' | 'completed' | 'error',
     durationMs?: number
   ) => void
+  onSimulateConversation?: () => Promise<void>
 }
 
-export const ChatbotDebugPanel: React.FC<ChatbotDebugPanelProps> = ({ onSimulateToolCall }) => {
+export const ChatbotDebugPanel: React.FC<ChatbotDebugPanelProps> = ({ 
+  onSimulateToolCall,
+  onSimulateConversation 
+}) => {
+  const [isSimulating, setIsSimulating] = React.useState(false)
+
   if (process.env.NODE_ENV !== 'development') {
     return null
+  }
+
+  const handleSimulateConversation = async () => {
+    if (onSimulateConversation && !isSimulating) {
+      setIsSimulating(true)
+      try {
+        await onSimulateConversation()
+      } finally {
+        setIsSimulating(false)
+      }
+    }
   }
 
   return (
@@ -45,6 +62,24 @@ export const ChatbotDebugPanel: React.FC<ChatbotDebugPanelProps> = ({ onSimulate
         gap: '6px',
         justifyContent: 'flex-start'
       }}>
+        <button 
+          className="btn btn-sm" 
+          style={{ 
+            fontSize: '11px', 
+            padding: '4px 8px',
+            background: '#28a745',
+            color: 'white',
+            opacity: isSimulating ? 0.6 : 1,
+            cursor: isSimulating ? 'not-allowed' : 'pointer'
+          }}
+          onClick={handleSimulateConversation}
+          disabled={isSimulating}
+        >
+          {isSimulating ? '💭 Simulating...' : '🎭 Simulate Full Conversation'}
+        </button>
+
+        <div style={{ width: '100%', height: '1px', background: 'var(--border-divider-themed)', margin: '4px 0' }} />
+
         <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px' }}
           onClick={() => onSimulateToolCall('list_files', {}, 'completed', 1500)}>📂 list</button>
 

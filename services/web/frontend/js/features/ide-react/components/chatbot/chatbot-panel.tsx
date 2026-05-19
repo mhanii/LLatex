@@ -216,7 +216,10 @@ export default function ChatbotPanel() {
         onJumpToLatestMessage={handleJumpToLatestMessage}
       />
 
-      <ChatbotDebugPanel onSimulateToolCall={handleSimulateToolCall} />
+      <ChatbotDebugPanel 
+        onSimulateToolCall={handleSimulateToolCall}
+        onSimulateConversation={controller.simulateFullConversation}
+      />
 
       <ChatbotComposer
         inputValue={state.input}
