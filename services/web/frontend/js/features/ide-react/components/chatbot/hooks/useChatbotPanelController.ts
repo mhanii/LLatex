@@ -125,9 +125,17 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
 
   const dragStartXRef = useRef<number | null>(null)
   const dragStartCenterXRef = useRef<number | null>(null)
-  const messagesRef = useRef(messages)
+  const messagesRef = useRef<ChatbotMessage[]>(messages)
   const pendingStatusEventsRef = useRef<Record<string, AgentToolCallEvent[]>>({})
 
+  const setMessagesWithRef = useCallback((newMessages: ChatbotMessage[] | ((prev: ChatbotMessage[]) => ChatbotMessage[])) => {
+    setMessages(prev => {
+      const next = typeof newMessages === 'function' ? newMessages(prev) : newMessages
+      messagesRef.current = next
+      return next
+    })
+  }, [setMessages])
+  
   const handleChatHeaderPointerDown = useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
       if (event.button !== 0) {
@@ -199,10 +207,6 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     }, 10)
   }, [messagesContainerRef])
 
-  useEffect(() => {
-    messagesRef.current = messages
-  }, [messages])
-
   const flushPendingStatusMessages = useCallback(
     (conversationId: string) => {
       const pendingEvents = pendingStatusEventsRef.current[conversationId] || []
@@ -235,9 +239,6 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         }
 
         appendMessage(toolEventToMessage(pendingEvent))
-      }
-      if (pendingEvents.length > 0) {
-        delete pendingStatusEventsRef.current[conversationId]
       }
     },
     [appendMessage]
@@ -422,7 +423,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     }
 
     if (editingMessageId) {
-      setMessages(prev => {
+      setMessagesWithRef(prev => {
         const messageIndex = prev.findIndex(message => message.id === editingMessageId)
         if (messageIndex < 0) return prev
         return [
@@ -466,7 +467,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       })
 
       setActiveConversationId(result.conversationId)
-      setMessages(prev => {
+      setMessagesWithRef(prev => {
         if (
           prev.some(
             message => message.id === result.messageId && message.conversationId === result.conversationId
@@ -484,7 +485,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       })
     } catch (error) {
       debugConsole.error(error)
-      setMessages(prev =>
+      setMessagesWithRef(prev =>
         prev.map(message =>
           (message.id === pendingId || message.id === editingMessageId) && message.conversationId === conversationId
             ? { ...message, pending: false, text: `${message.text}\n\nFailed to send.` }
@@ -552,11 +553,23 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
 
   // Clear pending events when conversation changes
   useEffect(() => {
-    // Clean up pending events for the previous conversation
+    // Store the current conversation ID for cleanup
+    const currentConversationId = activeConversationId
+    
+    // Clean up function that runs when conversation changes or component unmounts
     return () => {
-      if (activeConversationId) {
-        delete pendingStatusEventsRef.current[activeConversationId]
+      if (currentConversationId) {
+        // Clean up the conversation we're leaving
+        delete pendingStatusEventsRef.current[currentConversationId]
       }
+    }
+  }, [activeConversationId])
+
+  useEffect(() => {
+    // When active conversation changes, immediately flush any pending events
+    // for the new conversation to prevent stale events
+    if (activeConversationId && pendingStatusEventsRef.current[activeConversationId]) {
+      delete pendingStatusEventsRef.current[activeConversationId]
     }
   }, [activeConversationId])
 
@@ -620,7 +633,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
 
     const controller = new AbortController()
     setIsLoadingMessages(true)
-    setMessages(prev =>
+    setMessagesWithRef(prev =>
       prev.filter(
         message =>
           (message.pending || message.role === 'status') &&
@@ -634,7 +647,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       .then(serverMessages => {
         if (controller.signal.aborted) return
         const loadedMessages = serverMessages.map(message => toChatbotMessage(message, activeConversationId))
-        setMessages(prev => {
+        setMessagesWithRef(prev => {
           const loadedIds = new Set(loadedMessages.map(message => message.id))
           const localMessages = prev.filter(
             message =>
