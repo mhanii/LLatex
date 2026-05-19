@@ -125,6 +125,8 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
 
   const dragStartXRef = useRef<number | null>(null)
   const dragStartCenterXRef = useRef<number | null>(null)
+  const messagesRef = useRef(messages)
+  const pendingStatusEventsRef = useRef<Record<string, AgentToolCallEvent[]>>({})
 
   const handleChatHeaderPointerDown = useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
@@ -196,6 +198,81 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       }
     }, 10)
   }, [messagesContainerRef])
+
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+
+  const flushPendingStatusMessages = useCallback(
+    (conversationId: string) => {
+      const pendingEvents = pendingStatusEventsRef.current[conversationId]
+      if (!pendingEvents || pendingEvents.length === 0) {
+        return
+      }
+
+      delete pendingStatusEventsRef.current[conversationId]
+
+      for (const pendingEvent of pendingEvents) {
+        const existingMessage = messagesRef.current.find(message => message.id === pendingEvent.toolCallId)
+
+        if (existingMessage) {
+          appendMessage(
+            toolEventToMessage(
+              pendingEvent.status === 'completed' || pendingEvent.status === 'error'
+                ? pendingEvent
+                : {
+                    conversationId: existingMessage.conversationId ?? conversationId,
+                    runId: existingMessage.id,
+                    toolCallId: existingMessage.id,
+                    toolName: existingMessage.toolName ?? pendingEvent.toolName,
+                    input: existingMessage.toolInput,
+                    status: 'completed',
+                    timestamp: pendingEvent.timestamp,
+                  }
+            )
+          )
+          continue
+        }
+
+        appendMessage(toolEventToMessage(pendingEvent))
+      }
+    },
+    [appendMessage]
+  )
+
+  const handleToolCallEvent = useCallback(
+    (payload: AgentToolCallEvent) => {
+      if (payload.conversationId !== activeConversationIdRef.current) return
+
+      const statusId = payload.toolCallId ?? `${payload.runId}-${payload.toolName}`
+
+      if (payload.status === 'running') {
+        flushPendingStatusMessages(payload.conversationId)
+        appendMessage(toolEventToMessage(payload))
+
+        const pendingEvents = pendingStatusEventsRef.current[payload.conversationId] ?? []
+        pendingEvents.push(payload)
+        pendingStatusEventsRef.current[payload.conversationId] = pendingEvents
+        return
+      }
+
+      if (payload.status === 'error') {
+        flushPendingStatusMessages(payload.conversationId)
+        appendMessage(toolEventToMessage(payload))
+        return
+      }
+
+      const pendingEvents = pendingStatusEventsRef.current[payload.conversationId] ?? []
+      const nextPendingEvents = pendingEvents.filter(event => {
+        const pendingId = event.toolCallId ?? `${event.runId}-${event.toolName}`
+        return pendingId !== statusId
+      })
+
+      nextPendingEvents.push(payload)
+      pendingStatusEventsRef.current[payload.conversationId] = nextPendingEvents
+    },
+    [activeConversationIdRef, appendMessage, flushPendingStatusMessages]
+  )
 
   const focusInputAtEnd = useCallback((text: string) => {
     setInput(text)
@@ -287,7 +364,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       }
 
       const statusId = `${baseEvent.runId}-${toolName}`
-      const run = () => appendMessage(toolEventToMessage({ ...baseEvent, toolCallId: statusId, status }))
+      const run = () => handleToolCallEvent({ ...baseEvent, toolCallId: statusId, status })
 
       if (status === 'running') {
         run()
@@ -297,30 +374,28 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         return
       }
 
-      appendMessage(toolEventToMessage({ ...baseEvent, toolCallId: statusId, status: 'running' }))
+      handleToolCallEvent({ ...baseEvent, toolCallId: statusId, status: 'running' })
       if (shouldAutoScroll) {
         setTimeout(scrollToLatestStatusMessage, 10)
       }
 
       setTimeout(() => {
-        appendMessage(
-          toolEventToMessage(
-            status === 'completed'
-              ? { ...baseEvent, toolCallId: statusId, status: 'completed' }
-              : {
-                  ...baseEvent,
-                  toolCallId: statusId,
-                  status: 'error',
-                  error: 'File not found or permission denied',
-                }
-          )
+        handleToolCallEvent(
+          status === 'completed'
+            ? { ...baseEvent, toolCallId: statusId, status: 'completed' }
+            : {
+                ...baseEvent,
+                toolCallId: statusId,
+                status: 'error',
+                error: 'File not found or permission denied',
+              }
         )
         if (shouldAutoScroll) {
           scrollToLatestStatusMessage()
         }
       }, durationMs)
     },
-    [activeConversationId, appendMessage, scrollToLatestStatusMessage, shouldAutoScroll]
+    [activeConversationId, handleToolCallEvent, scrollToLatestStatusMessage, shouldAutoScroll]
   )
 
   const submitMessage = useCallback(async () => {
@@ -587,12 +662,12 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         })
       }
       if (payload.conversationId !== activeConversationIdRef.current) return
+      flushPendingStatusMessages(payload.conversationId)
       appendMessage(toChatbotMessage(payload.message, payload.conversationId))
     }
 
     function receivedToolCall(payload: AgentToolCallEvent) {
-      if (payload.conversationId !== activeConversationIdRef.current) return
-      appendMessage(toolEventToMessage(payload))
+      handleToolCallEvent(payload)
     }
 
     socket.on('agent:message', receivedAgentMessage)
@@ -602,7 +677,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       socket.removeListener('agent:message', receivedAgentMessage)
       socket.removeListener('agent:tool-call', receivedToolCall)
     }
-  }, [activeConversationIdRef, appendMessage, socket, toChatbotMessage, userId, setConversations])
+  }, [activeConversationIdRef, flushPendingStatusMessages, handleToolCallEvent, socket, toChatbotMessage, userId, setConversations])
 
   useEffect(() => {
     const pendingText = consumePendingChatbotPrefill()
