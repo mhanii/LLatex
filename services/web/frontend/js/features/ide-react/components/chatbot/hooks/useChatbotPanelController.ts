@@ -217,7 +217,8 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       delete pendingStatusEventsRef.current[conversationId]
 
       for (const pendingEvent of pendingEvents) {
-        const existingMessage = messagesRef.current.find(message => message.id === pendingEvent.toolCallId)
+        const pendingMsgId = pendingEvent.toolCallId ?? `${pendingEvent.runId}-${pendingEvent.toolName}`
+        const existingMessage = messagesRef.current.find(message => message.id === pendingMsgId)
 
         if (existingMessage) {
           appendMessage(
