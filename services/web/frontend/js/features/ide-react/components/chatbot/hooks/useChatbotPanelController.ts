@@ -597,11 +597,6 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       })
       return hasChanges ? next : prev
     })
-    
-    // Also clean up pending events reference
-    if (pendingStatusEventsRef.current[conversationId]) {
-      delete pendingStatusEventsRef.current[conversationId]
-    }
   }, [setMessagesWithRef])
 
   const simulateFullConversation = useCallback(async () => {
@@ -852,11 +847,12 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       
       if (payload.conversationId !== activeConversationIdRef.current) return
       
+      flushPendingStatusMessages(payload.conversationId) // First, process any completed tools
+
       if (payload.message.role === 'assistant') {
-        completePendingToolsForConversation(payload.conversationId)
+        completePendingToolsForConversation(payload.conversationId) // Then, complete any still-running tools
       }
-      
-      flushPendingStatusMessages(payload.conversationId)
+
       appendMessage(toChatbotMessage(payload.message, payload.conversationId))
     }
 
