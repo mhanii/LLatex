@@ -590,7 +590,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
           return {
             ...message,
             status: 'completed' as const,
-            text: message.text.replace('Agent is', 'Finished')
+            text: message.text.replace(/^Agent is\b/, 'Finished')
           }
         }
         return message
@@ -708,20 +708,6 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     setIsSending,
   ])
 
-  // Clear pending events when conversation changes
-  useEffect(() => {
-    // Store the current conversation ID for cleanup
-    const currentConversationId = activeConversationId
-    
-    // Clean up function that runs when conversation changes or component unmounts
-    return () => {
-      if (currentConversationId) {
-        // Clean up the conversation we're leaving
-        delete pendingStatusEventsRef.current[currentConversationId]
-      }
-    }
-  }, [activeConversationId])
-
   useEffect(() => {
     // When active conversation changes, clean up the old conversation's pending events
     return () => {
@@ -729,14 +715,6 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         cleanupPendingToolsForConversation(activeConversationId)
         delete pendingStatusEventsRef.current[activeConversationId]
       }
-    }
-  }, [activeConversationId, cleanupPendingToolsForConversation])
-
-  useEffect(() => {
-  if (activeConversationId) {
-      // Clean up any stale pending events for the new conversation
-      cleanupPendingToolsForConversation(activeConversationId)
-      delete pendingStatusEventsRef.current[activeConversationId]
     }
   }, [activeConversationId, cleanupPendingToolsForConversation])
 
@@ -893,7 +871,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       socket.removeListener('agent:message', receivedAgentMessage)
       socket.removeListener('agent:tool-call', receivedToolCall)
     }
-  }, [activeConversationIdRef, cleanupPendingToolsForConversation, flushPendingStatusMessages, handleToolCallEvent, socket, toChatbotMessage, userId, setConversations])
+  }, [activeConversationIdRef, completePendingToolsForConversation, flushPendingStatusMessages, handleToolCallEvent, socket, toChatbotMessage, userId, setConversations])
 
   useEffect(() => {
     const pendingText = consumePendingChatbotPrefill()
