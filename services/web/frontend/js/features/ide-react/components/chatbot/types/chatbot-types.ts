@@ -6,6 +6,7 @@ export type ChatbotMessage = {
   conversationId?: string
   status?: AgentToolCallEvent['status']
   toolName?: string
+  toolInput?: Record<string, unknown>
 }
 
 export type ChatbotMessageGroup =

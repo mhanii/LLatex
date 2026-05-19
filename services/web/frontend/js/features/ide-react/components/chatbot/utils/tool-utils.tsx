@@ -60,6 +60,7 @@ export const toolEventToMessage = (
     conversationId: event.conversationId,
     status: event.status,
     toolName: event.toolName,
+    toolInput: event.input,
   }
 }
 
