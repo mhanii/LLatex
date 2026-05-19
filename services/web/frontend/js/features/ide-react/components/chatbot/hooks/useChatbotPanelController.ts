@@ -613,8 +613,9 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     setExpandedStatusGroupIds(prev => prev.filter(id => !groupsToAutoCompact.includes(id)))
 
     if (container && savedScrollTop !== null) {
+      const scrollTop = savedScrollTop
       requestAnimationFrame(() => {
-        container.scrollTop = savedScrollTop
+        container.scrollTop = scrollTop
       })
     }
   }, [autoCompactedGroupIds, computedStatusGroupIds, messages, setAutoCompactedGroupIds, setCollapsedStatusGroupIds, setExpandedStatusGroupIds, shouldAutoScrollRef, messagesContainerRef])
