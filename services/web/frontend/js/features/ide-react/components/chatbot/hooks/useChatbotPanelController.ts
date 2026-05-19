@@ -552,6 +552,58 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     handleMessagesScroll
   )
 
+  const cleanupPendingToolsForConversation = useCallback((conversationId: string) => {
+    // Clean up pending status events
+    if (pendingStatusEventsRef.current[conversationId]) {
+      delete pendingStatusEventsRef.current[conversationId]
+    }
+    
+    // Clean up any messages that are still in 'running' state for this conversation
+    setMessagesWithRef(prev => {
+      let hasChanges = false
+      const next = prev.map(message => {
+        if (message.conversationId === conversationId && 
+            message.role === 'status' && 
+            message.status === 'running') {
+          hasChanges = true
+          return {
+            ...message,
+            status: 'error' as const,
+            text: `${message.text} (interrupted)`
+          }
+        }
+        return message
+      })
+      return hasChanges ? next : prev
+    })
+  }, [setMessagesWithRef])
+
+  const completePendingToolsForConversation = useCallback((conversationId: string) => {
+    // Complete any pending status messages for this conversation
+    setMessagesWithRef(prev => {
+      let hasChanges = false
+      const next = prev.map(message => {
+        if (message.conversationId === conversationId && 
+            message.role === 'status' && 
+            message.status === 'running') {
+          hasChanges = true
+          return {
+            ...message,
+            status: 'completed' as const,
+            text: message.text.replace('Agent is', 'Finished')
+          }
+        }
+        return message
+      })
+      return hasChanges ? next : prev
+    })
+    
+    // Also clean up pending events reference
+    if (pendingStatusEventsRef.current[conversationId]) {
+      delete pendingStatusEventsRef.current[conversationId]
+    }
+  }, [setMessagesWithRef])
+
   const simulateFullConversation = useCallback(async () => {
     if (isSending) {
       debugConsole.warn('Already sending a message, cannot simulate conversation')
@@ -560,12 +612,11 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
 
     setIsSending(true)
 
-    // Create a unique conversation ID for this simulation if needed
     const simConversationId = activeConversationId || `sim-conv-${Date.now()}`
     const simRunId = `sim-run-${Date.now()}`
 
     try {
-      // 1. User sends message
+      // User message
       const userMessageId = createMessageId('user')
       appendMessage({
         id: userMessageId,
@@ -576,165 +627,85 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
 
       await new Promise(resolve => setTimeout(resolve, 300))
 
-      // 2. Agent decides to list files first
-      const tool1Id = `${simRunId}-list_files`
-      handleToolCallEvent({
-        conversationId: simConversationId,
-        runId: simRunId,
-        toolCallId: tool1Id,
-        toolName: 'list_files',
-        status: 'running',
-        input: {},
-        timestamp: Date.now(),
-      })
+      // Tool sequence
+      const tools = [
+        { name: 'list_files', input: {}, duration: 1500 },
+        { name: 'read_file', input: { path: 'src/main.py' }, duration: 1200 },
+        { name: 'read_file', input: { path: 'src/config.py' }, duration: 1000 },
+        { name: 'create_file', input: { path: 'src/new_config.yaml' }, duration: 800 },
+        { name: 'edit_file', input: { path: 'src/new_config.yaml' }, duration: 600 },
+      ]
 
-      // 3. Wait for "server" to process and respond with completion
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      handleToolCallEvent({
-        conversationId: simConversationId,
-        runId: simRunId,
-        toolCallId: tool1Id,
-        toolName: 'list_files',
-        status: 'completed',
-        input: {},
-        timestamp: Date.now(),
-      })
+      for (let i = 0; i < tools.length; i++) {
+        const tool = tools[i]
+        const toolId = `${simRunId}-${tool.name}-${i}`
+        
+        // Start tool
+        handleToolCallEvent({
+          conversationId: simConversationId,
+          runId: simRunId,
+          toolCallId: toolId,
+          toolName: tool.name,
+          status: 'running',
+          input: tool.input,
+          timestamp: Date.now(),
+        })
 
-      // Agent "thinks" about the results
-      await new Promise(resolve => setTimeout(resolve, 500))
+        // Wait for completion
+        await new Promise(resolve => setTimeout(resolve, tool.duration))
+        
+        // Complete tool - this will be batched
+        handleToolCallEvent({
+          conversationId: simConversationId,
+          runId: simRunId,
+          toolCallId: toolId,
+          toolName: tool.name,
+          status: 'completed',
+          input: tool.input,
+          timestamp: Date.now(),
+        })
+        
+        // Force flush pending events for this conversation after each tool completes
+        flushPendingStatusMessages(simConversationId)
 
-      // 4. Based on list_files results, agent reads main.py
-      const tool2Id = `${simRunId}-read_file`
-      handleToolCallEvent({
-        conversationId: simConversationId,
-        runId: simRunId,
-        toolCallId: tool2Id,
-        toolName: 'read_file',
-        status: 'running',
-        input: { path: 'src/main.py' },
-        timestamp: Date.now(),
-      })
+        // Agent thinking time between tools
+        if (i < tools.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 400))
+        }
+      }
 
-      await new Promise(resolve => setTimeout(resolve, 1200))
-      handleToolCallEvent({
-        conversationId: simConversationId,
-        runId: simRunId,
-        toolCallId: tool2Id,
-        toolName: 'read_file',
-        status: 'completed',
-        input: { path: 'src/main.py' },
-        timestamp: Date.now(),
-      })
-
-      await new Promise(resolve => setTimeout(resolve, 400))
-
-      // 5. Agent reads config.py based on understanding from main.py
-      const tool3Id = `${simRunId}-read_file_2`
-      handleToolCallEvent({
-        conversationId: simConversationId,
-        runId: simRunId,
-        toolCallId: tool3Id,
-        toolName: 'read_file',
-        status: 'running',
-        input: { path: 'src/config.py' },
-        timestamp: Date.now(),
-      })
-
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      handleToolCallEvent({
-        conversationId: simConversationId,
-        runId: simRunId,
-        toolCallId: tool3Id,
-        toolName: 'read_file',
-        status: 'completed',
-        input: { path: 'src/config.py' },
-        timestamp: Date.now(),
-      })
-
-      await new Promise(resolve => setTimeout(resolve, 500))
-
-      // 6. Agent creates new config file
-      const tool4Id = `${simRunId}-create_file`
-      handleToolCallEvent({
-        conversationId: simConversationId,
-        runId: simRunId,
-        toolCallId: tool4Id,
-        toolName: 'create_file',
-        status: 'running',
-        input: { path: 'src/new_config.yaml' },
-        timestamp: Date.now(),
-      })
-
-      await new Promise(resolve => setTimeout(resolve, 800))
-      handleToolCallEvent({
-        conversationId: simConversationId,
-        runId: simRunId,
-        toolCallId: tool4Id,
-        toolName: 'create_file',
-        status: 'completed',
-        input: { path: 'src/new_config.yaml' },
-        timestamp: Date.now(),
-      })
-
-      await new Promise(resolve => setTimeout(resolve, 400))
-
-      // 7. Agent edits the new file
-      const tool5Id = `${simRunId}-edit_file`
-      handleToolCallEvent({
-        conversationId: simConversationId,
-        runId: simRunId,
-        toolCallId: tool5Id,
-        toolName: 'edit_file',
-        status: 'running',
-        input: { path: 'src/new_config.yaml' },
-        timestamp: Date.now(),
-      })
-
-      await new Promise(resolve => setTimeout(resolve, 600))
-      handleToolCallEvent({
-        conversationId: simConversationId,
-        runId: simRunId,
-        toolCallId: tool5Id,
-        toolName: 'edit_file',
-        status: 'completed',
-        input: { path: 'src/new_config.yaml' },
-        timestamp: Date.now(),
-      })
-
-      // 8. Agent formulates final response
+      // Wait a bit before sending the assistant message
       await new Promise(resolve => setTimeout(resolve, 800))
       
-      // Simulate receiving the assistant message via WebSocket
-      // In a real app, this would come from socket.on('agent:message')
-      const assistantMessageId = createMessageId('assistant')
+      // Assistant message - all tools should be completed by now
       appendMessage({
-        id: assistantMessageId,
+        id: createMessageId('assistant'),
         role: 'assistant',
         text: "I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?",
         conversationId: simConversationId,
       })
 
-      // Auto-scroll to bottom
-      setTimeout(() => {
-        if (messagesContainerRef.current && shouldAutoScrollRef.current) {
-          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
-        }
-      }, 100)
+      // Final flush to ensure everything is displayed
+      flushPendingStatusMessages(simConversationId)
 
     } catch (error) {
       debugConsole.error('Error in simulation:', error)
+      // Only clean up on error to prevent stuck pending messages
+      if (simConversationId) {
+        cleanupPendingToolsForConversation(simConversationId)
+      }
     } finally {
       setIsSending(false)
     }
   }, [
     activeConversationId,
     appendMessage,
+    cleanupPendingToolsForConversation,
     createMessageId,
+    flushPendingStatusMessages, // Add this to dependencies
     handleToolCallEvent,
     isSending,
-    messagesContainerRef,
     setIsSending,
-    shouldAutoScrollRef,
   ])
 
   // Clear pending events when conversation changes
@@ -752,12 +723,22 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   }, [activeConversationId])
 
   useEffect(() => {
-    // When active conversation changes, immediately flush any pending events
-    // for the new conversation to prevent stale events
-    if (activeConversationId && pendingStatusEventsRef.current[activeConversationId]) {
+    // When active conversation changes, clean up the old conversation's pending events
+    return () => {
+      if (activeConversationId) {
+        cleanupPendingToolsForConversation(activeConversationId)
+        delete pendingStatusEventsRef.current[activeConversationId]
+      }
+    }
+  }, [activeConversationId, cleanupPendingToolsForConversation])
+
+  useEffect(() => {
+  if (activeConversationId) {
+      // Clean up any stale pending events for the new conversation
+      cleanupPendingToolsForConversation(activeConversationId)
       delete pendingStatusEventsRef.current[activeConversationId]
     }
-  }, [activeConversationId])
+  }, [activeConversationId, cleanupPendingToolsForConversation])
 
   useEffect(() => {
     shouldAutoScrollRef.current = shouldAutoScroll
@@ -871,8 +852,13 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   useEffect(() => {
     if (!socket) return
 
-    function receivedAgentMessage(payload: { conversationId: string; conversation?: AgentConversation; message: AgentServerMessage }) {
+    function receivedAgentMessage(payload: { 
+      conversationId: string; 
+      conversation?: AgentConversation; 
+      message: AgentServerMessage 
+    }) {
       if (payload.conversation && payload.conversation.createdBy !== userId) return
+      
       if (payload.conversation) {
         const conversation = payload.conversation
         setConversations(prev => {
@@ -885,7 +871,13 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
           return [...next].sort((a, b) => b.updatedAt - a.updatedAt)
         })
       }
+      
       if (payload.conversationId !== activeConversationIdRef.current) return
+      
+      if (payload.message.role === 'assistant') {
+        completePendingToolsForConversation(payload.conversationId)
+      }
+      
       flushPendingStatusMessages(payload.conversationId)
       appendMessage(toChatbotMessage(payload.message, payload.conversationId))
     }
@@ -901,7 +893,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       socket.removeListener('agent:message', receivedAgentMessage)
       socket.removeListener('agent:tool-call', receivedToolCall)
     }
-  }, [activeConversationIdRef, flushPendingStatusMessages, handleToolCallEvent, socket, toChatbotMessage, userId, setConversations])
+  }, [activeConversationIdRef, cleanupPendingToolsForConversation, flushPendingStatusMessages, handleToolCallEvent, socket, toChatbotMessage, userId, setConversations])
 
   useEffect(() => {
     const pendingText = consumePendingChatbotPrefill()
