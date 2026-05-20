@@ -420,8 +420,6 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     const isGenerating = isSending || isAwaitingAgentResponse
     if (!trimmed || isGenerating) return
 
-    generationStoppedRef.current = false
-
     const conversation =
       activeConversationId == null
         ? await createConversation()
@@ -637,7 +635,6 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   }, [setMessagesWithRef])
 
   const stopGeneration = useCallback(() => {
-    generationStoppedRef.current = true
     simulationStopRef.current = true
     
     if (activeRunIdRef.current) {
@@ -925,8 +922,8 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     }) {
       if (payload.conversation && payload.conversation.createdBy !== userId) return
       if (
-        (payload.conversation?.lastRunId && canceledRunIdsRef.current.has(payload.conversation.lastRunId)) ||
-        generationStoppedRef.current
+        payload.conversation?.lastRunId && 
+        canceledRunIdsRef.current.has(payload.conversation.lastRunId)
       ) return
 
       if (payload.conversation) {

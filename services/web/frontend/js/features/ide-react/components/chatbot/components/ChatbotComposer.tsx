@@ -95,7 +95,7 @@ export const ChatbotComposer: React.FC<ChatbotComposerProps> = ({
             value={inputValue}
             onChange={event => onInputChange(event.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Ask anything..."
+            placeholder={isGenerating ? "Agent is thinking..." : "Ask anything..."}
             aria-label="Chat input"
             rows={1}
             autoComplete="off"
