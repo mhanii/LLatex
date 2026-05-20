@@ -97,7 +97,7 @@ const buildChipContainerDecorations = (
   if (!data.ranges) return Decoration.none
 
   const decorations = []
-  const changes = data.ranges.changes
+  const changes = sortedChanges(data.ranges.changes)
   const docLength = state.doc.length
   let i = 0
 
@@ -192,6 +192,32 @@ export const ranges = () => [
             dispatchEvent(new Event('editor:viewport-changed'))
           }, 25)
         }
+      },
+    }
+  }),
+
+  // Notify React after CM6 has actually rendered the chip-host widgets that
+  // `updateRangesEffect` produced. The dispatch is async (setTimeout in
+  // use-codemirror-scope), so React's first render against new `ranges` sees
+  // stale chip hosts. We fire this on the next frame — after CM6 has painted
+  // — so InlineChangeActions can re-query the DOM and portal into the new
+  // hosts.
+  ViewPlugin.define(() => {
+    let raf = 0
+    return {
+      update(update) {
+        const hasRangesEffect = update.transactions.some(tr =>
+          tr.effects.some(effect => effect.is(updateRangesEffect))
+        )
+        if (!hasRangesEffect) return
+        if (raf) cancelAnimationFrame(raf)
+        raf = requestAnimationFrame(() => {
+          raf = 0
+          dispatchEvent(new Event('editor:ranges-rendered'))
+        })
+      },
+      destroy() {
+        if (raf) cancelAnimationFrame(raf)
       },
     }
   }),
@@ -358,7 +384,7 @@ const buildChangeDecorations = (data: RangesData) => {
   }
 
   const decorations = []
-  const changes = data.ranges.changes
+  const changes = sortedChanges(data.ranges.changes)
 
   for (let i = 0; i < changes.length; i++) {
     const change = changes[i]
@@ -432,7 +458,7 @@ const buildAgentBlockDecorations = (
     return Decoration.none
   }
   const decorations = []
-  const changes = data.ranges.changes
+  const changes = sortedChanges(data.ranges.changes)
   const docLength = state.doc.length
 
   for (let i = 0; i < changes.length; i++) {
@@ -470,7 +496,11 @@ const buildAgentBlockDecorations = (
 
       try {
         const lineFrom = state.doc.lineAt(from)
-        const lineTo = state.doc.lineAt(to)
+        // `to` is an exclusive boundary. If the insertion ends at a newline or
+        // EOF, lineAt(to) points at the following line and tints an untouched
+        // blank/end line. Anchor the final decorated line to the last inserted
+        // character instead.
+        const lineTo = state.doc.lineAt(to > from ? to - 1 : to)
         for (
           let lineNum = lineFrom.number;
           lineNum <= lineTo.number;
@@ -491,6 +521,14 @@ const buildAgentBlockDecorations = (
 
   return Decoration.set(decorations, true)
 }
+
+const sortedChanges = (changes: Ranges['changes']) =>
+  [...changes].sort((a, b) => {
+    if (a.op.p !== b.op.p) return a.op.p - b.op.p
+    if (isInsertChange(a) && isDeleteChange(b)) return -1
+    if (isDeleteChange(a) && isInsertChange(b)) return 1
+    return a.id.localeCompare(b.id)
+  })
 
 const updateDeleteWidgetHighlight = (
   decorations: DecorationSet,

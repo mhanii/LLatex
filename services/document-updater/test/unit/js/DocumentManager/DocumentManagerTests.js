@@ -1387,6 +1387,194 @@ describe('DocumentManager', function () {
         this.RedisManager.promises.updateDocument.called.should.equal(false)
       })
     })
+
+    describe('OT op trims shared prefix/suffix to the diff window', function () {
+      // The frontend chip renders from its own RangesTracker (built from the
+      // OT op), so we want the chip to show ONLY the actual diff, not the
+      // surrounding context the agent supplied. For "abc world" → "abc earth"
+      // the chip should show "world" → "earth" (not the full line on each
+      // side).
+      beforeEach(async function () {
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['abc world'],
+            version: 5,
+            ranges: { changes: [], comments: [] },
+          })
+
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'abc world',
+          'abc earth',
+          this.user_id
+        )
+      })
+
+      it('sends only the diff window to the OT (shared prefix stripped)', function () {
+        const call = this.UpdateManager.promises.applyUpdate.lastCall
+        expect(call.args[2].op).to.deep.equal([
+          { p: 4, d: 'world' },
+          { p: 4, i: 'earth' },
+        ])
+      })
+    })
+
+    describe('pure delete (newText empty) sends only the delete op', function () {
+      // Original motivation for the trim was: a pure-delete hunk used to
+      // send [{p, d:hunkOld}, {p, i:""}]. The empty-insert half became a
+      // zero-length tracked insert on the frontend that survived
+      // consolidation and rendered as an unrejectable phantom chip.
+      // Fix: skip empty halves at the OT-op level. No trim needed.
+      beforeEach(async function () {
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['alpha beta gamma'],
+            version: 5,
+            ranges: { changes: [], comments: [] },
+          })
+
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'beta ',
+          '',
+          this.user_id
+        )
+      })
+
+      it('sends ONLY the delete op (no phantom empty-insert half)', function () {
+        const call = this.UpdateManager.promises.applyUpdate.lastCall
+        expect(call.args[2].op).to.deep.equal([{ p: 6, d: 'beta ' }])
+      })
+    })
+
+    describe('pure insert (oldText empty) sends only the insert op', function () {
+      beforeEach(async function () {
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['alpha gamma'],
+            version: 5,
+            ranges: { changes: [], comments: [] },
+          })
+
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          '',
+          'beta ',
+          this.user_id,
+          6
+        )
+      })
+
+      it('sends ONLY the insert op (no phantom empty-delete half)', function () {
+        const call = this.UpdateManager.promises.applyUpdate.lastCall
+        expect(call.args[2].op).to.deep.equal([{ p: 6, i: 'beta ' }])
+      })
+    })
+
+    describe('agent adds then deletes the same text in the same cycle (no tracked changes left)', function () {
+      // The agent's second edit reverses the first: visible content returns
+      // to the original, so the consolidated cleanChanges should be EMPTY
+      // (no tracked insert, no tracked delete). The (oldVersionText ===
+      // newVersionText) branch in section 7 handles this — verify it stays
+      // that way.
+      //
+      // Setup simulates the BEFORE state after the agent inserted "aXbc"
+      // (replacing "abc"). The new edit reverses it back to "abc".
+      beforeEach(async function () {
+        this.beforeRanges = {
+          changes: [
+            {
+              id: 'first-i',
+              op: { p: 0, i: 'aXbc' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'first-d',
+              op: { p: 4, d: 'abc' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+          ],
+          comments: [],
+        }
+        // After the OT for edit 2 ([d:"aXbc", i:"abc"]) applies, the
+        // ranges-tracker collapses everything. We don't model the exact
+        // intermediate mess here — what matters is the visible content is
+        // back to "abc" and cleanChanges encodes that.
+        this.afterRanges = { changes: [], comments: [] }
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['aXbc'],
+            version: 5,
+            ranges: this.beforeRanges,
+          })
+          .onSecondCall()
+          .resolves({
+            lines: ['abc'],
+            version: 6,
+            ranges: this.afterRanges,
+          })
+
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'aXbc',
+          'abc',
+          this.user_id
+        )
+      })
+
+      it('writes consolidated ranges with NO tracked changes', function () {
+        const call = this.RedisManager.promises.updateDocument.lastCall
+        const ranges = call.args[5]
+        expect(ranges.changes).to.deep.equal([])
+      })
+    })
+
+    describe('pure delete with surrounding context shows ONLY the deletion', function () {
+      // User-reported: when the agent supplies surrounding context
+      // (oldText="abc X def", newText="abc def" — just deleting " X"), the
+      // chip used to also show "abc def" as inserted (the new text). With
+      // the trim, the OT op collapses to a single pure-delete of " X" and
+      // the chip shows only the deletion — no posterior text appearing as
+      // "new text".
+      beforeEach(async function () {
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['abc X def'],
+            version: 5,
+            ranges: { changes: [], comments: [] },
+          })
+
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'abc X def',
+          'abc def',
+          this.user_id
+        )
+      })
+
+      it('sends only a pure delete op (no insert half)', function () {
+        const call = this.UpdateManager.promises.applyUpdate.lastCall
+        // Prefix "abc " (4) is trimmed first, then suffix "def" (3): the
+        // remaining diff is delete "X " at position 4. Only one op — no
+        // insert half — so the chip shows ONLY the deletion.
+        expect(call.args[2].op).to.deep.equal([{ p: 4, d: 'X ' }])
+      })
+    })
   })
 
   describe('getComment', function () {

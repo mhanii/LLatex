@@ -26,7 +26,7 @@ type Entry = {
 const aggregate = (changes: Change<EditOperation>[]): Entry[] => {
   const entries: Entry[] = []
   let preceding: Change<EditOperation> | null = null
-  for (const change of changes) {
+  for (const change of sortedChanges(changes)) {
     if (
       preceding &&
       isInsertChange(preceding) &&
@@ -42,12 +42,20 @@ const aggregate = (changes: Change<EditOperation>[]): Entry[] => {
   return entries
 }
 
+const sortedChanges = (changes: Change<EditOperation>[]) =>
+  [...changes].sort((a, b) => {
+    if (a.op.p !== b.op.p) return a.op.p - b.op.p
+    if (isInsertChange(a) && isDeleteChange(b)) return -1
+    if (isDeleteChange(a) && isInsertChange(b)) return 1
+    return a.id.localeCompare(b.id)
+  })
+
 export const InlineChangeActions = memo(function InlineChangeActions() {
   const view = useCodeMirrorViewContext()
   const ranges = useRangesContext()
   const actions = useRangesActionsContext()
   const { t } = useTranslation()
-  const [tick, setTick] = useState(0)
+  const [, setTick] = useState(0)
 
   const bump = useCallback(() => setTick(n => n + 1), [])
 
@@ -57,9 +65,15 @@ export const InlineChangeActions = memo(function InlineChangeActions() {
     const scroll = view.scrollDOM
     scroll.addEventListener('scroll', bump, { passive: true })
     window.addEventListener('resize', bump)
+    // Fires after CM6 has actually rendered chip hosts for the latest
+    // updateRangesEffect — see ranges.ts. Without this, our first render
+    // after a ranges change queries the DOM before CM6 has produced the new
+    // hosts, and the chip is missing until the next scroll/resize.
+    window.addEventListener('editor:ranges-rendered', bump)
     return () => {
       scroll.removeEventListener('scroll', bump)
       window.removeEventListener('resize', bump)
+      window.removeEventListener('editor:ranges-rendered', bump)
     }
   }, [view, bump])
 
