@@ -180,10 +180,15 @@ export default function ChatbotPanel() {
   const handleSimulateToolCall = controller.simulateToolCall
   const handleStopGeneration = controller.stopGeneration
 
-  const isGenerating =
-    state.isSending ||
-    state.isAwaitingAgentResponse ||
-    state.messages.some(message => message.role === 'status' && message.status === 'running')
+  const isGenerating = useMemo(
+    () =>
+      state.isSending ||
+      state.isAwaitingAgentResponse ||
+      state.messages.some(
+        message => message.role === 'status' && message.status === 'running'
+      ),
+    [state.isSending, state.isAwaitingAgentResponse, state.messages]
+  )
   const canSend = useMemo(
     () => state.input.trim().length > 0 && !isGenerating,
     [isGenerating, state.input]
