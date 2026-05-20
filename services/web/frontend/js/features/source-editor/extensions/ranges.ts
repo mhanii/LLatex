@@ -25,6 +25,7 @@ import {
   isInsertOperation,
   isInsertChange,
   isDeleteChange,
+  sortedChanges,
 } from '@/utils/operations'
 import { Ranges } from '@/features/review-panel/context/ranges-context'
 import { Threads } from '@/features/review-panel/context/threads-context'
@@ -522,13 +523,7 @@ const buildAgentBlockDecorations = (
   return Decoration.set(decorations, true)
 }
 
-const sortedChanges = (changes: Ranges['changes']) =>
-  [...changes].sort((a, b) => {
-    if (a.op.p !== b.op.p) return a.op.p - b.op.p
-    if (isInsertChange(a) && isDeleteChange(b)) return -1
-    if (isDeleteChange(a) && isInsertChange(b)) return 1
-    return a.id.localeCompare(b.id)
-  })
+
 
 const updateDeleteWidgetHighlight = (
   decorations: DecorationSet,

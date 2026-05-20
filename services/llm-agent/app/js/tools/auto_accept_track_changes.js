@@ -38,13 +38,19 @@ export async function autoAcceptTrackChangesBeforeEdit(input, ctx) {
   if (acceptedDocIds.has(file.docId)) return
 
   const base = `${docUpdaterUrl()}/project/${ctx.projectId}/doc/${file.docId}`
-  const docRes = await fetch(base, { signal: AbortSignal.timeout(30_000) })
-  if (docRes.status === 404) return
-  if (!docRes.ok) {
-    return `Edit failed: could not inspect pending changes (HTTP ${docRes.status}).`
+
+  let doc
+  try {
+    const docRes = await fetch(base, { signal: AbortSignal.timeout(30_000) })
+    if (docRes.status === 404) return
+    if (!docRes.ok) {
+      return `Edit failed: could not inspect pending changes (HTTP ${docRes.status}).`
+    }
+    doc = await docRes.json()
+  } catch (err) {
+    return `Edit failed: could not inspect pending changes (${err?.message ?? String(err)}).`
   }
 
-  const doc = await docRes.json()
   const changeIds = (doc?.ranges?.changes ?? [])
     .filter(
       change =>
@@ -55,27 +61,31 @@ export async function autoAcceptTrackChangesBeforeEdit(input, ctx) {
     .filter(Boolean)
 
   if (changeIds.length > 0) {
-    const acceptRes = await fetch(
-      new URL(
-        `/internal/project/${ctx.projectId}/agent/accept-changes`,
-        webUrl()
-      ).toString(),
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: basicAuth(),
-        },
-        body: JSON.stringify({
-          docId: file.docId,
-          changeIds,
-          userId: ctx.userId,
-        }),
-        signal: AbortSignal.timeout(30_000),
+    try {
+      const acceptRes = await fetch(
+        new URL(
+          `/internal/project/${ctx.projectId}/agent/accept-changes`,
+          webUrl()
+        ).toString(),
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: basicAuth(),
+          },
+          body: JSON.stringify({
+            docId: file.docId,
+            changeIds,
+            userId: ctx.userId,
+          }),
+          signal: AbortSignal.timeout(30_000),
+        }
+      )
+      if (!acceptRes.ok) {
+        return `Edit failed: could not accept pending agent changes (HTTP ${acceptRes.status}).`
       }
-    )
-    if (!acceptRes.ok) {
-      return `Edit failed: could not accept pending agent changes (HTTP ${acceptRes.status}).`
+    } catch (err) {
+      return `Edit failed: could not accept pending agent changes (${err?.message ?? String(err)}).`
     }
   }
 

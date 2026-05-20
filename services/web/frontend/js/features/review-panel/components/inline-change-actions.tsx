@@ -12,7 +12,7 @@ import {
   EditOperation,
   InsertOperation,
 } from '../../../../../types/change'
-import { isDeleteChange, isInsertChange } from '@/utils/operations'
+import { isDeleteChange, isInsertChange, sortedChanges } from '@/utils/operations'
 import { canAggregate } from '../utils/can-aggregate'
 import MaterialIcon from '@/shared/components/material-icon'
 import { debugConsole } from '@/utils/debugging'
@@ -42,13 +42,7 @@ const aggregate = (changes: Change<EditOperation>[]): Entry[] => {
   return entries
 }
 
-const sortedChanges = (changes: Change<EditOperation>[]) =>
-  [...changes].sort((a, b) => {
-    if (a.op.p !== b.op.p) return a.op.p - b.op.p
-    if (isInsertChange(a) && isDeleteChange(b)) return -1
-    if (isDeleteChange(a) && isInsertChange(b)) return 1
-    return a.id.localeCompare(b.id)
-  })
+
 
 export const InlineChangeActions = memo(function InlineChangeActions() {
   const view = useCodeMirrorViewContext()

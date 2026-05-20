@@ -32,20 +32,23 @@ export function buildTools(ctx, toolNames) {
         try {
           let output
           if (name === 'edit_file') {
-            const autoAcceptError = await autoAcceptTrackChangesBeforeEdit(
-              input,
-              ctx
-            )
-            output = autoAcceptError
+            output = await autoAcceptTrackChangesBeforeEdit(input, ctx)
           }
           if (output == null) {
             output = await def.execute(input, ctx)
+            await ctx.onToolEvent?.({
+              toolName: name,
+              status: 'completed',
+              input,
+            })
+          } else {
+            await ctx.onToolEvent?.({
+              toolName: name,
+              status: 'error',
+              input,
+              error: output,
+            })
           }
-          await ctx.onToolEvent?.({
-            toolName: name,
-            status: 'completed',
-            input,
-          })
           return output
         } catch (err) {
           await ctx.onToolEvent?.({
