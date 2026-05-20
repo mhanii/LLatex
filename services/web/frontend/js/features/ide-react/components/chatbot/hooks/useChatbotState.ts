@@ -8,6 +8,7 @@ export const useChatbotState = () => {
   const [messages, setMessages] = useState<ChatbotMessage[]>([])
   const [input, setInput] = useState('')
   const [isSending, setIsSending] = useState(false)
+  const [isAwaitingAgentResponse, setIsAwaitingAgentResponse] = useState(false)
   const [_isLoadingMessages, setIsLoadingMessages] = useState(false)
   const [referenceText, setReferenceText] = useState<string | null>(null)
   const [referenceLines, setReferenceLines] = useState<{
@@ -40,6 +41,8 @@ export const useChatbotState = () => {
     setInput,
     isSending,
     setIsSending,
+    isAwaitingAgentResponse,
+    setIsAwaitingAgentResponse,
     _isLoadingMessages,
     setIsLoadingMessages,
     referenceText,

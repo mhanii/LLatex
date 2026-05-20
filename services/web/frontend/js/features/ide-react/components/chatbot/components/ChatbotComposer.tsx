@@ -9,6 +9,8 @@ interface ChatbotComposerProps {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   inputRef: React.RefObject<HTMLTextAreaElement>
   canSend: boolean
+  isGenerating: boolean
+  onStopGeneration: () => void
   referenceText: string | null
   referenceLines: { start: number; end: number } | null
   onClearReference: () => void
@@ -23,6 +25,8 @@ export const ChatbotComposer: React.FC<ChatbotComposerProps> = ({
   onSubmit,
   inputRef,
   canSend,
+  isGenerating,
+  onStopGeneration,
   referenceText,
   referenceLines,
   onClearReference,
@@ -91,25 +95,40 @@ export const ChatbotComposer: React.FC<ChatbotComposerProps> = ({
             value={inputValue}
             onChange={event => onInputChange(event.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Ask anything..."
+            placeholder={isGenerating ? "Agent is thinking..." : "Ask anything..."}
             aria-label="Chat input"
             rows={1}
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
             spellCheck={false}
+            disabled={isGenerating}
           />
-          <button
-            type="submit"
-            className="btn btn-primary ide-chatbot-panel-send"
-            disabled={!canSend}
-            aria-label={isEditing ? 'Update message' : 'Send message'}
-          >
-            <span>Send</span>
-            <span className="material-symbols" aria-hidden="true">
-              {isEditing ? 'edit' : 'keyboard_return'}
-            </span>
-          </button>
+          <div className={`ide-chatbot-panel-send-shell${isGenerating ? ' is-generating' : ''}`}>
+            {isGenerating ? (
+              <button
+                type="button"
+                className="btn btn-primary ide-chatbot-panel-send is-generating"
+                onClick={onStopGeneration}
+                aria-label="Stop generating response"
+              >
+                <span className="material-symbols ide-chatbot-panel-send-icon" aria-hidden="true">
+                  stop_circle
+                </span>
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className="btn btn-primary ide-chatbot-panel-send"
+                disabled={!canSend}
+                aria-label={isEditing ? 'Update message' : 'Send message'}
+              >
+                <span className="material-symbols ide-chatbot-panel-send-icon" aria-hidden="true">
+                  arrow_upward
+                </span>
+              </button>
+            )}
+          </div>
         </form>
       </div>
     </>

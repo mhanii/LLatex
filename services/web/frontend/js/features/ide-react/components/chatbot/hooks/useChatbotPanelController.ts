@@ -23,6 +23,8 @@ export type ChatbotPanelControllerArgs = {
   setInput: React.Dispatch<React.SetStateAction<string>>
   isSending: boolean
   setIsSending: React.Dispatch<React.SetStateAction<boolean>>
+  isAwaitingAgentResponse: boolean
+  setIsAwaitingAgentResponse: React.Dispatch<React.SetStateAction<boolean>>
   setIsLoadingMessages: React.Dispatch<React.SetStateAction<boolean>>
   referenceText: string | null
   setReferenceText: React.Dispatch<React.SetStateAction<string | null>>
@@ -82,6 +84,8 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     setInput,
     isSending,
     setIsSending,
+    isAwaitingAgentResponse,
+    setIsAwaitingAgentResponse,
     setIsLoadingMessages,
     referenceText,
     setReferenceText,
@@ -127,6 +131,12 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   const dragStartCenterXRef = useRef<number | null>(null)
   const messagesRef = useRef<ChatbotMessage[]>(messages)
   const pendingStatusEventsRef = useRef<Record<string, AgentToolCallEvent[]>>({})
+  const submitAbortControllerRef = useRef<AbortController | null>(null)
+  const activeRunIdRef = useRef<string | null>(null)
+  const canceledRunIdsRef = useRef<Set<string>>(new Set())
+  const generationStoppedRef = useRef(false)
+  const simulationStopRef = useRef(false)
+  const simulationConversationIdRef = useRef<string | null>(null)
 
   const setMessagesWithRef = useCallback((newMessages: ChatbotMessage[] | ((prev: ChatbotMessage[]) => ChatbotMessage[])) => {
     setMessages(prev => {
@@ -248,6 +258,8 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   const handleToolCallEvent = useCallback(
     (payload: AgentToolCallEvent) => {
       if (payload.conversationId !== activeConversationIdRef.current) return
+      if (canceledRunIdsRef.current.has(payload.runId)) return
+      if (generationStoppedRef.current) return
 
       const statusId = payload.toolCallId ?? `${payload.runId}-${payload.toolName}`
 
@@ -405,7 +417,8 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
 
   const submitMessage = useCallback(async () => {
     const trimmed = input.trim()
-    if (!trimmed || isSending) return
+    const isGenerating = isSending || isAwaitingAgentResponse
+    if (!trimmed || isGenerating) return
 
     const conversation =
       activeConversationId == null
@@ -446,8 +459,13 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     setReferenceLines(null)
     setIsSending(true)
 
+    const abortController = new AbortController()
+    submitAbortControllerRef.current = abortController
+
     try {
       const result = await postJSON<{ runId: string; messageId: string; conversationId: string }>(apiPath('/message'), {
+        signal: abortController.signal,
+        swallowAbortError: false,
         body: {
           message: trimmed,
           conversationId,
@@ -467,7 +485,11 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         },
       })
 
+      if (abortController.signal.aborted) return
+
       setActiveConversationId(result.conversationId)
+      activeRunIdRef.current = result.runId
+      setIsAwaitingAgentResponse(true)
       setMessagesWithRef(prev => {
         if (
           prev.some(
@@ -485,6 +507,9 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         )
       })
     } catch (error) {
+      if (abortController.signal.aborted) {
+        return
+      }
       debugConsole.error(error)
       setMessagesWithRef(prev =>
         prev.map(message =>
@@ -494,6 +519,9 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         )
       )
     } finally {
+      if (submitAbortControllerRef.current === abortController) {
+        submitAbortControllerRef.current = null
+      }
       setIsSending(false)
     }
   }, [
@@ -506,11 +534,13 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     editingMessageId,
     input,
     isSending,
+    isAwaitingAgentResponse,
     referenceLines,
     referenceText,
     setActiveConversationId,
     setInput,
     setIsSending,
+    setIsAwaitingAgentResponse,
     setMessages,
     setReferenceLines,
     setReferenceText,
@@ -604,18 +634,64 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     })
   }, [setMessagesWithRef])
 
+  const stopGeneration = useCallback(() => {
+    simulationStopRef.current = true
+    
+    if (activeRunIdRef.current) {
+      canceledRunIdsRef.current.add(activeRunIdRef.current)
+      
+      if (socket && activeConversationIdRef.current) {
+        socket.emit('agent:stop', {
+          conversationId: activeConversationIdRef.current,
+          runId: activeRunIdRef.current
+        })
+      }
+      
+      activeRunIdRef.current = null
+    }
+    
+    submitAbortControllerRef.current?.abort()
+    submitAbortControllerRef.current = null
+
+    const conversationId = simulationConversationIdRef.current ?? activeConversationIdRef.current
+    if (conversationId) {
+      cleanupPendingToolsForConversation(conversationId)
+    }
+
+    simulationConversationIdRef.current = null
+
+    setIsAwaitingAgentResponse(false)
+    setIsSending(false)
+  }, [activeConversationIdRef, cleanupPendingToolsForConversation, setIsAwaitingAgentResponse, setIsSending, socket])
+
   const simulateFullConversation = useCallback(async () => {
-    if (isSending) {
+    if (isSending || isAwaitingAgentResponse) {
       debugConsole.warn('Already sending a message, cannot simulate conversation')
       return
     }
 
+    simulationStopRef.current = false
     setIsSending(true)
 
     const simConversationId = activeConversationId || `sim-conv-${Date.now()}`
     const simRunId = `sim-run-${Date.now()}`
+    simulationConversationIdRef.current = simConversationId
+
+    const waitWithStopCheck = async (durationMs: number) => {
+      const interval = 50
+      let elapsed = 0
+      while (elapsed < durationMs) {
+        if (simulationStopRef.current) return false
+        const step = Math.min(interval, durationMs - elapsed)
+        await new Promise(resolve => setTimeout(resolve, step))
+        elapsed += step
+      }
+      return !simulationStopRef.current
+    }
 
     try {
+      if (simulationStopRef.current) return
+
       // User message
       const userMessageId = createMessageId('user')
       appendMessage({
@@ -625,7 +701,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         conversationId: simConversationId,
       })
 
-      await new Promise(resolve => setTimeout(resolve, 300))
+      if (!(await waitWithStopCheck(300))) return
 
       // Tool sequence
       const tools = [
@@ -652,7 +728,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         })
 
         // Wait for completion
-        await new Promise(resolve => setTimeout(resolve, tool.duration))
+        if (!(await waitWithStopCheck(tool.duration))) return
         
         // Complete tool - this will be batched
         handleToolCallEvent({
@@ -670,12 +746,12 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
 
         // Agent thinking time between tools
         if (i < tools.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 400))
+          if (!(await waitWithStopCheck(400))) return
         }
       }
 
       // Wait a bit before sending the assistant message
-      await new Promise(resolve => setTimeout(resolve, 800))
+      if (!(await waitWithStopCheck(800))) return
       
       // Assistant message - all tools should be completed by now
       appendMessage({
@@ -695,6 +771,8 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         cleanupPendingToolsForConversation(simConversationId)
       }
     } finally {
+      simulationStopRef.current = false
+      simulationConversationIdRef.current = null
       setIsSending(false)
     }
   }, [
@@ -705,8 +783,15 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     flushPendingStatusMessages, // Add this to dependencies
     handleToolCallEvent,
     isSending,
+    isAwaitingAgentResponse,
     setIsSending,
   ])
+
+  useEffect(() => {
+    if (isAwaitingAgentResponse) {
+      generationStoppedRef.current = false
+    }
+  }, [isAwaitingAgentResponse])
 
   useEffect(() => {
     // When active conversation changes, clean up the old conversation's pending events
@@ -836,7 +921,11 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       message: AgentServerMessage 
     }) {
       if (payload.conversation && payload.conversation.createdBy !== userId) return
-      
+      if (
+        payload.conversation?.lastRunId && 
+        canceledRunIdsRef.current.has(payload.conversation.lastRunId)
+      ) return
+
       if (payload.conversation) {
         const conversation = payload.conversation
         setConversations(prev => {
@@ -856,6 +945,10 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
 
       if (payload.message.role === 'assistant') {
         completePendingToolsForConversation(payload.conversationId) // Then, complete any still-running tools
+        setIsAwaitingAgentResponse(false)
+        if (payload.conversation?.lastRunId && payload.conversation.lastRunId === activeRunIdRef.current) {
+          activeRunIdRef.current = null
+        }
       }
 
       appendMessage(toChatbotMessage(payload.message, payload.conversationId))
@@ -872,7 +965,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       socket.removeListener('agent:message', receivedAgentMessage)
       socket.removeListener('agent:tool-call', receivedToolCall)
     }
-  }, [activeConversationIdRef, completePendingToolsForConversation, flushPendingStatusMessages, handleToolCallEvent, socket, toChatbotMessage, userId, setConversations])
+  }, [activeConversationIdRef, completePendingToolsForConversation, flushPendingStatusMessages, handleToolCallEvent, setIsAwaitingAgentResponse, socket, toChatbotMessage, userId, setConversations])
 
   useEffect(() => {
     const pendingText = consumePendingChatbotPrefill()
@@ -988,6 +1081,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     handleNewChat,
     simulateToolCall,
     simulateFullConversation,
+    stopGeneration,
     submitMessage,
     handleSubmit,
     handleInputKeyDown,

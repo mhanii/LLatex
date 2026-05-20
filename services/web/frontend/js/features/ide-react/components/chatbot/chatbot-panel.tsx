@@ -118,6 +118,8 @@ export default function ChatbotPanel() {
     setInput: state.setInput,
     isSending: state.isSending,
     setIsSending: state.setIsSending,
+    isAwaitingAgentResponse: state.isAwaitingAgentResponse,
+    setIsAwaitingAgentResponse: state.setIsAwaitingAgentResponse,
     setIsLoadingMessages: state.setIsLoadingMessages,
     referenceText: state.referenceText,
     setReferenceText: state.setReferenceText,
@@ -176,10 +178,16 @@ export default function ChatbotPanel() {
   const handleClearReference = controller.clearReference
   const handleCancelEdit = controller.cancelEditing
   const handleSimulateToolCall = controller.simulateToolCall
+  const handleStopGeneration = controller.stopGeneration
 
+  const isGenerating = useMemo(
+    () => state.isSending || state.isAwaitingAgentResponse || 
+          state.messages.some(message => message.role === 'status' && message.status === 'running'),
+    [state.isSending, state.isAwaitingAgentResponse, state.messages]
+  )
   const canSend = useMemo(
-    () => state.input.trim().length > 0 && !state.isSending,
-    [state.input, state.isSending]
+    () => state.input.trim().length > 0 && !isGenerating,
+    [isGenerating, state.input]
   )
 
   return (
@@ -228,6 +236,8 @@ export default function ChatbotPanel() {
         onSubmit={handleSubmit}
         inputRef={state.inputRef}
         canSend={canSend}
+        isGenerating={isGenerating}
+        onStopGeneration={handleStopGeneration}
         referenceText={state.referenceText}
         referenceLines={state.referenceLines}
         onClearReference={handleClearReference}

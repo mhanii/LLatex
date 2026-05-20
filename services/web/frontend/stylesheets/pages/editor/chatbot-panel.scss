@@ -770,6 +770,34 @@
   height: auto;
 }
 
+.ide-chatbot-panel-send-shell {
+  position: relative;
+  align-self: flex-end;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  &.is-generating::before {
+    opacity: 1;
+    border-top-color: var(--green-70);
+    border-right-color: var(--green-60);
+    border-bottom-color: rgba(88, 203, 132, 0.22);
+    border-left-color: rgba(88, 203, 132, 0.22);
+    animation: ide-chatbot-panel-send-ring-spin 0.9s linear infinite;
+  }
+}
+
 .ide-chatbot-panel-input {
   min-width: 0;
   width: 100%;
@@ -800,29 +828,36 @@
 
 .ide-chatbot-panel-send.btn {
   flex: 0 0 auto;
-  align-self: flex-end;
-  border-radius: var(--border-radius-base);
+  align-self: center;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--spacing-02);
-  padding: 0 var(--spacing-03);
+  gap: 0;
+  padding: 0;
   border: 0;
   background: linear-gradient(135deg, var(--green-60) 0%, var(--green-70) 100%);
   color: #ffffff;
   cursor: pointer;
   transition: transform 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  font-size: var(--font-size-01);
   font-weight: 500;
 
   &:hover:not(:disabled) {
-    transform: scale(1.05);
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    transform: scale(1.02);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.14);
   }
 
   &:active:not(:disabled) {
-    transform: scale(0.96);
+    transform: scale(0.98);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--green-60);
+    outline-offset: 2px;
   }
 
   &:disabled {
@@ -834,8 +869,31 @@
   }
 
   .material-symbols {
-    font-size: 14px;
+    font-size: 21px;
     line-height: 1;
+  }
+}
+
+.ide-chatbot-panel-send.btn.is-generating {
+  background: linear-gradient(135deg, var(--red-50) 0%, var(--red-60) 100%);
+
+  &:hover:not(:disabled) {
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.14);
+  }
+}
+
+.ide-chatbot-panel-send-icon {
+  font-variation-settings: 'wght' 500;
+  font-size: 20px;
+}
+
+@keyframes ide-chatbot-panel-send-ring-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
   }
 }
 
