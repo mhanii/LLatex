@@ -63,11 +63,12 @@ export const InlineChangeActions = memo(function InlineChangeActions() {
     // updateRangesEffect — see ranges.ts. Without this, our first render
     // after a ranges change queries the DOM before CM6 has produced the new
     // hosts, and the chip is missing until the next scroll/resize.
-    window.addEventListener('editor:ranges-rendered', bump)
+    // Scoped to this editor's scrollDOM so split-view panes don't cross-fire.
+    scroll.addEventListener('editor:ranges-rendered', bump)
     return () => {
       scroll.removeEventListener('scroll', bump)
       window.removeEventListener('resize', bump)
-      window.removeEventListener('editor:ranges-rendered', bump)
+      scroll.removeEventListener('editor:ranges-rendered', bump)
     }
   }, [view, bump])
 

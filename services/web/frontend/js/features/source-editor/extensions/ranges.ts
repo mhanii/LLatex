@@ -214,7 +214,9 @@ export const ranges = () => [
         if (raf) cancelAnimationFrame(raf)
         raf = requestAnimationFrame(() => {
           raf = 0
-          dispatchEvent(new Event('editor:ranges-rendered'))
+          update.view.scrollDOM.dispatchEvent(
+            new Event('editor:ranges-rendered')
+          )
         })
       },
       destroy() {
