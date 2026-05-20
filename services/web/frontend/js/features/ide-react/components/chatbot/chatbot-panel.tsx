@@ -181,12 +181,8 @@ export default function ChatbotPanel() {
   const handleStopGeneration = controller.stopGeneration
 
   const isGenerating = useMemo(
-    () =>
-      state.isSending ||
-      state.isAwaitingAgentResponse ||
-      state.messages.some(
-        message => message.role === 'status' && message.status === 'running'
-      ),
+    () => state.isSending || state.isAwaitingAgentResponse || 
+          state.messages.some(message => message.role === 'status' && message.status === 'running'),
     [state.isSending, state.isAwaitingAgentResponse, state.messages]
   )
   const canSend = useMemo(

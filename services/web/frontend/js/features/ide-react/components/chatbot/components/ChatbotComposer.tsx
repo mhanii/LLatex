@@ -102,6 +102,7 @@ export const ChatbotComposer: React.FC<ChatbotComposerProps> = ({
             autoCorrect="off"
             autoCapitalize="off"
             spellCheck={false}
+            disabled={isGenerating}
           />
           <div className={`ide-chatbot-panel-send-shell${isGenerating ? ' is-generating' : ''}`}>
             {isGenerating ? (

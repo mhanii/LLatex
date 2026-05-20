@@ -639,10 +639,20 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   const stopGeneration = useCallback(() => {
     generationStoppedRef.current = true
     simulationStopRef.current = true
+    
     if (activeRunIdRef.current) {
       canceledRunIdsRef.current.add(activeRunIdRef.current)
+      
+      if (socket && activeConversationIdRef.current) {
+        socket.emit('agent:stop', {
+          conversationId: activeConversationIdRef.current,
+          runId: activeRunIdRef.current
+        })
+      }
+      
       activeRunIdRef.current = null
     }
+    
     submitAbortControllerRef.current?.abort()
     submitAbortControllerRef.current = null
 
@@ -655,7 +665,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
 
     setIsAwaitingAgentResponse(false)
     setIsSending(false)
-  }, [activeConversationIdRef, cleanupPendingToolsForConversation, setIsAwaitingAgentResponse, setIsSending])
+  }, [activeConversationIdRef, cleanupPendingToolsForConversation, setIsAwaitingAgentResponse, setIsSending, socket])
 
   const simulateFullConversation = useCallback(async () => {
     if (isSending || isAwaitingAgentResponse) {
