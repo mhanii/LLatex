@@ -38,7 +38,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   const isAssistantReveal = message.role === 'assistant' && !message.pending && shouldReveal
 
   useLayoutEffect(() => {
-    // Only calculate duration once per message, not on every text update during streaming
     if (!isAssistantReveal || hasCalculatedDurationRef.current) {
       return
     }
@@ -55,9 +54,13 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     setRevealDurationMs(nextDurationMs)
     hasCalculatedDurationRef.current = true
     
-    // Force reflow
     void contentElement.offsetHeight
   }, [isAssistantReveal])
+
+  const handleLocalAnimationEnd = () => {
+    // Only call onAnimationEnd when the actual animation finishes
+    onAnimationEnd?.()
+  }
 
   const getClassNames = () => {
     const classes = ['ide-chatbot-message']
@@ -73,7 +76,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
       className={getClassNames()}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      onAnimationEnd={onAnimationEnd}
     >
       <div className="ide-chatbot-message-body">
         {message.role === 'assistant' ? (
@@ -88,6 +90,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                   } as React.CSSProperties)
                 : undefined
             }
+            onAnimationEnd={isAssistantReveal ? handleLocalAnimationEnd : undefined}
           >
             <ChatbotMarkdown text={message.text} />
           </div>
