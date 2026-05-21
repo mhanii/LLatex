@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { MessageItem } from './MessageItem'
 import { StatusGroup } from './StatusGroup'
 import { ChatbotMessageGroup } from '../types/chatbot-types'
@@ -36,6 +36,39 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
   shouldAutoScroll,
   onJumpToLatestMessage,
 }) => {
+  const seenAssistantMessageIdsRef = useRef(new Set<string>())
+  const previousMessageCountRef = useRef(0)
+  const [revealingMessageIds, setRevealingMessageIds] = useState<string[]>([])
+
+  useEffect(() => {
+    const currentMessageCount = messageGroups.reduce(
+      (count, group) => count + (group.type === 'single' ? 1 : group.messages.length),
+      0
+    )
+
+    const assistantMessageIds = messageGroups.flatMap(group =>
+      group.type === 'single' && group.message.role === 'assistant' && !group.message.pending
+        ? [group.message.id]
+        : []
+    )
+
+    if (previousMessageCountRef.current === 0) {
+      assistantMessageIds.forEach(id => seenAssistantMessageIdsRef.current.add(id))
+      previousMessageCountRef.current = currentMessageCount
+      return
+    }
+
+    const unseenAssistantMessageIds = assistantMessageIds.filter(
+      id => !seenAssistantMessageIdsRef.current.has(id)
+    )
+
+    if (unseenAssistantMessageIds.length === 0) return
+
+    unseenAssistantMessageIds.forEach(id => seenAssistantMessageIdsRef.current.add(id))
+    setRevealingMessageIds(prev => [...prev, ...unseenAssistantMessageIds.filter(id => !prev.includes(id))])
+    previousMessageCountRef.current = currentMessageCount
+  }, [messageGroups])
+
   return (
     <div className="ide-chatbot-panel-messages-wrapper">
       <div
@@ -52,6 +85,7 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
                 <MessageItem
                   key={message.id}
                   message={message}
+                  shouldReveal={revealingMessageIds.includes(message.id)}
                   isEditing={editingMessageId}
                   isHovered={hoveredMessageId === message.id}
                   onMouseEnter={() => onMessageHover(message.id)}

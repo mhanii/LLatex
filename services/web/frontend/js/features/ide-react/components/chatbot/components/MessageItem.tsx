@@ -1,11 +1,16 @@
-import React from 'react'
+import React, { useLayoutEffect, useRef, useState } from 'react'
 import OLTooltip from '@/shared/components/ol/ol-tooltip'
 import OLIconButton from '@/shared/components/ol/ol-icon-button'
 import { ChatbotMarkdown } from '../chatbot-markdown'
 import { ChatbotMessage } from '../types/chatbot-types'
 
+const REVEAL_PIXELS_PER_SECOND = 420
+const REVEAL_MIN_DURATION_MS = 220
+const REVEAL_MAX_DURATION_MS = 12000
+
 interface MessageItemProps {
   message: ChatbotMessage
+  shouldReveal?: boolean
   isEditing: string | null
   isHovered: boolean
   onMouseEnter: () => void
@@ -16,6 +21,7 @@ interface MessageItemProps {
 
 export const MessageItem: React.FC<MessageItemProps> = ({
   message,
+  shouldReveal = false,
   isEditing,
   isHovered,
   onMouseEnter,
@@ -23,6 +29,29 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   onEdit,
   onCopy,
 }) => {
+  const messageContentRef = useRef<HTMLDivElement | null>(null)
+  const [revealDurationMs, setRevealDurationMs] = useState<number | null>(null)
+
+  const isAssistantReveal = message.role === 'assistant' && !message.pending && shouldReveal
+
+  useLayoutEffect(() => {
+    if (!isAssistantReveal) {
+      setRevealDurationMs(null)
+      return
+    }
+
+    const contentElement = messageContentRef.current
+    if (!contentElement) return
+
+    const contentHeight = contentElement.getBoundingClientRect().height
+    const nextDurationMs = Math.max(
+      REVEAL_MIN_DURATION_MS,
+      Math.min(REVEAL_MAX_DURATION_MS, Math.ceil((contentHeight / REVEAL_PIXELS_PER_SECOND) * 1000))
+    )
+
+    setRevealDurationMs(nextDurationMs)
+  }, [isAssistantReveal, message.text])
+
   const getClassNames = () => {
     const classes = ['ide-chatbot-message']
     if (message.role === 'user') classes.push('ide-chatbot-message-user')
@@ -40,7 +69,11 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     >
       <div className="ide-chatbot-message-body">
         {message.role === 'assistant' ? (
-          <div className="ide-chatbot-message-content">
+          <div
+            ref={messageContentRef}
+            className={`ide-chatbot-message-content${isAssistantReveal ? ' ide-chatbot-message-content-reveal' : ''}`}
+            style={revealDurationMs ? ({ '--ide-chatbot-message-reveal-duration': `${revealDurationMs}ms` } as React.CSSProperties) : undefined}
+          >
             <ChatbotMarkdown text={message.text} />
           </div>
         ) : (

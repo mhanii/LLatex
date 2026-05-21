@@ -26,6 +26,7 @@ export type ChatbotPanelControllerArgs = {
   isAwaitingAgentResponse: boolean
   setIsAwaitingAgentResponse: React.Dispatch<React.SetStateAction<boolean>>
   setIsLoadingMessages: React.Dispatch<React.SetStateAction<boolean>>
+  isLoadingMessages: boolean
   referenceText: string | null
   setReferenceText: React.Dispatch<React.SetStateAction<string | null>>
   referenceLines: { start: number; end: number } | null
@@ -87,6 +88,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     isAwaitingAgentResponse,
     setIsAwaitingAgentResponse,
     setIsLoadingMessages,
+    isLoadingMessages,
     referenceText,
     setReferenceText,
     referenceLines,
@@ -137,6 +139,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   const generationStoppedRef = useRef(false)
   const simulationStopRef = useRef(false)
   const simulationConversationIdRef = useRef<string | null>(null)
+  const initialScrollConversationIdRef = useRef<string | null>(null)
 
   const setMessagesWithRef = useCallback((newMessages: ChatbotMessage[] | ((prev: ChatbotMessage[]) => ChatbotMessage[])) => {
     setMessages(prev => {
@@ -757,7 +760,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       appendMessage({
         id: createMessageId('assistant'),
         role: 'assistant',
-        text: "I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?",
+        text: "I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?",
         conversationId: simConversationId,
       })
 
@@ -1034,10 +1037,30 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     const container = messagesContainerRef.current
     if (!container || !shouldAutoScroll) return
     const lastMessage = messages[messages.length - 1]
-    if (lastMessage && lastMessage.role !== 'status') {
+    if (lastMessage && lastMessage.role !== 'status' && lastMessage.role !== 'assistant') {
       container.scrollTop = container.scrollHeight
     }
   }, [messages, messagesContainerRef, shouldAutoScroll])
+
+  useEffect(() => {
+    if (isLoadingMessages) return
+    if (!activeConversationId) return
+    if (messages.length === 0) return
+    if (initialScrollConversationIdRef.current === activeConversationId) return
+
+    const container = messagesContainerRef.current
+    if (!container) return
+
+    initialScrollConversationIdRef.current = activeConversationId
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const currentContainer = messagesContainerRef.current
+        if (!currentContainer) return
+        currentContainer.scrollTop = currentContainer.scrollHeight
+      })
+    })
+  }, [activeConversationId, isLoadingMessages, messages.length, messagesContainerRef])
 
   useEffect(() => {
     if (!chatDockDragging) return

@@ -172,6 +172,27 @@
   line-height: normal;
 }
 
+.ide-chatbot-message-content-reveal {
+  animation: ide-chatbot-message-reveal var(--ide-chatbot-message-reveal-duration, 100ms) linear both;
+  will-change: clip-path;
+}
+
+@keyframes ide-chatbot-message-reveal {
+  0% {
+    clip-path: inset(0 0 100% 0);
+  }
+
+  100% {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ide-chatbot-message-content-reveal {
+    animation-duration: var(--ide-chatbot-message-reveal-duration, 780ms);
+  }
+}
+
 .ide-chatbot-message-actions {
   position: absolute;
   left: 0;
