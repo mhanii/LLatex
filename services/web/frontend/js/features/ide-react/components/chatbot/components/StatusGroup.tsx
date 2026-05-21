@@ -58,7 +58,7 @@ export const StatusGroup: React.FC<StatusGroupProps> = ({
             <article
               key={message.id}
               className={`ide-chatbot-message ide-chatbot-message-status ${
-                message.text.includes('Could not') || message.text.includes('Failed')
+                message.status === 'error'
                   ? 'ide-chatbot-message-status-error'
                   : ''
               } ${message.status === 'running' ? 'is-pending' : ''}`}
