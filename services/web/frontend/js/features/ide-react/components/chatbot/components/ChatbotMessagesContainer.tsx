@@ -44,6 +44,7 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
 }) => {
   const seenAssistantMessageIdsRef = useRef(new Set<string>())
   const previousConversationIdRef = useRef<string | null>(null)
+  const hasInitializedSeenMessagesRef = useRef(false)
   const [revealingMessageIds, setRevealingMessageIds] = useState<string[]>([])
 
   // Reset refs when conversation changes (but not on initial load)
@@ -53,6 +54,7 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
       seenAssistantMessageIdsRef.current.clear()
       setRevealingMessageIds([])
       previousConversationIdRef.current = activeConversationId
+      hasInitializedSeenMessagesRef.current = false
     }
   }, [activeConversationId])
 
@@ -61,10 +63,31 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
     setRevealingMessageIds(prev => prev.filter(id => id !== messageId))
   }, [])
 
-  // Detect newly added assistant messages (only after loading is complete)
+  // Handle initial population of seen messages WITHOUT animation after loading completes
+  useEffect(() => {
+    // Only run this when loading is complete
+    if (isLoadingMessages) return
+    if (hasInitializedSeenMessagesRef.current) return
+
+    // Get all non-pending assistant message IDs that exist right now
+    const existingAssistantMessageIds = messageGroups.flatMap(group =>
+      group.type === 'single' && group.message.role === 'assistant' && !group.message.pending
+        ? [group.message.id]
+        : []
+    )
+
+    // Mark all existing messages as "seen" so they won't animate
+    existingAssistantMessageIds.forEach(id => seenAssistantMessageIdsRef.current.add(id))
+    hasInitializedSeenMessagesRef.current = true
+  }, [isLoadingMessages, messageGroups])
+
+  // Detect newly added assistant messages (only after initial population is done)
   useEffect(() => {
     // Don't process animations while loading messages
     if (isLoadingMessages) return
+    
+    // Wait until we've initialized the seen set
+    if (!hasInitializedSeenMessagesRef.current) return
 
     // Get all non-pending assistant message IDs
     const assistantMessageIds = messageGroups.flatMap(group =>
@@ -73,7 +96,7 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
         : []
     )
 
-    // Find messages we haven't seen before
+    // Find messages we haven't seen before (these are genuinely new)
     const unseenAssistantMessageIds = assistantMessageIds.filter(
       id => !seenAssistantMessageIdsRef.current.has(id)
     )
