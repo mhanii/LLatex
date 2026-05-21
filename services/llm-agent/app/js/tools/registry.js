@@ -31,7 +31,8 @@ function loadPrompt(name) {
 
 /**
  * @typedef {Object} ToolDefinition
- * @property {string} description
+ * @property {string} description      - full per-tool spec sent to the LLM as the tool schema description
+ * @property {string} usagePrompt      - one-line "when to use this" hint composed into the agent system prompt for agents that allow this tool
  * @property {z.ZodTypeAny} inputSchema
  * @property {(input: any, ctx: import('../types.js').RunContext) => Promise<unknown>} execute
  */
@@ -45,12 +46,15 @@ function loadPrompt(name) {
 export const TOOL_REGISTRY = {
   list_files: {
     description: loadPrompt('list_files'),
+    usagePrompt: 'List every file in the project.',
     inputSchema: z.object({}),
     execute: listFiles,
   },
 
   read_file: {
     description: loadPrompt('read_file'),
+    usagePrompt:
+      'Read the contents of a project file. Optionally limit to a line range.',
     inputSchema: z.object({
       path: z.string().describe('File path relative to project root'),
       fromLine: z
@@ -71,6 +75,7 @@ export const TOOL_REGISTRY = {
 
   create_file: {
     description: loadPrompt('create_file'),
+    usagePrompt: 'Create a new file at the given path with optional initial content.',
     inputSchema: z.object({
       path: z.string().describe('File path relative to project root'),
       content: z.string().optional().describe('Initial file content'),
@@ -80,6 +85,8 @@ export const TOOL_REGISTRY = {
 
   edit_file: {
     description: loadPrompt('edit_file'),
+    usagePrompt:
+      'Replace a verbatim snippet in an existing file. Always read_file first to get the exact text.',
     inputSchema: z.object({
       path: z.string().describe('File path'),
       oldText: z.string().describe('Exact text to replace (must match verbatim)'),
@@ -90,6 +97,7 @@ export const TOOL_REGISTRY = {
 
   delete_file: {
     description: loadPrompt('delete_file'),
+    usagePrompt: 'Delete a file from the project.',
     inputSchema: z.object({
       path: z.string().describe('File path to delete'),
     }),
@@ -98,6 +106,7 @@ export const TOOL_REGISTRY = {
 
   move_file: {
     description: loadPrompt('move_file'),
+    usagePrompt: 'Rename or move a file within the project.',
     inputSchema: z.object({
       oldPath: z.string().describe('Current file path'),
       newPath: z.string().describe('New file path'),
@@ -107,6 +116,8 @@ export const TOOL_REGISTRY = {
 
   get_outline: {
     description: loadPrompt('get_outline'),
+    usagePrompt:
+      'List section headings, labels, and structural markers in a .tex file.',
     inputSchema: z.object({
       path: z.string().describe('File path'),
     }),
@@ -115,6 +126,8 @@ export const TOOL_REGISTRY = {
 
   check_syntax: {
     description: loadPrompt('check_syntax'),
+    usagePrompt:
+      'Static LaTeX syntax check (undefined refs, duplicate labels, unbalanced environments).',
     inputSchema: z.object({
       path: z
         .string()
@@ -126,6 +139,8 @@ export const TOOL_REGISTRY = {
 
   compile_and_check: {
     description: loadPrompt('compile_and_check'),
+    usagePrompt:
+      'Compile the project (or a given root file) and return any errors.',
     inputSchema: z.object({
       path: z
         .string()
@@ -137,6 +152,7 @@ export const TOOL_REGISTRY = {
 
   get_pdf_page: {
     description: loadPrompt('get_pdf_page'),
+    usagePrompt: 'Render a page from the compiled PDF as an image.',
     inputSchema: z.object({
       page: z.number().int().positive().describe('1-indexed page number'),
     }),
@@ -145,12 +161,16 @@ export const TOOL_REGISTRY = {
 
   list_skills: {
     description: loadPrompt('list_skills'),
+    usagePrompt:
+      'List available expert skills (guides + reusable LaTeX templates).',
     inputSchema: z.object({}),
     execute: listSkills,
   },
 
   read_skill: {
     description: loadPrompt('read_skill'),
+    usagePrompt:
+      'Read a skill guide or one of its templates. Call without `template` first to see the template index.',
     inputSchema: z.object({
       name: z.string().describe('Skill name as returned by list_skills'),
       template: z
@@ -165,6 +185,8 @@ export const TOOL_REGISTRY = {
 
   grep: {
     description: loadPrompt('grep'),
+    usagePrompt:
+      'Regex search across project files. Prefer over read_file when you only need to know where something appears.',
     inputSchema: z.object({
       pattern: z
         .string()
@@ -192,6 +214,8 @@ export const TOOL_REGISTRY = {
 
   ask_question: {
     description: loadPrompt('ask_question'),
+    usagePrompt:
+      'Ask the user a multi-choice clarifying question when a request has 2-4 reasonable interpretations and files cannot disambiguate. Calling this ends your turn.',
     inputSchema: z.object({
       questions: z
         .array(

@@ -447,8 +447,10 @@ describe('LlmAgentController', function () {
         steps: [
           {
             name: 'llm.complete',
-            startedAt: new Date(1000),
-            finishedAt: new Date(2000),
+            // ISO strings — matches what fetchJson returns after the HTTP
+            // round-trip; Date instances would mask a getTime() bug.
+            startedAt: new Date(1000).toISOString(),
+            finishedAt: new Date(2000).toISOString(),
             output: {
               text: '',
               reasoning: [],

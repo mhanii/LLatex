@@ -31,10 +31,11 @@ describe('tools/registry', function () {
       )
     })
 
-    it('each entry has description, inputSchema, and execute', function () {
+    it('each entry has description, usagePrompt, inputSchema, and execute', function () {
       for (const name of EXPECTED_TOOLS) {
         const def = TOOL_REGISTRY[name]
         expect(def, `${name}.description`).to.have.property('description').that.is.a('string').and.is.not.empty
+        expect(def, `${name}.usagePrompt`).to.have.property('usagePrompt').that.is.a('string').and.is.not.empty
         expect(def, `${name}.inputSchema`).to.have.property('inputSchema')
         expect(def.inputSchema, `${name}.inputSchema._def`).to.have.property('_def')
         expect(def.execute, `${name}.execute`).to.be.a('function')

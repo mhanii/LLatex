@@ -169,6 +169,14 @@ async function listConversations(req, res) {
   res.json(conversations)
 }
 
+// Steps arrive over HTTP, so Date fields are ISO strings after JSON parsing,
+// not Date instances — `.getTime()` would be undefined on them.
+function toEpochMs(value) {
+  if (value == null) return null
+  const ms = value instanceof Date ? value.getTime() : new Date(value).getTime()
+  return Number.isFinite(ms) ? ms : null
+}
+
 function buildToolEvents(steps) {
   const events = []
   for (const step of steps) {
@@ -181,7 +189,8 @@ function buildToolEvents(steps) {
         toolName: tc.toolName,
         status: 'completed',
         input: tc.input ?? tc.args ?? {},
-        timestamp: step.finishedAt?.getTime?.() ?? step.startedAt?.getTime?.() ?? Date.now(),
+        timestamp:
+          toEpochMs(step.finishedAt) ?? toEpochMs(step.startedAt) ?? Date.now(),
       })
     }
   }

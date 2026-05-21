@@ -1,7 +1,7 @@
 // @ts-check
 
 import logger from '@overleaf/logger'
-import { createRun, getStepsForRun } from './AgentStore.js'
+import { createRun, getStepsForRunInProject } from './AgentStore.js'
 import { run } from './AgentManager.js'
 import { getAgent } from './agents/registry.js'
 
@@ -56,8 +56,11 @@ async function startRun(req, res) {
 }
 
 async function getRunSteps(req, res) {
-  const { runId } = req.params
-  const steps = await getStepsForRun(runId)
+  const { projectId, runId } = req.params
+  const steps = await getStepsForRunInProject(projectId, runId)
+  if (steps === null) {
+    return res.status(404).json({ error: 'run not found in project' })
+  }
   res.json({ steps })
 }
 

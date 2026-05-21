@@ -110,10 +110,19 @@ async function compile(projectId, userId, options = {}) {
   const token = newLockToken()
 
   if (await tryAcquireLock(projectId, token)) {
+    let result
     try {
-      const result = await runCompileWithRetries(projectId, userId, options)
-      if (result.status === 'success') {
+      try {
+        result = await runCompileWithRetries(projectId, userId, options)
+      } catch (err) {
+        // Surface as a structured result so waiters don't poll for the full
+        // WAITER_TIMEOUT_MS before erroring. Re-thrown to the lock holder.
+        result = { status: 'error', outputFiles: [], error: String(err) }
         await storeResult(projectId, result)
+        throw err
+      }
+      await storeResult(projectId, result)
+      if (result.status === 'success') {
         EditorRealTimeController.emitToRoom(
           projectId,
           'pdf:agent-compile-done',

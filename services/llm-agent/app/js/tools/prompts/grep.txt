@@ -8,4 +8,4 @@ The pattern is a JavaScript-flavored regular expression. Escape special characte
 
 `caseSensitive` defaults to false. `maxResults` defaults to 100 and is capped at 500; results are truncated when the cap is reached.
 
-Returns an array of { path, lineNumber, line } objects, or an error string. An empty array means no matches.
+Returns matches as newline-separated `path:lineNumber:line` strings (ripgrep style). Returns `No matches found` when nothing matches, or an error string when the pattern is invalid.

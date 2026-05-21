@@ -85,6 +85,55 @@ describe('AgentCompileCoordinator (real Redis)', function () {
       expect(b.buildId).toBe('build-shared')
     })
 
+    it('waiters receive a non-success result instead of timing out', async function () {
+      const projectId = randomProjectId()
+      let resolveCompile
+      CompileManager.promises.compile = vi.fn().mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            resolveCompile = resolve
+          })
+      )
+      const first = AgentCompileCoordinator.compile(projectId, USER_ID, {})
+      await waitUntil(async () => {
+        return (await redis.get(`agent:compile:lock:${projectId}`)) != null
+      })
+      const second = AgentCompileCoordinator.compile(projectId, USER_ID, {})
+      await new Promise(r => setTimeout(r, 50))
+
+      resolveCompile({ status: 'failure', outputFiles: [] })
+
+      const [a, b] = await Promise.all([first, second])
+      expect(a.status).toBe('failure')
+      expect(b.status).toBe('failure')
+    })
+
+    it('waiters receive an error sentinel when the lock holder throws', async function () {
+      const projectId = randomProjectId()
+      let rejectCompile
+      CompileManager.promises.compile = vi.fn().mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectCompile = reject
+          })
+      )
+      const first = AgentCompileCoordinator.compile(projectId, USER_ID, {}).catch(
+        err => ({ thrown: err })
+      )
+      await waitUntil(async () => {
+        return (await redis.get(`agent:compile:lock:${projectId}`)) != null
+      })
+      const second = AgentCompileCoordinator.compile(projectId, USER_ID, {})
+      await new Promise(r => setTimeout(r, 50))
+
+      rejectCompile(new Error('clsi exploded'))
+
+      const [a, b] = await Promise.all([first, second])
+      expect(a.thrown?.message).toBe('clsi exploded')
+      expect(b.status).toBe('error')
+      expect(b.error).toContain('clsi exploded')
+    })
+
     it('releases the lock if the compile throws so the next call can run', async function () {
       const projectId = randomProjectId()
       CompileManager.promises.compile = vi
