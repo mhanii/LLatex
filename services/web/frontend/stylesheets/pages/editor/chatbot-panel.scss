@@ -189,7 +189,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .ide-chatbot-message-content-reveal {
-    animation-duration: var(--ide-chatbot-message-reveal-duration, 780ms);
+    animation-duration: 1ms;
   }
 }
 
