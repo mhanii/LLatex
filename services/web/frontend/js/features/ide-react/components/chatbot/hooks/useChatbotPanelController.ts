@@ -736,7 +736,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         currentText += fullText[i]
         
         // Update the message
-        setMessages(prev => 
+        setMessagesWithRef(prev => 
           prev.map(msg => 
             msg.id === messageId 
               ? { ...msg, text: currentText }
