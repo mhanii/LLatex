@@ -1072,8 +1072,22 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   useEffect(() => {
     const container = messagesContainerRef.current
     if (!container || !shouldAutoScroll) return
+    
     const lastMessage = messages[messages.length - 1]
-    if (lastMessage && lastMessage.role !== 'status' && lastMessage.role !== 'assistant') {
+    if (!lastMessage) return
+    
+    // Only skip auto-scroll for a brief moment (200ms) after assistant message appears
+    // This gives the animation a chance to start without jumping
+    if (lastMessage.role === 'assistant') {
+      const timeoutId = setTimeout(() => {
+        if (shouldAutoScrollRef.current && messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+        }
+      }, 200)
+      return () => clearTimeout(timeoutId)
+    }
+    
+    if (lastMessage.role !== 'status') {
       container.scrollTop = container.scrollHeight
     }
   }, [messages, messagesContainerRef, shouldAutoScroll])
