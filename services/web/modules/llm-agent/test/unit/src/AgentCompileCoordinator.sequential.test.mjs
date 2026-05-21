@@ -245,6 +245,9 @@ describe('AgentCompileCoordinator (real Redis)', function () {
       expect(payload.outputUrlPrefix).toBe('/prefix')
       // pdfCachingMinChunkSize is required (no `?` in the frontend type).
       expect(typeof payload.pdfCachingMinChunkSize).toBe('number')
+      // local-compile-context.tsx reads payload.options.stopOnFirstError
+      // unconditionally — a missing `options` field would crash the consumer.
+      expect(payload.options).toEqual({ stopOnFirstError: false })
     })
 
     it('does not emit when the compile fails', async function () {

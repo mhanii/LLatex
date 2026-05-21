@@ -89,7 +89,10 @@ async function runCompileWithRetries(projectId, userId, options) {
 
 // Shape the CompileManager result into the same payload the frontend's
 // pdf-preview compile context consumes after a normal user-driven compile,
-// so it can be applied directly without a re-fetch.
+// so it can be applied directly without a re-fetch. `options` mirrors what
+// the frontend's compiler.ts attaches before setData — the data-processing
+// effect reads `data.options.stopOnFirstError` unconditionally and would
+// crash without it.
 function toCompileResponsePayload(result) {
   return {
     status: result.status,
@@ -103,6 +106,7 @@ function toCompileResponsePayload(result) {
     outputUrlPrefix: result.outputUrlPrefix,
     pdfDownloadDomain: Settings.pdfDownloadDomain,
     pdfCachingMinChunkSize: Settings.pdfCachingMinChunkSize ?? 0,
+    options: { stopOnFirstError: false },
   }
 }
 
