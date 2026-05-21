@@ -16,6 +16,8 @@ import { compileAndCheck } from './compile_and_check.js'
 import { getPdfPage } from './get_pdf_page.js'
 import { listSkills } from './list_skills.js'
 import { readSkill } from './read_skill.js'
+import { grep } from './grep.js'
+import { askQuestion } from './ask_question.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -159,6 +161,78 @@ export const TOOL_REGISTRY = {
         ),
     }),
     execute: readSkill,
+  },
+
+  grep: {
+    description: loadPrompt('grep'),
+    inputSchema: z.object({
+      pattern: z
+        .string()
+        .min(1)
+        .describe('JavaScript-flavored regular expression to search for'),
+      pathGlob: z
+        .string()
+        .optional()
+        .describe(
+          'Glob filter for which files to search (e.g. "*.tex", "chapters/*.tex", "**/*.bib"). Omit to search all files.'
+        ),
+      caseSensitive: z
+        .boolean()
+        .optional()
+        .describe('Match case exactly. Defaults to false (case-insensitive).'),
+      maxResults: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe('Maximum number of matches to return (default 100, max 500).'),
+    }),
+    execute: grep,
+  },
+
+  ask_question: {
+    description: loadPrompt('ask_question'),
+    inputSchema: z.object({
+      questions: z
+        .array(
+          z.object({
+            question: z
+              .string()
+              .min(1)
+              .describe('The full question text, ending with a question mark.'),
+            header: z
+              .string()
+              .optional()
+              .describe(
+                'Optional short label (~12 chars) displayed as a chip when multiple questions are shown side by side.'
+              ),
+            multiSelect: z
+              .boolean()
+              .optional()
+              .describe('Allow more than one option to be selected.'),
+            options: z
+              .array(
+                z.object({
+                  label: z
+                    .string()
+                    .min(1)
+                    .describe('Short choice text (1-5 words) shown to the user.'),
+                  description: z
+                    .string()
+                    .optional()
+                    .describe('One-sentence context for this option.'),
+                })
+              )
+              .min(2)
+              .max(4)
+              .describe('2-4 mutually-exclusive choices.'),
+          })
+        )
+        .min(1)
+        .max(4)
+        .describe('1-4 questions to present to the user at once.'),
+    }),
+    execute: askQuestion,
   },
 }
 

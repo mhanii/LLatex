@@ -35,8 +35,8 @@ describe('agents/registry', function () {
       }
     })
 
-    it('default agent has access to all 11 tools', function () {
-      expect(AGENT_REGISTRY.default.allowedTools).to.have.lengthOf(11)
+    it('default agent has access to all editing and inspection tools', function () {
+      expect(AGENT_REGISTRY.default.allowedTools).to.have.lengthOf(13)
     })
 
     it('readonly agent excludes all mutation tools', function () {
@@ -46,16 +46,18 @@ describe('agents/registry', function () {
       }
     })
 
-    it('readonly agent retains read/inspection and skills tools', function () {
+    it('readonly agent retains read/inspection, skills, search, and interaction tools', function () {
       const readonlyTools = [
         'list_files',
         'read_file',
+        'grep',
         'get_outline',
         'check_syntax',
         'compile_and_check',
         'get_pdf_page',
         'list_skills',
         'read_skill',
+        'ask_question',
       ]
       expect(AGENT_REGISTRY.readonly.allowedTools.sort()).to.deep.equal(
         [...readonlyTools].sort()

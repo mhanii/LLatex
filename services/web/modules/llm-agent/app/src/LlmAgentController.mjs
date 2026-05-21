@@ -10,7 +10,7 @@ import EditorRealTimeController from '../../../../app/src/Features/Editor/Editor
 import DocumentUpdaterHandler from '../../../../app/src/Features/DocumentUpdater/DocumentUpdaterHandler.mjs'
 import UserInfoManager from '../../../../app/src/Features/User/UserInfoManager.mjs'
 import UserInfoController from '../../../../app/src/Features/User/UserInfoController.mjs'
-import CompileManager from '../../../../app/src/Features/Compile/CompileManager.mjs'
+import AgentCompileCoordinator from './AgentCompileCoordinator.mjs'
 import ProjectLocator from '../../../../app/src/Features/Project/ProjectLocator.mjs'
 import ProjectGetter from '../../../../app/src/Features/Project/ProjectGetter.mjs'
 import ProjectCreationHandler from '../../../../app/src/Features/Project/ProjectCreationHandler.mjs'
@@ -497,7 +497,7 @@ async function internalCompile(req, res) {
   const compileOptions = { isAutoCompile: false, fileLineErrors: true }
   if (rootDocId) compileOptions.rootDoc_id = rootDocId
   if (stopOnFirstError) compileOptions.stopOnFirstError = true
-  const result = await CompileManager.promises.compile(
+  const result = await AgentCompileCoordinator.compile(
     projectId,
     userId,
     compileOptions

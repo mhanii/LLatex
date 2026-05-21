@@ -1,0 +1,19 @@
+Ask the user one or more multiple-choice questions when you genuinely need their input to proceed. Calling this tool ends the current turn — the agent will stop and wait for the user's reply before doing anything else.
+
+Use this when:
+- A request is ambiguous and the right answer depends on user intent (e.g. "Should I use BibTeX or BibLaTeX?", "Which figure style do you prefer?").
+- You need to confirm a destructive or irreversible choice before acting (e.g. "Delete chapters/intro.tex?").
+- There are 2-4 reasonable options and the user is best placed to pick.
+
+Do NOT use this when:
+- You can answer the question yourself by reading files, checking syntax, or compiling.
+- The next step is obvious from context.
+- You just want to summarise progress — say it in your normal response.
+
+Input is an array of 1-4 question objects. Each question has:
+- `question`: the full question text (ends with a question mark)
+- `header`: optional short label (max ~12 chars), useful as a UI chip
+- `multiSelect`: true if more than one option can be picked; defaults to false
+- `options`: 2-4 mutually-exclusive choices, each with `label` (1-5 word display text) and an optional `description` (one sentence of context)
+
+The tool returns immediately and the agent run terminates. The user's next message will contain their selections — read it on the next turn and continue.

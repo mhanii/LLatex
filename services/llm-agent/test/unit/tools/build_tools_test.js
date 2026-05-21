@@ -22,12 +22,12 @@ function makeCtx() {
 describe('tools/index buildTools', function () {
   afterEach(restoreFetch)
 
-  it('returns all 12 tools when toolNames is omitted', function () {
+  it('returns every registered tool when toolNames is omitted', function () {
     const tools = buildTools(makeCtx())
-    expect(Object.keys(tools)).to.have.lengthOf(12)
     expect(tools).to.have.all.keys(
       'list_files',
       'read_file',
+      'grep',
       'create_file',
       'edit_file',
       'delete_file',
@@ -37,7 +37,8 @@ describe('tools/index buildTools', function () {
       'compile_and_check',
       'get_pdf_page',
       'list_skills',
-      'read_skill'
+      'read_skill',
+      'ask_question'
     )
   })
 

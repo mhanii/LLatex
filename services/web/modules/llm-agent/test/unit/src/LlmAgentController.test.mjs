@@ -10,6 +10,7 @@ const MESSAGE_ID = 'eee000000000000000000001'
 let SessionManager
 let ChatApiHandler
 let CompileManager
+let AgentCompileCoordinator
 let ProjectGetter
 let ProjectEntityHandler
 let ProjectLocator
@@ -145,6 +146,16 @@ describe('LlmAgentController', function () {
     }
     vi.doMock('../../../../../app/src/Features/Compile/CompileManager.mjs', () => ({
       default: CompileManager,
+    }))
+
+    AgentCompileCoordinator = {
+      compile: vi.fn().mockResolvedValue({
+        status: 'success',
+        outputFiles: [],
+      }),
+    }
+    vi.doMock('../../../app/src/AgentCompileCoordinator.mjs', () => ({
+      default: AgentCompileCoordinator,
     }))
 
     vi.doMock(
@@ -676,7 +687,7 @@ describe('LlmAgentController', function () {
         '\n' +
         './main.tex:5: Undefined control sequence.\n' +
         'l.5 \\badcommand\n'
-      CompileManager.promises.compile.mockResolvedValueOnce({
+      AgentCompileCoordinator.compile.mockResolvedValueOnce({
         status: 'failure',
         outputFiles: [
           {
@@ -714,7 +725,7 @@ describe('LlmAgentController', function () {
     })
 
     it('returns empty entries when outputFiles is empty', async function () {
-      CompileManager.promises.compile.mockResolvedValueOnce({
+      AgentCompileCoordinator.compile.mockResolvedValueOnce({
         status: 'failure',
         outputFiles: [],
       })
@@ -732,7 +743,7 @@ describe('LlmAgentController', function () {
     })
 
     it('returns empty entries when fetching output.log fails', async function () {
-      CompileManager.promises.compile.mockResolvedValueOnce({
+      AgentCompileCoordinator.compile.mockResolvedValueOnce({
         status: 'failure',
         outputFiles: [
           {
@@ -757,7 +768,7 @@ describe('LlmAgentController', function () {
       const blgContent =
         'This is BibTeX, Version 0.99d (TeX Live)\n' +
         'A bad cross reference---entry "foo"\nrefers to entry "bar", which doesn\'t exist\n'
-      CompileManager.promises.compile.mockResolvedValueOnce({
+      AgentCompileCoordinator.compile.mockResolvedValueOnce({
         status: 'failure',
         outputFiles: [
           {
@@ -783,6 +794,30 @@ describe('LlmAgentController', function () {
       const res = makeRes()
       await LlmAgentController.internalCompile(req, res, vi.fn())
       expect(res.statusCode).toBe(400)
+    })
+
+    it('routes through AgentCompileCoordinator (not CompileManager directly)', async function () {
+      fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ pageCount: 1 }),
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const req = makeCompileReq({ rootDoc_id: 'doc-root', stopOnFirstError: true })
+      const res = makeRes()
+      await LlmAgentController.internalCompile(req, res, vi.fn())
+
+      expect(AgentCompileCoordinator.compile).toHaveBeenCalledTimes(1)
+      expect(CompileManager.promises.compile).not.toHaveBeenCalled()
+      const [pid, uid, opts] = AgentCompileCoordinator.compile.mock.calls[0]
+      expect(pid).toBe(PROJECT_ID)
+      expect(uid).toBe(USER_ID)
+      expect(opts).toMatchObject({
+        isAutoCompile: false,
+        fileLineErrors: true,
+        rootDoc_id: 'doc-root',
+        stopOnFirstError: true,
+      })
     })
   })
 

@@ -241,21 +241,37 @@ export async function run(runId, input, startedAt, opts = {}) {
         finalText = result.text
       }
 
+      // ask_question terminates the run: the user owes the next message and
+      // the model has no useful work to do until they reply. The tool execute
+      // function sets runCtx.pendingQuestion; we check after the step so the
+      // tool's call/result pair has been persisted into the run trace.
+      if (runCtx.pendingQuestion) break
+
       if (!(result.toolCalls?.length > 0)) break
     }
 
-    // If the loop exited without the model ever producing text (e.g. maxSteps
-    // exhausted by back-to-back tool calls), emit a fallback message — the web
-    // service rejects empty content with 400, which would otherwise leave the
-    // UI stuck in the pending state with no visible response.
-    const stepBudgetExhausted = !finalText
-    const content = stepBudgetExhausted
-      ? `Agent stopped after ${maxSteps} steps without producing a final response. Try a more focused request.`
-      : finalText
-    const output = {
-      type: stepBudgetExhausted ? 'error' : 'text',
-      content,
+    let output
+    if (runCtx.pendingQuestion) {
+      output = {
+        type: 'question',
+        content: runCtx.pendingQuestion.text,
+        questions: runCtx.pendingQuestion.questions,
+      }
+    } else {
+      // If the loop exited without the model ever producing text (e.g. maxSteps
+      // exhausted by back-to-back tool calls), emit a fallback message — the web
+      // service rejects empty content with 400, which would otherwise leave the
+      // UI stuck in the pending state with no visible response.
+      const stepBudgetExhausted = !finalText
+      const content = stepBudgetExhausted
+        ? `Agent stopped after ${maxSteps} steps without producing a final response. Try a more focused request.`
+        : finalText
+      output = {
+        type: stepBudgetExhausted ? 'error' : 'text',
+        content,
+      }
     }
+    const content = output.content
     await finalizeRun(runId, output, startedAt)
     try {
       await notifyWebAgentComplete(input.projectId, {
