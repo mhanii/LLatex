@@ -33,12 +33,13 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 }) => {
   const messageContentRef = useRef<HTMLDivElement | null>(null)
   const [revealDurationMs, setRevealDurationMs] = useState<number | null>(null)
+  const hasCalculatedDurationRef = useRef(false)
 
   const isAssistantReveal = message.role === 'assistant' && !message.pending && shouldReveal
 
   useLayoutEffect(() => {
-    if (!isAssistantReveal) {
-      setRevealDurationMs(null)
+    // Only calculate duration once per message, not on every text update during streaming
+    if (!isAssistantReveal || hasCalculatedDurationRef.current) {
       return
     }
 
@@ -52,9 +53,11 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     )
 
     setRevealDurationMs(nextDurationMs)
+    hasCalculatedDurationRef.current = true
     
+    // Force reflow
     void contentElement.offsetHeight
-  }, [isAssistantReveal, message.text])
+  }, [isAssistantReveal])
 
   const getClassNames = () => {
     const classes = ['ide-chatbot-message']
@@ -93,9 +96,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
         )}
         {message.role === 'user' && !message.pending && (
           <div className="ide-chatbot-message-footer">
-            {/* <OLTooltip id={`edit-chatbot-message-${message.id}`} description="Edit message" overlayProps={{ placement: 'bottom' }}>
-              <OLIconButton onClick={() => onEdit(message.id)} className="ide-chatbot-message-footer-button" icon="edit" accessibilityLabel="Edit message" size="sm" />
-            </OLTooltip> */}
             <OLTooltip id={`copy-chatbot-message-${message.id}`} description="Copy message" overlayProps={{ placement: 'bottom' }}>
               <OLIconButton onClick={() => onCopy(message.text)} className="ide-chatbot-message-footer-button" icon="content_copy" accessibilityLabel="Copy message" size="sm" />
             </OLTooltip>
