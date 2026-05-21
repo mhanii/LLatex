@@ -223,6 +223,8 @@ export default function ChatbotPanel() {
         messagesContainerRef={state.messagesContainerRef}
         shouldAutoScroll={state.shouldAutoScroll}
         onJumpToLatestMessage={handleJumpToLatestMessage}
+        activeConversationId={state.activeConversationId}
+        isLoadingMessages={state._isLoadingMessages}
       />
 
       <ChatbotDebugPanel 

@@ -4,9 +4,9 @@ import OLIconButton from '@/shared/components/ol/ol-icon-button'
 import { ChatbotMarkdown } from '../chatbot-markdown'
 import { ChatbotMessage } from '../types/chatbot-types'
 
-const REVEAL_PIXELS_PER_SECOND = 420
-const REVEAL_MIN_DURATION_MS = 220
-const REVEAL_MAX_DURATION_MS = 12000
+const REVEAL_PIXELS_PER_SECOND = 12000
+const REVEAL_MIN_DURATION_MS = 80
+const REVEAL_MAX_DURATION_MS = 2000
 
 interface MessageItemProps {
   message: ChatbotMessage
@@ -17,6 +17,7 @@ interface MessageItemProps {
   onMouseLeave: () => void
   onEdit: (id: string) => void
   onCopy: (text: string) => void
+  onAnimationEnd?: () => void
 }
 
 export const MessageItem: React.FC<MessageItemProps> = ({
@@ -28,6 +29,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   onMouseLeave,
   onEdit,
   onCopy,
+  onAnimationEnd,
 }) => {
   const messageContentRef = useRef<HTMLDivElement | null>(null)
   const [revealDurationMs, setRevealDurationMs] = useState<number | null>(null)
@@ -50,6 +52,8 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     )
 
     setRevealDurationMs(nextDurationMs)
+    
+    void contentElement.offsetHeight
   }, [isAssistantReveal, message.text])
 
   const getClassNames = () => {
@@ -66,13 +70,21 @@ export const MessageItem: React.FC<MessageItemProps> = ({
       className={getClassNames()}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
+      onAnimationEnd={onAnimationEnd}
     >
       <div className="ide-chatbot-message-body">
         {message.role === 'assistant' ? (
           <div
             ref={messageContentRef}
             className={`ide-chatbot-message-content${isAssistantReveal ? ' ide-chatbot-message-content-reveal' : ''}`}
-            style={revealDurationMs ? ({ '--ide-chatbot-message-reveal-duration': `${revealDurationMs}ms` } as React.CSSProperties) : undefined}
+            style={
+              revealDurationMs && isAssistantReveal
+                ? ({ 
+                    '--ide-chatbot-message-reveal-duration': `${revealDurationMs}ms`,
+                    animationDuration: `${revealDurationMs}ms`
+                  } as React.CSSProperties)
+                : undefined
+            }
           >
             <ChatbotMarkdown text={message.text} />
           </div>
