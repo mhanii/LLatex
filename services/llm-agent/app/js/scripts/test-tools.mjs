@@ -29,6 +29,8 @@ import { createFile }      from '../tools/create_file.js'
 import { compileAndCheck } from '../tools/compile_and_check.js'
 import { checkSyntax }     from '../tools/check_syntax.js'
 import { getPdfPage }      from '../tools/get_pdf_page.js'
+import { grep }            from '../tools/grep.js'
+import { askQuestion }     from '../tools/ask_question.js'
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const WEB_URL   = `http://${process.env.WEB_HOST   || 'web'}:3000`
@@ -672,6 +674,220 @@ async function main() {
         { path: NEW_FILE_PATH, oldText: doubleFinal, newText: doubleBase },
         ctx
       )
+
+      // ── Step 19: grep — find a unique token across the project ───────────────
+      // The new.tex file we created contains the phrase "domain-specific
+      // heuristics" — verify grep finds it with a path, line number, and the
+      // actual line content. Hits real document-updater under the hood.
+      step('19a · grep finds a literal phrase in the project')
+      const grepHits = await grep(
+        { pattern: 'domain-specific heuristics' },
+        ctx
+      )
+      assert(typeof grepHits === 'string', `grep returned a string`)
+      assert(
+        grepHits !== 'No matches found',
+        `grep found at least one hit`
+      )
+      const grepLines = grepHits.split('\n')
+      const hitLine = grepLines.find(l => l.startsWith(NEW_FILE_PATH))
+      assert(!!hitLine, `at least one hit is in ${NEW_FILE_PATH}`)
+      const hitParts = hitLine.split(':')
+      const hitLineNumber = parseInt(hitParts[1], 10)
+      const hitText = hitParts.slice(2).join(':')
+      assert(
+        Number.isFinite(hitLineNumber) && hitLineNumber >= 1,
+        `hit has a positive lineNumber (got ${hitLineNumber})`
+      )
+      assert(
+        hitText.includes('domain-specific heuristics'),
+        `hit line carries the matched text`
+      )
+      ok(`grep hit: ${NEW_FILE_PATH}:${hitLineNumber}`)
+
+      // 19b: regex pattern + case-sensitivity flag
+      step('19b · grep with regex and caseSensitive=true')
+      const sectionsCS = await grep(
+        { pattern: '^\\section\\{', caseSensitive: true },
+        ctx
+      )
+      assert(
+        typeof sectionsCS === 'string' && sectionsCS.split('\n').length >= 2,
+        `regex \\section{} match across project`
+      )
+
+      // 19c: pathGlob filter — only search inside new.tex
+      step('19c · grep with pathGlob limits the search')
+      const onlyInNew = await grep(
+        { pattern: 'section', pathGlob: NEW_FILE_PATH },
+        ctx
+      )
+      assert(
+        typeof onlyInNew === 'string' &&
+        onlyInNew !== 'No matches found' &&
+        onlyInNew.split('\n').every(l => l.startsWith(NEW_FILE_PATH)),
+        `all hits are confined to ${NEW_FILE_PATH}`
+      )
+
+      // 19d: case-insensitive (default)
+      step('19d · grep is case-insensitive by default')
+      const ciHits = await grep(
+        { pattern: 'METHODOLOGY', pathGlob: NEW_FILE_PATH },
+        ctx
+      )
+      assert(
+        typeof ciHits === 'string' && ciHits !== 'No matches found',
+        `case-insensitive match for METHODOLOGY`
+      )
+
+      // 19e: maxResults caps output
+      step('19e · grep respects maxResults')
+      const capped = await grep(
+        { pattern: '.', maxResults: 3 },
+        ctx
+      )
+      assert(
+        typeof capped === 'string' && capped.split('\n').length === 3,
+        `result count capped to 3`
+      )
+
+      // 19f: no matches
+      step('19f · grep with no matches returns "No matches found"')
+      const noHits = await grep(
+        { pattern: 'this-string-definitely-not-in-any-file-xyz123' },
+        ctx
+      )
+      assert(
+        noHits === 'No matches found',
+        `no matches → "No matches found"`
+      )
+
+      // 19g: anchored regex — `^\\title` must match the title line and only it
+      step('19g · grep with start anchor ^\\title')
+      const titleHits = await grep(
+        { pattern: '^\\title', pathGlob: NEW_FILE_PATH, caseSensitive: true },
+        ctx
+      )
+      const titleLines = titleHits === 'No matches found' ? [] : titleHits.split('\n')
+      assert(
+        titleLines.length === 1 && titleLines[0].includes('\\title{'),
+        `^\\title matched exactly one line`
+      )
+
+      // 19h: alternation — either "Introduction" or "Methodology" appears as a section
+      step('19h · grep with alternation (Introduction|Methodology)')
+      const altHits = await grep(
+        {
+          pattern: '\\section\\{(Introduction|Methodology)\\}',
+          pathGlob: NEW_FILE_PATH,
+          caseSensitive: true,
+        },
+        ctx
+      )
+      const altLines = altHits === 'No matches found' ? [] : altHits.split('\n')
+      assert(
+        altLines.length === 2,
+        `alternation matched two sections (got ${altLines.length})`
+      )
+
+      // 19i: digit class — find the 42% in the Results paragraph
+      step('19i · grep with \\d+ matches the 42\\% improvement claim')
+      const digitHits = await grep(
+        { pattern: '\\d+\\%', pathGlob: NEW_FILE_PATH },
+        ctx
+      )
+      assert(
+        typeof digitHits === 'string' && digitHits.includes('42'),
+        `\\d+\\% matched the 42% line`
+      )
+
+      // 19j: escaped backslash — locate every LaTeX command starting with \begin
+      step('19j · grep finds every \\begin{...} occurrence')
+      const beginHits = await grep(
+        { pattern: '\\begin\\{', pathGlob: NEW_FILE_PATH, caseSensitive: true },
+        ctx
+      )
+      const beginLines = beginHits === 'No matches found' ? [] : beginHits.split('\n')
+      assert(
+        beginLines.length >= 1,
+        `at least one \\begin{...} match (got ${beginLines.length})`
+      )
+
+      // 19k: word boundary — \bdocument\b must match "document" only, not
+      // "documentclass". `documentclass` has `document` followed by `c` (word
+      // char), so \b does not match between them.
+      step('19k · grep with word boundary \\b skips substrings')
+      const wordHits = await grep(
+        {
+          pattern: '\\bdocument\\b',
+          pathGlob: NEW_FILE_PATH,
+          caseSensitive: true,
+        },
+        ctx
+      )
+      const wordLines = wordHits === 'No matches found' ? [] : wordHits.split('\n')
+      assert(
+        wordLines.every(l => !l.includes('documentclass')),
+        `no \\bdocument\\b hit on the documentclass line (got ${wordLines.length})`
+      )
+
+      // 19l: invalid regex — must come back as a string error, not throw
+      step('19l · grep returns an error string for invalid regex')
+      const badRegex = await grep({ pattern: '[unclosed' }, ctx)
+      assert(
+        typeof badRegex === 'string' && badRegex.includes('Invalid regex'),
+        `bad regex returned an error string`
+      )
+
+      // ── Step 20: ask_question — sets pendingQuestion on the run context ──────
+      // ask_question doesn't hit external services; what matters is that the
+      // contract with AgentManager holds (pendingQuestion populated, ack text
+      // returned). AgentManager reads ctx.pendingQuestion after every step and
+      // finalises the run with {type:'question'} when set.
+      step('20a · ask_question populates ctx.pendingQuestion and returns ack')
+      const askCtx = { ...ctx }
+      const ackText = await askQuestion(
+        {
+          questions: [
+            {
+              question: 'Which citation style do you want to use?',
+              header: 'Citations',
+              options: [
+                { label: 'BibTeX', description: 'classic, broad compatibility' },
+                { label: 'BibLaTeX', description: 'modern, more flexible' },
+              ],
+            },
+            {
+              question: 'Should figures float?',
+              multiSelect: false,
+              options: [
+                { label: 'Yes (\\begin{figure})' },
+                { label: 'No, inline only' },
+              ],
+            },
+          ],
+        },
+        askCtx
+      )
+      assert(
+        typeof ackText === 'string' && ackText.length > 0,
+        `tool returns a non-empty acknowledgement string`
+      )
+      assert(
+        askCtx.pendingQuestion != null,
+        `ctx.pendingQuestion is populated`
+      )
+      assert(
+        Array.isArray(askCtx.pendingQuestion.questions) &&
+          askCtx.pendingQuestion.questions.length === 2,
+        `pendingQuestion carries both questions`
+      )
+      assert(
+        askCtx.pendingQuestion.text.includes('Which citation style') &&
+          askCtx.pendingQuestion.text.includes('Should figures float'),
+        `text rendering includes both question prompts`
+      )
+      ok(`pendingQuestion text (truncated): ${askCtx.pendingQuestion.text.slice(0, 80)}…`)
 
       // ── Summary ───────────────────────────────────────────────────────────────
       console.log('\n' + '─'.repeat(56))

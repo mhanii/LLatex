@@ -29,6 +29,20 @@ export function buildTools(ctx, toolNames) {
           input,
         })
         try {
+          // Tools may define a preExecute hook that runs before `execute`.
+          // A non-null return short-circuits dispatch and becomes the output.
+          const preOutput = def.preExecute
+            ? await def.preExecute(input, ctx)
+            : null
+          if (preOutput != null) {
+            await ctx.onToolEvent?.({
+              toolName: name,
+              status: 'error',
+              input,
+              error: preOutput,
+            })
+            return preOutput
+          }
           const output = await def.execute(input, ctx)
           await ctx.onToolEvent?.({
             toolName: name,

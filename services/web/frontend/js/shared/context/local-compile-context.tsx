@@ -33,6 +33,7 @@ import { useLayoutContext } from './layout-context'
 import { useUserContext } from './user-context'
 import { useFileTreeData } from '@/shared/context/file-tree-data-context'
 import { useDetachContext } from '@/shared/context/detach-context'
+import { useIdeContext } from '@/shared/context/ide-context'
 import { useFileTreePathContext } from '@/features/file-tree/contexts/file-tree-path'
 import { useUserSettingsContext } from '@/shared/context/user-settings-context'
 import { useFeatureFlag } from '@/shared/context/split-test-context'
@@ -143,6 +144,7 @@ export const LocalCompileProvider: FC<React.PropsWithChildren> = ({
   const { currentDocument } = useEditorOpenDocContext()
   const { role } = useDetachContext()
 
+  const { socket } = useIdeContext()
   const { projectId, joinedOnce, project } = useProjectContext()
   const { rootDocId, imageName, compiler: compilerName } = project || {}
 
@@ -455,6 +457,21 @@ export const LocalCompileProvider: FC<React.PropsWithChildren> = ({
     pendingInitialCompileFromCache,
     compiler,
   ])
+
+  // Apply compile results pushed by the LLM agent so the PDF preview refreshes
+  // without the user clicking recompile. Server-side coordinator already
+  // produced a real CLSI build; the payload matches a normal compile response.
+  useEffect(() => {
+    if (!socket) return
+    function onAgentCompileDone(payload: CompileResponseData) {
+      setData(payload)
+      setCompiledOnce(true)
+    }
+    socket.on('pdf:agent-compile-done', onAgentCompileDone)
+    return () => {
+      socket.removeListener('pdf:agent-compile-done', onAgentCompileDone)
+    }
+  }, [socket])
 
   useEffect(() => {
     setHasShortCompileTimeout(

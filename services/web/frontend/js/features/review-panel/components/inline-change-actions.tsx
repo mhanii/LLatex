@@ -12,9 +12,11 @@ import {
   EditOperation,
   InsertOperation,
 } from '../../../../../types/change'
-import { isDeleteChange, isInsertChange } from '@/utils/operations'
+import { isDeleteChange, isInsertChange, sortedChanges } from '@/utils/operations'
 import { canAggregate } from '../utils/can-aggregate'
 import MaterialIcon from '@/shared/components/material-icon'
+import { debugConsole } from '@/utils/debugging'
+import { captureException } from '@/infrastructure/error-reporter'
 
 type Entry = {
   primary: Change<EditOperation>
@@ -24,7 +26,7 @@ type Entry = {
 const aggregate = (changes: Change<EditOperation>[]): Entry[] => {
   const entries: Entry[] = []
   let preceding: Change<EditOperation> | null = null
-  for (const change of changes) {
+  for (const change of sortedChanges(changes)) {
     if (
       preceding &&
       isInsertChange(preceding) &&
@@ -40,12 +42,14 @@ const aggregate = (changes: Change<EditOperation>[]): Entry[] => {
   return entries
 }
 
+
+
 export const InlineChangeActions = memo(function InlineChangeActions() {
   const view = useCodeMirrorViewContext()
   const ranges = useRangesContext()
   const actions = useRangesActionsContext()
   const { t } = useTranslation()
-  const [tick, setTick] = useState(0)
+  const [, setTick] = useState(0)
 
   const bump = useCallback(() => setTick(n => n + 1), [])
 
@@ -55,9 +59,16 @@ export const InlineChangeActions = memo(function InlineChangeActions() {
     const scroll = view.scrollDOM
     scroll.addEventListener('scroll', bump, { passive: true })
     window.addEventListener('resize', bump)
+    // Fires after CM6 has actually rendered chip hosts for the latest
+    // updateRangesEffect — see ranges.ts. Without this, our first render
+    // after a ranges change queries the DOM before CM6 has produced the new
+    // hosts, and the chip is missing until the next scroll/resize.
+    // Scoped to this editor's scrollDOM so split-view panes don't cross-fire.
+    scroll.addEventListener('editor:ranges-rendered', bump)
     return () => {
       scroll.removeEventListener('scroll', bump)
       window.removeEventListener('resize', bump)
+      scroll.removeEventListener('editor:ranges-rendered', bump)
     }
   }, [view, bump])
 
@@ -93,14 +104,24 @@ export const InlineChangeActions = memo(function InlineChangeActions() {
             ? 'addition'
             : 'deletion'
 
-        const handleAccept = () =>
-          agg
+        const handleAccept = () => {
+          const p = agg
             ? actions.acceptChanges(primary, agg)
             : actions.acceptChanges(primary)
-        const handleReject = () =>
-          agg
+          p.catch(err => {
+            debugConsole.error('accept changes failed', err)
+            captureException(err)
+          })
+        }
+        const handleReject = () => {
+          const p = agg
             ? actions.rejectChanges(primary, agg)
             : actions.rejectChanges(primary)
+          p.catch(err => {
+            debugConsole.error('reject changes failed', err)
+            captureException(err)
+          })
+        }
 
         // For user chips, offset horizontally to sit above the actual change
         // text rather than the line start.
@@ -108,9 +129,11 @@ export const InlineChangeActions = memo(function InlineChangeActions() {
         if (!isAgent) {
           try {
             const charCoords = view.coordsAtPos(primary.op.p)
-            const hostRect = host.getBoundingClientRect()
-            const offset = Math.max(0, charCoords.left - hostRect.left)
-            if (offset > 0) chipStyle = { marginLeft: offset }
+            if (charCoords) {
+              const hostRect = host.getBoundingClientRect()
+              const offset = Math.max(0, charCoords.left - hostRect.left)
+              if (offset > 0) chipStyle = { marginLeft: offset }
+            }
           } catch {
             // leave chip at line start
           }

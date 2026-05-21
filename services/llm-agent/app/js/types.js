@@ -80,12 +80,23 @@
  */
 
 /**
+ * One question presented to the user via the ask_question tool.
+ *
+ * @typedef {Object} AgentQuestion
+ * @property {string} question
+ * @property {string} [header]
+ * @property {boolean} [multiSelect]
+ * @property {Array<{label: string, description?: string}>} options
+ */
+
+/**
  * Final result of a completed run.
  *
  * @typedef {Object} AgentOutput
- * @property {'text'|'edits'|'error'} type
- * @property {string} content               - text response or error message
- * @property {Array<EditProposal>} [edits]  - populated when type === 'edits'
+ * @property {'text'|'edits'|'error'|'question'} type
+ * @property {string} content                   - text response, error message, or rendered question text fallback
+ * @property {Array<EditProposal>} [edits]      - populated when type === 'edits'
+ * @property {Array<AgentQuestion>} [questions] - populated when type === 'question'
  */
 
 /**
@@ -98,6 +109,8 @@
  * @property {string} runId
  * @property {string} conversationId
  * @property {ProjectContext} [context]
+ * @property {boolean} [autoAcceptTrackChangesOnEdit] - Whether edit_file should accept pending agent changes before its first edit per doc. Enabled for follow-up turns only.
+ * @property {{questions: Array<AgentQuestion>, text: string}} [pendingQuestion] - Set by the ask_question tool to signal AgentManager to terminate the run with a question output.
  * @property {(event: {toolName: string, status: 'running'|'completed'|'error', input?: unknown, error?: string}) => Promise<void>} [onToolEvent]
  */
 

@@ -19,20 +19,23 @@ const EXPECTED_TOOLS = [
   'get_pdf_page',
   'list_skills',
   'read_skill',
+  'grep',
+  'ask_question',
 ]
 
 describe('tools/registry', function () {
   describe('TOOL_REGISTRY', function () {
-    it('contains exactly the 12 expected tools', function () {
+    it('contains exactly the expected tools', function () {
       expect(Object.keys(TOOL_REGISTRY).sort()).to.deep.equal(
         [...EXPECTED_TOOLS].sort()
       )
     })
 
-    it('each entry has description, inputSchema, and execute', function () {
+    it('each entry has description, usagePrompt, inputSchema, and execute', function () {
       for (const name of EXPECTED_TOOLS) {
         const def = TOOL_REGISTRY[name]
         expect(def, `${name}.description`).to.have.property('description').that.is.a('string').and.is.not.empty
+        expect(def, `${name}.usagePrompt`).to.have.property('usagePrompt').that.is.a('string').and.is.not.empty
         expect(def, `${name}.inputSchema`).to.have.property('inputSchema')
         expect(def.inputSchema, `${name}.inputSchema._def`).to.have.property('_def')
         expect(def.execute, `${name}.execute`).to.be.a('function')
@@ -54,6 +57,8 @@ describe('tools/registry', function () {
       expect(TOOL_REGISTRY.edit_file.inputSchema.safeParse({}).success).to.be.false
       expect(TOOL_REGISTRY.move_file.inputSchema.safeParse({ oldPath: 'a' }).success).to.be.false
       expect(TOOL_REGISTRY.read_skill.inputSchema.safeParse({}).success).to.be.false
+      expect(TOOL_REGISTRY.grep.inputSchema.safeParse({}).success).to.be.false
+      expect(TOOL_REGISTRY.ask_question.inputSchema.safeParse({}).success).to.be.false
     })
   })
 
@@ -69,8 +74,8 @@ describe('tools/registry', function () {
   })
 
   describe('listTools', function () {
-    it('returns all 12 tool names', function () {
-      expect(listTools()).to.have.lengthOf(12)
+    it('returns all registered tool names', function () {
+      expect(listTools()).to.have.lengthOf(EXPECTED_TOOLS.length)
       expect(listTools().sort()).to.deep.equal([...EXPECTED_TOOLS].sort())
     })
   })

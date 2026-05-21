@@ -54,6 +54,11 @@ export default {
       LlmAgentController.agentToolCall
     )
     webRouter.post(
+      '/internal/project/:project_id/agent/accept-changes',
+      requirePrivateApiAuth(),
+      LlmAgentController.agentAcceptChanges
+    )
+    webRouter.post(
       '/internal/project/:project_id/agent/create-file',
       requirePrivateApiAuth(),
       LlmAgentController.agentCreateFile

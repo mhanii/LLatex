@@ -35,8 +35,8 @@ describe('agents/registry', function () {
       }
     })
 
-    it('default agent has access to all 11 tools', function () {
-      expect(AGENT_REGISTRY.default.allowedTools).to.have.lengthOf(11)
+    it('default agent has access to all editing and inspection tools', function () {
+      expect(AGENT_REGISTRY.default.allowedTools).to.have.lengthOf(13)
     })
 
     it('readonly agent excludes all mutation tools', function () {
@@ -46,16 +46,18 @@ describe('agents/registry', function () {
       }
     })
 
-    it('readonly agent retains read/inspection and skills tools', function () {
+    it('readonly agent retains read/inspection, skills, search, and interaction tools', function () {
       const readonlyTools = [
         'list_files',
         'read_file',
+        'grep',
         'get_outline',
         'check_syntax',
         'compile_and_check',
         'get_pdf_page',
         'list_skills',
         'read_skill',
+        'ask_question',
       ]
       expect(AGENT_REGISTRY.readonly.allowedTools.sort()).to.deep.equal(
         [...readonlyTools].sort()
@@ -66,6 +68,28 @@ describe('agents/registry', function () {
       // sanity check that the prompt loader actually read something file-shaped
       expect(AGENT_REGISTRY.default.systemPrompt).to.match(/LaTeX/)
       expect(AGENT_REGISTRY.readonly.systemPrompt).to.match(/read-only/i)
+    })
+
+    it('every system prompt ends with a "## Your tools" section listing exactly the allowed tools', function () {
+      for (const [name, agent] of Object.entries(AGENT_REGISTRY)) {
+        expect(agent.systemPrompt, `${name} has tools section`).to.include('## Your tools')
+        for (const toolName of agent.allowedTools) {
+          expect(
+            agent.systemPrompt,
+            `${name} lists allowed tool ${toolName}`
+          ).to.include(`\`${toolName}\``)
+        }
+        const disallowed = Object.keys(TOOL_REGISTRY).filter(
+          t => !agent.allowedTools.includes(t)
+        )
+        const toolsSection = agent.systemPrompt.split('## Your tools')[1]
+        for (const toolName of disallowed) {
+          expect(
+            toolsSection,
+            `${name} must not list disallowed tool ${toolName}`
+          ).to.not.include(`\`${toolName}\``)
+        }
+      }
     })
   })
 

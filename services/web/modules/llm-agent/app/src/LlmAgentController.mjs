@@ -7,9 +7,10 @@ import ChatApiHandler from '../../../../app/src/Features/Chat/ChatApiHandler.mjs
 import ChatManager from '../../../../app/src/Features/Chat/ChatManager.mjs'
 import EditorController from '../../../../app/src/Features/Editor/EditorController.mjs'
 import EditorRealTimeController from '../../../../app/src/Features/Editor/EditorRealTimeController.mjs'
+import DocumentUpdaterHandler from '../../../../app/src/Features/DocumentUpdater/DocumentUpdaterHandler.mjs'
 import UserInfoManager from '../../../../app/src/Features/User/UserInfoManager.mjs'
 import UserInfoController from '../../../../app/src/Features/User/UserInfoController.mjs'
-import CompileManager from '../../../../app/src/Features/Compile/CompileManager.mjs'
+import AgentCompileCoordinator from './AgentCompileCoordinator.mjs'
 import ProjectLocator from '../../../../app/src/Features/Project/ProjectLocator.mjs'
 import ProjectGetter from '../../../../app/src/Features/Project/ProjectGetter.mjs'
 import ProjectCreationHandler from '../../../../app/src/Features/Project/ProjectCreationHandler.mjs'
@@ -180,6 +181,49 @@ async function deleteConversation(req, res) {
   res.sendStatus(204)
 }
 
+// Steps arrive over HTTP, so Date fields are ISO strings after JSON parsing,
+// not Date instances — `.getTime()` would be undefined on them.
+function toEpochMs(value) {
+  if (value == null) return null
+  const ms = value instanceof Date ? value.getTime() : new Date(value).getTime()
+  return Number.isFinite(ms) ? ms : null
+}
+
+// A toolResult counts as an error if it was never written (the tool crashed
+// or the run was interrupted before it returned), if it carries an explicit
+// `error` field, or if its output object signals failure.
+function toolResultStatus(result) {
+  if (!result) return 'error'
+  if (result.error) return 'error'
+  if (result.output && typeof result.output === 'object' && result.output.error) {
+    return 'error'
+  }
+  return 'completed'
+}
+
+function buildToolEvents(steps) {
+  const events = []
+  for (const step of steps) {
+    const output = step.output
+    if (!output) continue
+    const toolCalls = output.toolCalls ?? []
+    const resultsById = new Map(
+      (output.toolResults ?? []).map(r => [r.toolCallId, r])
+    )
+    for (const tc of toolCalls) {
+      events.push({
+        toolCallId: tc.toolCallId,
+        toolName: tc.toolName,
+        status: toolResultStatus(resultsById.get(tc.toolCallId)),
+        input: tc.input ?? tc.args ?? {},
+        timestamp:
+          toEpochMs(step.finishedAt) ?? toEpochMs(step.startedAt) ?? Date.now(),
+      })
+    }
+  }
+  return events
+}
+
 async function getConversationMessages(req, res) {
   const { project_id: projectId, conversation_id: conversationId } = req.params
   const userId = SessionManager.getLoggedInUserId(req.session)
@@ -208,16 +252,38 @@ async function getConversationMessages(req, res) {
   await ChatManager.promises.injectUserInfoIntoThreads({
     [conversationId]: thread,
   })
-  const roles = await AgentConversationManager.promises.getMessageRoles(
+  const meta = await AgentConversationManager.promises.getMessageMetadata(
     projectId,
     conversationId
   )
-  res.json(
-    thread.messages.map(message => ({
-      ...message,
-      role: roles.get(message.id) ?? (message.user_id ? 'user' : 'assistant'),
-    }))
+  const enrichedMessages = await Promise.all(
+    thread.messages.map(async message => {
+      const info = meta.get(message.id) ?? {
+        role: message.user_id ? 'user' : 'assistant',
+        runId: null,
+      }
+      if (info.role !== 'assistant' || !info.runId) {
+        return { ...message, role: info.role }
+      }
+      let toolEvents = []
+      try {
+        const { steps } = await LlmAgentApiHandler.promises.getRunSteps(
+          projectId,
+          info.runId
+        )
+        toolEvents = buildToolEvents(steps)
+      } catch {
+        // Non-fatal: run steps may not exist if the run was pruned or the
+        // llm-agent service is unavailable. Return the message without toolEvents.
+      }
+      return {
+        ...message,
+        role: info.role,
+        ...(toolEvents.length > 0 ? { toolEvents } : {}),
+      }
+    })
   )
+  res.json(enrichedMessages)
 }
 
 // Called by llm-agent service after run completes — emits reply over WebSocket.
@@ -309,6 +375,32 @@ async function agentToolCall(req, res) {
     timestamp: Date.now(),
   })
   res.sendStatus(204)
+}
+
+async function agentAcceptChanges(req, res) {
+  const { project_id: projectId } = req.params
+  const { docId, changeIds, userId } = req.body
+  if (!docId || !Array.isArray(changeIds) || !userId) {
+    return res
+      .status(400)
+      .json({ error: 'docId, changeIds and userId required' })
+  }
+
+  const response = await DocumentUpdaterHandler.promises.acceptChanges(
+    projectId,
+    docId,
+    changeIds,
+    userId
+  )
+
+  EditorRealTimeController.emitToRoom(
+    projectId,
+    'accept-changes',
+    docId,
+    response.acceptedChangeIds
+  )
+
+  res.json(response)
 }
 
 async function agentCreateFile(req, res) {
@@ -482,7 +574,7 @@ async function internalCompile(req, res) {
   const compileOptions = { isAutoCompile: false, fileLineErrors: true }
   if (rootDocId) compileOptions.rootDoc_id = rootDocId
   if (stopOnFirstError) compileOptions.stopOnFirstError = true
-  const result = await CompileManager.promises.compile(
+  const result = await AgentCompileCoordinator.compile(
     projectId,
     userId,
     compileOptions
@@ -587,6 +679,7 @@ export default {
   sendMessage: expressify(sendMessage),
   agentComplete: expressify(agentComplete),
   agentToolCall: expressify(agentToolCall),
+  agentAcceptChanges: expressify(agentAcceptChanges),
   agentCreateFile: expressify(agentCreateFile),
   agentDeleteFile: expressify(agentDeleteFile),
   agentMoveFile: expressify(agentMoveFile),
