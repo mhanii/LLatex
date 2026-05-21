@@ -1,7 +1,7 @@
 // @ts-check
 
 import logger from '@overleaf/logger'
-import { createRun } from './AgentStore.js'
+import { createRun, getStepsForRun } from './AgentStore.js'
 import { run } from './AgentManager.js'
 import { getAgent } from './agents/registry.js'
 
@@ -55,4 +55,10 @@ async function startRun(req, res) {
   res.status(200).json({ runId })
 }
 
-export default { startRun }
+async function getRunSteps(req, res) {
+  const { runId } = req.params
+  const steps = await getStepsForRun(runId)
+  res.json({ steps })
+}
+
+export default { startRun, getRunSteps }

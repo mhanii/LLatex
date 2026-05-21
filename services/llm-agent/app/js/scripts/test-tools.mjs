@@ -684,32 +684,36 @@ async function main() {
         { pattern: 'domain-specific heuristics' },
         ctx
       )
-      assert(Array.isArray(grepHits), `grep returned an array`)
+      assert(typeof grepHits === 'string', `grep returned a string`)
       assert(
-        grepHits.length >= 1,
-        `grep found at least one hit (got ${grepHits.length})`
+        grepHits !== 'No matches found',
+        `grep found at least one hit`
       )
-      const hit = grepHits.find(h => h.path === NEW_FILE_PATH)
-      assert(!!hit, `at least one hit is in ${NEW_FILE_PATH}`)
+      const grepLines = grepHits.split('\n')
+      const hitLine = grepLines.find(l => l.startsWith(NEW_FILE_PATH))
+      assert(!!hitLine, `at least one hit is in ${NEW_FILE_PATH}`)
+      const hitParts = hitLine.split(':')
+      const hitLineNumber = parseInt(hitParts[1], 10)
+      const hitText = hitParts.slice(2).join(':')
       assert(
-        typeof hit.lineNumber === 'number' && hit.lineNumber >= 1,
-        `hit has a positive lineNumber (got ${hit.lineNumber})`
+        Number.isFinite(hitLineNumber) && hitLineNumber >= 1,
+        `hit has a positive lineNumber (got ${hitLineNumber})`
       )
       assert(
-        hit.line.includes('domain-specific heuristics'),
+        hitText.includes('domain-specific heuristics'),
         `hit line carries the matched text`
       )
-      ok(`grep hit: ${hit.path}:${hit.lineNumber}`)
+      ok(`grep hit: ${NEW_FILE_PATH}:${hitLineNumber}`)
 
       // 19b: regex pattern + case-sensitivity flag
       step('19b · grep with regex and caseSensitive=true')
       const sectionsCS = await grep(
-        { pattern: '^\\\\section\\{', caseSensitive: true },
+        { pattern: '^\\section\\{', caseSensitive: true },
         ctx
       )
       assert(
-        sectionsCS.length >= 2,
-        `regex \\section{} match across project (got ${sectionsCS.length})`
+        typeof sectionsCS === 'string' && sectionsCS.split('\n').length >= 2,
+        `regex \\section{} match across project`
       )
 
       // 19c: pathGlob filter — only search inside new.tex
@@ -719,7 +723,9 @@ async function main() {
         ctx
       )
       assert(
-        onlyInNew.length >= 1 && onlyInNew.every(h => h.path === NEW_FILE_PATH),
+        typeof onlyInNew === 'string' &&
+        onlyInNew !== 'No matches found' &&
+        onlyInNew.split('\n').every(l => l.startsWith(NEW_FILE_PATH)),
         `all hits are confined to ${NEW_FILE_PATH}`
       )
 
@@ -730,8 +736,8 @@ async function main() {
         ctx
       )
       assert(
-        ciHits.length >= 1,
-        `case-insensitive match for METHODOLOGY (got ${ciHits.length})`
+        typeof ciHits === 'string' && ciHits !== 'No matches found',
+        `case-insensitive match for METHODOLOGY`
       )
 
       // 19e: maxResults caps output
@@ -741,29 +747,30 @@ async function main() {
         ctx
       )
       assert(
-        capped.length === 3,
-        `result count capped to 3 (got ${capped.length})`
+        typeof capped === 'string' && capped.split('\n').length === 3,
+        `result count capped to 3`
       )
 
-      // 19f: no matches yields []
-      step('19f · grep with no matches returns an empty array')
+      // 19f: no matches
+      step('19f · grep with no matches returns "No matches found"')
       const noHits = await grep(
         { pattern: 'this-string-definitely-not-in-any-file-xyz123' },
         ctx
       )
       assert(
-        Array.isArray(noHits) && noHits.length === 0,
-        `no matches → empty array`
+        noHits === 'No matches found',
+        `no matches → "No matches found"`
       )
 
       // 19g: anchored regex — `^\\title` must match the title line and only it
       step('19g · grep with start anchor ^\\title')
       const titleHits = await grep(
-        { pattern: '^\\\\title', pathGlob: NEW_FILE_PATH, caseSensitive: true },
+        { pattern: '^\\title', pathGlob: NEW_FILE_PATH, caseSensitive: true },
         ctx
       )
+      const titleLines = titleHits === 'No matches found' ? [] : titleHits.split('\n')
       assert(
-        titleHits.length === 1 && titleHits[0].line.includes('\\title{'),
+        titleLines.length === 1 && titleLines[0].includes('\\title{'),
         `^\\title matched exactly one line`
       )
 
@@ -771,37 +778,39 @@ async function main() {
       step('19h · grep with alternation (Introduction|Methodology)')
       const altHits = await grep(
         {
-          pattern: '\\\\section\\{(Introduction|Methodology)\\}',
+          pattern: '\\section\\{(Introduction|Methodology)\\}',
           pathGlob: NEW_FILE_PATH,
           caseSensitive: true,
         },
         ctx
       )
+      const altLines = altHits === 'No matches found' ? [] : altHits.split('\n')
       assert(
-        altHits.length === 2,
-        `alternation matched two sections (got ${altHits.length})`
+        altLines.length === 2,
+        `alternation matched two sections (got ${altLines.length})`
       )
 
       // 19i: digit class — find the 42% in the Results paragraph
       step('19i · grep with \\d+ matches the 42\\% improvement claim')
       const digitHits = await grep(
-        { pattern: '\\d+\\\\%', pathGlob: NEW_FILE_PATH },
+        { pattern: '\\d+\\%', pathGlob: NEW_FILE_PATH },
         ctx
       )
       assert(
-        digitHits.some(h => h.line.includes('42')),
+        typeof digitHits === 'string' && digitHits.includes('42'),
         `\\d+\\% matched the 42% line`
       )
 
       // 19j: escaped backslash — locate every LaTeX command starting with \begin
       step('19j · grep finds every \\begin{...} occurrence')
       const beginHits = await grep(
-        { pattern: '\\\\begin\\{', pathGlob: NEW_FILE_PATH, caseSensitive: true },
+        { pattern: '\\begin\\{', pathGlob: NEW_FILE_PATH, caseSensitive: true },
         ctx
       )
+      const beginLines = beginHits === 'No matches found' ? [] : beginHits.split('\n')
       assert(
-        beginHits.length >= 1,
-        `at least one \\begin{...} match (got ${beginHits.length})`
+        beginLines.length >= 1,
+        `at least one \\begin{...} match (got ${beginLines.length})`
       )
 
       // 19k: word boundary — \bdocument\b must match "document" only, not
@@ -816,9 +825,10 @@ async function main() {
         },
         ctx
       )
+      const wordLines = wordHits === 'No matches found' ? [] : wordHits.split('\n')
       assert(
-        wordHits.every(h => !h.line.includes('documentclass')),
-        `no \\bdocument\\b hit on the documentclass line (got ${wordHits.length})`
+        wordLines.every(l => !l.includes('documentclass')),
+        `no \\bdocument\\b hit on the documentclass line (got ${wordLines.length})`
       )
 
       // 19l: invalid regex — must come back as a string error, not throw

@@ -22,6 +22,17 @@ async function startRun(projectId, payload) {
   })
 }
 
+/**
+ * @param {string} projectId
+ * @param {string} runId
+ * @returns {Promise<{ steps: Array<{ name: string, output?: { toolCalls?: Array<{ toolCallId: string, toolName: string, input: unknown }>, toolResults?: Array<{ toolCallId: string, toolName: string, input: unknown, output: unknown }> } }> }>}
+ */
+async function getRunSteps(projectId, runId) {
+  return await fetchJson(agentUrl(`/project/${projectId}/run/${runId}/steps`), {
+    method: 'GET',
+  })
+}
+
 export default {
-  promises: { startRun },
+  promises: { startRun, getRunSteps },
 }

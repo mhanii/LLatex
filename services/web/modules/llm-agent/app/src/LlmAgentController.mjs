@@ -169,6 +169,25 @@ async function listConversations(req, res) {
   res.json(conversations)
 }
 
+function buildToolEvents(steps) {
+  const events = []
+  for (const step of steps) {
+    const output = step.output
+    if (!output) continue
+    const toolCalls = output.toolCalls ?? []
+    for (const tc of toolCalls) {
+      events.push({
+        toolCallId: tc.toolCallId,
+        toolName: tc.toolName,
+        status: 'completed',
+        input: tc.input ?? tc.args ?? {},
+        timestamp: step.finishedAt?.getTime?.() ?? step.startedAt?.getTime?.() ?? Date.now(),
+      })
+    }
+  }
+  return events
+}
+
 async function getConversationMessages(req, res) {
   const { project_id: projectId, conversation_id: conversationId } = req.params
   const userId = SessionManager.getLoggedInUserId(req.session)
@@ -197,16 +216,38 @@ async function getConversationMessages(req, res) {
   await ChatManager.promises.injectUserInfoIntoThreads({
     [conversationId]: thread,
   })
-  const roles = await AgentConversationManager.promises.getMessageRoles(
+  const meta = await AgentConversationManager.promises.getMessageMetadata(
     projectId,
     conversationId
   )
-  res.json(
-    thread.messages.map(message => ({
-      ...message,
-      role: roles.get(message.id) ?? (message.user_id ? 'user' : 'assistant'),
-    }))
+  const enrichedMessages = await Promise.all(
+    thread.messages.map(async message => {
+      const info = meta.get(message.id) ?? {
+        role: message.user_id ? 'user' : 'assistant',
+        runId: null,
+      }
+      if (info.role !== 'assistant' || !info.runId) {
+        return { ...message, role: info.role }
+      }
+      let toolEvents = []
+      try {
+        const { steps } = await LlmAgentApiHandler.promises.getRunSteps(
+          projectId,
+          info.runId
+        )
+        toolEvents = buildToolEvents(steps)
+      } catch {
+        // Non-fatal: run steps may not exist if the run was pruned or the
+        // llm-agent service is unavailable. Return the message without toolEvents.
+      }
+      return {
+        ...message,
+        role: info.role,
+        ...(toolEvents.length > 0 ? { toolEvents } : {}),
+      }
+    })
   )
+  res.json(enrichedMessages)
 }
 
 // Called by llm-agent service after run completes — emits reply over WebSocket.

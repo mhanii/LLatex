@@ -201,7 +201,10 @@ describe('LlmAgentController', function () {
     )
 
     LlmAgentApiHandler = {
-      promises: { startRun: vi.fn().mockResolvedValue({ runId: RUN_ID }) },
+      promises: {
+        startRun: vi.fn().mockResolvedValue({ runId: RUN_ID }),
+        getRunSteps: vi.fn().mockResolvedValue({ steps: [] }),
+      },
     }
     vi.doMock('../../../app/src/LlmAgentApiHandler.mjs', () => ({
       default: LlmAgentApiHandler,
@@ -228,9 +231,6 @@ describe('LlmAgentController', function () {
           updatedAt: 1,
         }),
         recordMessage: vi.fn().mockResolvedValue(undefined),
-        getMessageRoles: vi
-          .fn()
-          .mockResolvedValue(new Map([[MESSAGE_ID, 'user']])),
         getMessageMetadata: vi
           .fn()
           .mockResolvedValue(new Map([[MESSAGE_ID, { role: 'user', runId: null }]])),
@@ -410,10 +410,142 @@ describe('LlmAgentController', function () {
       expect(
         AgentConversationManager.promises.getConversation
       ).toHaveBeenCalledWith(PROJECT_ID, CONVERSATION_ID, USER_ID)
+      expect(
+        AgentConversationManager.promises.getMessageMetadata
+      ).toHaveBeenCalledWith(PROJECT_ID, CONVERSATION_ID)
       expect(JSON.parse(res.body)[0]).toMatchObject({
         id: MESSAGE_ID,
         role: 'user',
       })
+    })
+
+    it('includes toolEvents for assistant messages with a runId', async function () {
+      const ASSISTANT_MESSAGE_ID = 'eee000000000000000000002'
+      ChatApiHandler.promises.getThread.mockResolvedValueOnce({
+        messages: [
+          {
+            id: MESSAGE_ID,
+            user_id: USER_ID,
+            content: 'hello agent',
+            timestamp: 1,
+          },
+          {
+            id: ASSISTANT_MESSAGE_ID,
+            user_id: USER_ID,
+            content: 'I read the file.',
+            timestamp: 2,
+          },
+        ],
+      })
+      AgentConversationManager.promises.getMessageMetadata.mockResolvedValueOnce(
+        new Map([
+          [MESSAGE_ID, { role: 'user', runId: null }],
+          [ASSISTANT_MESSAGE_ID, { role: 'assistant', runId: RUN_ID }],
+        ])
+      )
+      LlmAgentApiHandler.promises.getRunSteps.mockResolvedValueOnce({
+        steps: [
+          {
+            name: 'llm.complete',
+            startedAt: new Date(1000),
+            finishedAt: new Date(2000),
+            output: {
+              text: '',
+              reasoning: [],
+              toolCalls: [
+                {
+                  toolCallId: 'tc-1',
+                  toolName: 'read_file',
+                  input: { path: 'main.tex' },
+                },
+              ],
+              toolResults: [
+                {
+                  toolCallId: 'tc-1',
+                  toolName: 'read_file',
+                  input: { path: 'main.tex' },
+                  output: 'file content',
+                },
+              ],
+              finishReason: 'tool-calls',
+            },
+          },
+        ],
+      })
+
+      const req = {
+        params: {
+          project_id: PROJECT_ID,
+          conversation_id: CONVERSATION_ID,
+        },
+        session: {},
+      }
+      const res = makeRes()
+      await LlmAgentController.getConversationMessages(req, res, vi.fn())
+
+      const body = JSON.parse(res.body)
+      expect(body).toHaveLength(2)
+      expect(body[0]).toMatchObject({
+        id: MESSAGE_ID,
+        role: 'user',
+      })
+      expect(body[1]).toMatchObject({
+        id: ASSISTANT_MESSAGE_ID,
+        role: 'assistant',
+        toolEvents: [
+          {
+            toolCallId: 'tc-1',
+            toolName: 'read_file',
+            status: 'completed',
+            input: { path: 'main.tex' },
+            timestamp: 2000,
+          },
+        ],
+      })
+      expect(LlmAgentApiHandler.promises.getRunSteps).toHaveBeenCalledWith(
+        PROJECT_ID,
+        RUN_ID
+      )
+    })
+
+    it('falls back gracefully when getRunSteps fails', async function () {
+      const ASSISTANT_MESSAGE_ID = 'eee000000000000000000002'
+      ChatApiHandler.promises.getThread.mockResolvedValueOnce({
+        messages: [
+          {
+            id: ASSISTANT_MESSAGE_ID,
+            user_id: USER_ID,
+            content: 'I read the file.',
+            timestamp: 2,
+          },
+        ],
+      })
+      AgentConversationManager.promises.getMessageMetadata.mockResolvedValueOnce(
+        new Map([
+          [ASSISTANT_MESSAGE_ID, { role: 'assistant', runId: RUN_ID }],
+        ])
+      )
+      LlmAgentApiHandler.promises.getRunSteps.mockRejectedValueOnce(
+        new Error('service unavailable')
+      )
+
+      const req = {
+        params: {
+          project_id: PROJECT_ID,
+          conversation_id: CONVERSATION_ID,
+        },
+        session: {},
+      }
+      const res = makeRes()
+      await LlmAgentController.getConversationMessages(req, res, vi.fn())
+
+      const body = JSON.parse(res.body)
+      expect(body).toHaveLength(1)
+      expect(body[0]).toMatchObject({
+        id: ASSISTANT_MESSAGE_ID,
+        role: 'assistant',
+      })
+      expect(body[0].toolEvents).toBeUndefined()
     })
 
     it('returns 403 from getConversationMessages when no user is in session', async function () {

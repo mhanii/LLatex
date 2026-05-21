@@ -85,7 +85,7 @@ async function fetchDocLines(projectId, docId) {
  *   maxResults?: number
  * }} input
  * @param {import('../types.js').RunContext} ctx
- * @returns {Promise<Array<{path: string, lineNumber: number, line: string}> | string>}
+ * @returns {Promise<string>}
  */
 export async function grep(
   { pattern, pathGlob, caseSensitive, maxResults },
@@ -123,7 +123,7 @@ export async function grep(
     .slice(0, MAX_FILES_PER_CALL)
 
   if (files.length === 0) {
-    return []
+    return 'No matches found'
   }
 
   // Fan out in parallel — each request is independent and doc-updater handles
@@ -136,7 +136,7 @@ export async function grep(
         const hits = []
         for (let i = 0; i < lines.length; i++) {
           if (re.test(lines[i])) {
-            hits.push({ path: f.path, lineNumber: i + 1, line: lines[i] })
+            hits.push(`${f.path}:${i + 1}:${lines[i]}`)
           }
         }
         return hits
@@ -150,8 +150,8 @@ export async function grep(
   for (const hits of perFile) {
     for (const h of hits) {
       results.push(h)
-      if (results.length >= cap) return results
+      if (results.length >= cap) return results.join('\n')
     }
   }
-  return results
+  return results.length > 0 ? results.join('\n') : 'No matches found'
 }

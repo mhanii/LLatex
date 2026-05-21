@@ -19,6 +19,23 @@ function stubFetchWithDocs(byDocId) {
   })
 }
 
+/**
+ * Parse the newline-separated `path:lineNumber:line` output back into
+ * objects so existing assertions can stay largely unchanged.
+ */
+function parseHits(result) {
+  if (typeof result !== 'string' || result === 'No matches found') return []
+  return result.split('\n').map(line => {
+    const firstColon = line.indexOf(':')
+    const secondColon = line.indexOf(':', firstColon + 1)
+    return {
+      path: line.slice(0, firstColon),
+      lineNumber: parseInt(line.slice(firstColon + 1, secondColon), 10),
+      line: line.slice(secondColon + 1),
+    }
+  })
+}
+
 describe('grep', function () {
   afterEach(restoreFetch)
 
@@ -28,7 +45,7 @@ describe('grep', function () {
       doc222: ['intro hello', 'unrelated'],
     })
     const result = await grep({ pattern: 'hello' }, makeCtx())
-    expect(result).to.deep.equal([
+    expect(parseHits(result)).to.deep.equal([
       { path: 'main.tex', lineNumber: 2, line: 'hello world' },
       { path: 'chapters/intro.tex', lineNumber: 1, line: 'intro hello' },
     ])
@@ -37,7 +54,7 @@ describe('grep', function () {
   it('is case-insensitive by default', async function () {
     stubFetchWithDocs({ doc111: ['Hello World'], doc222: [] })
     const result = await grep({ pattern: 'hello' }, makeCtx())
-    expect(result).to.have.lengthOf(1)
+    expect(parseHits(result)).to.have.lengthOf(1)
   })
 
   it('respects caseSensitive when true', async function () {
@@ -46,7 +63,7 @@ describe('grep', function () {
       { pattern: 'hello', caseSensitive: true },
       makeCtx()
     )
-    expect(result).to.deep.equal([])
+    expect(parseHits(result)).to.deep.equal([])
   })
 
   it('filters by pathGlob (simple)', async function () {
@@ -58,7 +75,7 @@ describe('grep', function () {
       { pattern: 'target', pathGlob: 'chapters/*.tex' },
       makeCtx()
     )
-    expect(result).to.deep.equal([
+    expect(parseHits(result)).to.deep.equal([
       { path: 'chapters/intro.tex', lineNumber: 1, line: 'target' },
     ])
   })
@@ -72,23 +89,23 @@ describe('grep', function () {
       { pattern: 'target', pathGlob: '**/*.tex' },
       makeCtx()
     )
-    expect(result).to.have.lengthOf(2)
+    expect(parseHits(result)).to.have.lengthOf(2)
   })
 
   it('caps results at maxResults', async function () {
     const manyLines = Array.from({ length: 50 }, (_, i) => `hit ${i}`)
     stubFetchWithDocs({ doc111: manyLines, doc222: manyLines })
     const result = await grep({ pattern: 'hit', maxResults: 5 }, makeCtx())
-    expect(result).to.have.lengthOf(5)
+    expect(parseHits(result)).to.have.lengthOf(5)
   })
 
-  it('returns [] when no files match the glob', async function () {
+  it("returns 'No matches found' when no files match the glob", async function () {
     stubFetchWithDocs({ doc111: ['x'], doc222: ['x'] })
     const result = await grep(
       { pattern: 'x', pathGlob: 'figures/*.tex' },
       makeCtx()
     )
-    expect(result).to.deep.equal([])
+    expect(result).to.equal('No matches found')
   })
 
   it('returns an error string for invalid regex', async function () {
@@ -110,7 +127,7 @@ describe('grep', function () {
       return fakeResponse(200, { lines: ['hit'], version: 1 })
     })
     const result = await grep({ pattern: 'hit' }, makeCtx())
-    expect(result).to.deep.equal([
+    expect(parseHits(result)).to.deep.equal([
       { path: 'main.tex', lineNumber: 1, line: 'hit' },
     ])
   })
@@ -123,7 +140,7 @@ describe('grep', function () {
       return fakeResponse(200, { lines: ['cold'], version: 0 })
     })
     const result = await grep({ pattern: 'cold' }, makeCtx())
-    expect(result).to.have.lengthOf(2)
+    expect(parseHits(result)).to.have.lengthOf(2)
     expect(calls.some(u => u.endsWith('/peek'))).to.be.true
     expect(calls.some(u => !u.endsWith('/peek'))).to.be.true
   })
@@ -136,7 +153,7 @@ describe('grep', function () {
       { pattern: 'hit', pathGlob: 'a.b.tex' },
       ctx
     )
-    expect(result).to.deep.equal([
+    expect(parseHits(result)).to.deep.equal([
       { path: 'a.b.tex', lineNumber: 1, line: 'hit' },
     ])
   })
@@ -175,7 +192,8 @@ describe('grep', function () {
 
     it('anchors: ^ matches start of line', async function () {
       const r = await grep({ pattern: '^foo', caseSensitive: true }, makeCtx())
-      const paths = r.map(h => `${h.path}:${h.lineNumber}`)
+      const hits = parseHits(r)
+      const paths = hits.map(h => `${h.path}:${h.lineNumber}`)
       expect(paths).to.include('chapters/intro.tex:1')
       expect(paths).to.include('chapters/intro.tex:2')
       expect(paths).to.not.include('chapters/intro.tex:3') // 'FOO BAR' — case-sensitive
@@ -183,8 +201,9 @@ describe('grep', function () {
 
     it('anchors: $ matches end of line', async function () {
       const r = await grep({ pattern: 'baz$', caseSensitive: true }, makeCtx())
-      expect(r).to.have.lengthOf(1)
-      expect(r[0]).to.deep.equal({
+      const hits = parseHits(r)
+      expect(hits).to.have.lengthOf(1)
+      expect(hits[0]).to.deep.equal({
         path: 'chapters/intro.tex',
         lineNumber: 1,
         line: 'foo bar baz',
@@ -196,14 +215,15 @@ describe('grep', function () {
         { pattern: '^baz qux$', caseSensitive: true },
         makeCtx()
       )
-      expect(r).to.have.lengthOf(1)
-      expect(r[0].path).to.equal('main.tex')
-      expect(r[0].lineNumber).to.equal(10)
+      const hits = parseHits(r)
+      expect(hits).to.have.lengthOf(1)
+      expect(hits[0].path).to.equal('main.tex')
+      expect(hits[0].lineNumber).to.equal(10)
     })
 
     it('character class: \\d+ matches digit runs', async function () {
       const r = await grep({ pattern: '\\d+' }, makeCtx())
-      const lines = r.map(h => h.line)
+      const lines = parseHits(r).map(h => h.line)
       expect(lines).to.include('Numbers: 42, 100, 7')
       expect(lines).to.include('See \\cite{ref1} and \\cite{ref2}.')
       // 'sec:intro' has no digits — should not be in the results
@@ -215,7 +235,7 @@ describe('grep', function () {
         { pattern: '[A-Z]{2,}', caseSensitive: true },
         makeCtx()
       )
-      const lines = r.map(h => h.line)
+      const lines = parseHits(r).map(h => h.line)
       expect(lines).to.include('MixedCase AND lowercase')
       expect(lines).to.include('FOO BAR')
       expect(lines).to.not.include('foo bar baz')
@@ -226,7 +246,7 @@ describe('grep', function () {
         { pattern: 'o{2,}', caseSensitive: true },
         makeCtx()
       )
-      const lines = r.map(h => h.line)
+      const lines = parseHits(r).map(h => h.line)
       expect(lines).to.include('foo bar baz')
       expect(lines).to.include('foofoo barbar')
       expect(lines).to.not.include('FOO BAR') // case-sensitive
@@ -237,7 +257,7 @@ describe('grep', function () {
         { pattern: 'cite|ref', caseSensitive: true },
         makeCtx()
       )
-      const lines = r.map(h => h.line)
+      const lines = parseHits(r).map(h => h.line)
       expect(lines).to.include('See \\cite{ref1} and \\cite{ref2}.')
       expect(lines).to.include('See \\ref{sec:intro}.')
       // \label{sec:intro} has neither "cite" nor "ref"
@@ -249,7 +269,7 @@ describe('grep', function () {
         { pattern: '\\bfoo\\b', caseSensitive: true },
         makeCtx()
       )
-      const lines = r.map(h => h.line)
+      const lines = parseHits(r).map(h => h.line)
       expect(lines).to.include('foo bar baz')
       // 'foofoo' has no \b inside the doubled occurrence
       expect(lines).to.not.include('foofoo barbar')
@@ -260,7 +280,7 @@ describe('grep', function () {
         { pattern: '\\{.*?\\}', caseSensitive: true },
         makeCtx()
       )
-      const lines = r.map(h => h.line)
+      const lines = parseHits(r).map(h => h.line)
       expect(lines).to.include('\\documentclass{article}')
       expect(lines).to.include('\\title{Foo Bar}')
       expect(lines).to.include('See \\cite{ref1} and \\cite{ref2}.')
@@ -271,8 +291,9 @@ describe('grep', function () {
         { pattern: '\\\\cite\\{', caseSensitive: true },
         makeCtx()
       )
-      expect(r).to.have.lengthOf(1)
-      expect(r[0].line).to.equal('See \\cite{ref1} and \\cite{ref2}.')
+      const hits = parseHits(r)
+      expect(hits).to.have.lengthOf(1)
+      expect(hits[0].line).to.equal('See \\cite{ref1} and \\cite{ref2}.')
     })
 
     it('grouped capture: matches the whole match (captures are not exposed)', async function () {
@@ -281,8 +302,9 @@ describe('grep', function () {
         { pattern: '\\{(article|book)\\}', caseSensitive: true },
         makeCtx()
       )
-      expect(r).to.have.lengthOf(1)
-      expect(r[0].line).to.equal('\\documentclass{article}')
+      const hits = parseHits(r)
+      expect(hits).to.have.lengthOf(1)
+      expect(hits[0].line).to.equal('\\documentclass{article}')
     })
 
     it('positive lookahead: foo(?= bar) matches "foo" before " bar"', async function () {
@@ -292,7 +314,7 @@ describe('grep', function () {
         { pattern: 'foo(?= bar)', caseSensitive: true },
         makeCtx()
       )
-      const lines = r.map(h => h.line)
+      const lines = parseHits(r).map(h => h.line)
       expect(lines).to.deep.equal(['foo bar baz', 'foofoo barbar'])
     })
 
@@ -301,7 +323,7 @@ describe('grep', function () {
         { pattern: 'foo(?!foo)', caseSensitive: true },
         makeCtx()
       )
-      const lines = r.map(h => h.line)
+      const lines = parseHits(r).map(h => h.line)
       expect(lines).to.include('foo bar baz')
       // 'foofoo barbar': first 'foo' IS followed by 'foo', second 'foo' is at
       // position 3 and is followed by ' ' (not foo) — so it still matches once.
@@ -315,7 +337,7 @@ describe('grep', function () {
         { pattern: '(\\w)\\1', caseSensitive: true },
         makeCtx()
       )
-      const lines = r.map(h => h.line)
+      const lines = parseHits(r).map(h => h.line)
       expect(lines).to.include('foo bar baz')
       expect(lines).to.include('foofoo barbar')
       expect(lines).to.include('aabb cc')
@@ -326,7 +348,7 @@ describe('grep', function () {
     it('i flag (default) makes character classes match across case', async function () {
       const r = await grep({ pattern: '[A-Z]{2,}' }, makeCtx())
       // i flag means [A-Z] also matches lowercase runs of 2+
-      const lines = r.map(h => h.line)
+      const lines = parseHits(r).map(h => h.line)
       expect(lines).to.include('foo bar baz') // 'oo' matches [A-Z]{2,} under i
       expect(lines).to.include('FOO BAR')
     })
@@ -335,7 +357,7 @@ describe('grep', function () {
       const r = await grep({ pattern: '.', maxResults: 500 }, makeCtx())
       const nonEmpty =
         CORPUS.doc111.length + CORPUS.doc222.filter(l => l !== '').length
-      expect(r).to.have.lengthOf(nonEmpty)
+      expect(parseHits(r)).to.have.lengthOf(nonEmpty)
     })
 
     it('special-character literal search: searching for "$" requires escaping', async function () {
@@ -349,7 +371,7 @@ describe('grep', function () {
         { pattern: '\\$', caseSensitive: true },
         ctx
       )
-      expect(r.map(h => h.line)).to.deep.equal(['Price: $5'])
+      expect(parseHits(r).map(h => h.line)).to.deep.equal(['Price: $5'])
     })
 
     it('returns each matching line at most once, even with multiple matches in it', async function () {
@@ -363,8 +385,9 @@ describe('grep', function () {
         { pattern: 'banana', caseSensitive: true },
         ctx
       )
-      expect(r).to.have.lengthOf(1)
-      expect(r[0].lineNumber).to.equal(1)
+      const hits = parseHits(r)
+      expect(hits).to.have.lengthOf(1)
+      expect(hits[0].lineNumber).to.equal(1)
     })
 
     it('does not span across line boundaries (no m/s flag concerns)', async function () {
@@ -379,7 +402,7 @@ describe('grep', function () {
         { pattern: 'one.*two', caseSensitive: true },
         ctx
       )
-      expect(r).to.deep.equal([])
+      expect(parseHits(r)).to.deep.equal([])
     })
   })
 })
