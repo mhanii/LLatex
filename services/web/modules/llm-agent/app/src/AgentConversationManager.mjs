@@ -164,21 +164,6 @@ async function recordMessage(projectId, conversationId, message, role, runId) {
   }
 }
 
-async function getMessageRoles(projectId, conversationId) {
-  const conversation = await db.agentConversations.findOne(
-    {
-      _id: normalizeObjectId(conversationId, 'conversationId'),
-      projectId: normalizeObjectId(projectId, 'projectId'),
-    },
-    { projection: { messages: 1 } }
-  )
-  const roles = new Map()
-  for (const message of conversation?.messages ?? []) {
-    roles.set(message.messageId, message.role)
-  }
-  return roles
-}
-
 // Returns Map<messageId, {role, runId}>. The runId lets the llm-agent service
 // look up the prior assistant turn's tool calls/outputs so multi-turn context
 // includes them — without it, only the assistant's final text is replayed.
@@ -221,7 +206,6 @@ export default {
   getConversation: callbackify(getConversation),
   ensureConversation: callbackify(ensureConversation),
   recordMessage: callbackify(recordMessage),
-  getMessageRoles: callbackify(getMessageRoles),
   getMessageMetadata: callbackify(getMessageMetadata),
   recordRun: callbackify(recordRun),
   promises: {
@@ -230,7 +214,6 @@ export default {
     getConversation,
     ensureConversation,
     recordMessage,
-    getMessageRoles,
     getMessageMetadata,
     recordRun,
   },

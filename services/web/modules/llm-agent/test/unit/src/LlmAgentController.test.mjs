@@ -10,11 +10,13 @@ const MESSAGE_ID = 'eee000000000000000000001'
 let SessionManager
 let ChatApiHandler
 let CompileManager
+let AgentCompileCoordinator
 let ProjectGetter
 let ProjectEntityHandler
 let ProjectLocator
 let EditorController
 let EditorRealTimeController
+let DocumentUpdaterHandler
 let LlmAgentApiHandler
 let ProjectCreationHandler
 let AgentConversationManager
@@ -146,6 +148,16 @@ describe('LlmAgentController', function () {
       default: CompileManager,
     }))
 
+    AgentCompileCoordinator = {
+      compile: vi.fn().mockResolvedValue({
+        status: 'success',
+        outputFiles: [],
+      }),
+    }
+    vi.doMock('../../../app/src/AgentCompileCoordinator.mjs', () => ({
+      default: AgentCompileCoordinator,
+    }))
+
     vi.doMock(
       '../../../../../app/src/Features/User/UserInfoManager.mjs',
       () => ({
@@ -174,8 +186,25 @@ describe('LlmAgentController', function () {
       })
     )
 
+    DocumentUpdaterHandler = {
+      promises: {
+        acceptChanges: vi.fn().mockResolvedValue({
+          acceptedChangeIds: ['change-1'],
+        }),
+      },
+    }
+    vi.doMock(
+      '../../../../../app/src/Features/DocumentUpdater/DocumentUpdaterHandler.mjs',
+      () => ({
+        default: DocumentUpdaterHandler,
+      })
+    )
+
     LlmAgentApiHandler = {
-      promises: { startRun: vi.fn().mockResolvedValue({ runId: RUN_ID }) },
+      promises: {
+        startRun: vi.fn().mockResolvedValue({ runId: RUN_ID }),
+        getRunSteps: vi.fn().mockResolvedValue({ steps: [] }),
+      },
     }
     vi.doMock('../../../app/src/LlmAgentApiHandler.mjs', () => ({
       default: LlmAgentApiHandler,
@@ -202,9 +231,6 @@ describe('LlmAgentController', function () {
           updatedAt: 1,
         }),
         recordMessage: vi.fn().mockResolvedValue(undefined),
-        getMessageRoles: vi
-          .fn()
-          .mockResolvedValue(new Map([[MESSAGE_ID, 'user']])),
         getMessageMetadata: vi
           .fn()
           .mockResolvedValue(new Map([[MESSAGE_ID, { role: 'user', runId: null }]])),
@@ -384,10 +410,201 @@ describe('LlmAgentController', function () {
       expect(
         AgentConversationManager.promises.getConversation
       ).toHaveBeenCalledWith(PROJECT_ID, CONVERSATION_ID, USER_ID)
+      expect(
+        AgentConversationManager.promises.getMessageMetadata
+      ).toHaveBeenCalledWith(PROJECT_ID, CONVERSATION_ID)
       expect(JSON.parse(res.body)[0]).toMatchObject({
         id: MESSAGE_ID,
         role: 'user',
       })
+    })
+
+    it('includes toolEvents for assistant messages with a runId', async function () {
+      const ASSISTANT_MESSAGE_ID = 'eee000000000000000000002'
+      ChatApiHandler.promises.getThread.mockResolvedValueOnce({
+        messages: [
+          {
+            id: MESSAGE_ID,
+            user_id: USER_ID,
+            content: 'hello agent',
+            timestamp: 1,
+          },
+          {
+            id: ASSISTANT_MESSAGE_ID,
+            user_id: USER_ID,
+            content: 'I read the file.',
+            timestamp: 2,
+          },
+        ],
+      })
+      AgentConversationManager.promises.getMessageMetadata.mockResolvedValueOnce(
+        new Map([
+          [MESSAGE_ID, { role: 'user', runId: null }],
+          [ASSISTANT_MESSAGE_ID, { role: 'assistant', runId: RUN_ID }],
+        ])
+      )
+      LlmAgentApiHandler.promises.getRunSteps.mockResolvedValueOnce({
+        steps: [
+          {
+            name: 'llm.complete',
+            // ISO strings — matches what fetchJson returns after the HTTP
+            // round-trip; Date instances would mask a getTime() bug.
+            startedAt: new Date(1000).toISOString(),
+            finishedAt: new Date(2000).toISOString(),
+            output: {
+              text: '',
+              reasoning: [],
+              toolCalls: [
+                {
+                  toolCallId: 'tc-1',
+                  toolName: 'read_file',
+                  input: { path: 'main.tex' },
+                },
+              ],
+              toolResults: [
+                {
+                  toolCallId: 'tc-1',
+                  toolName: 'read_file',
+                  input: { path: 'main.tex' },
+                  output: 'file content',
+                },
+              ],
+              finishReason: 'tool-calls',
+            },
+          },
+        ],
+      })
+
+      const req = {
+        params: {
+          project_id: PROJECT_ID,
+          conversation_id: CONVERSATION_ID,
+        },
+        session: {},
+      }
+      const res = makeRes()
+      await LlmAgentController.getConversationMessages(req, res, vi.fn())
+
+      const body = JSON.parse(res.body)
+      expect(body).toHaveLength(2)
+      expect(body[0]).toMatchObject({
+        id: MESSAGE_ID,
+        role: 'user',
+      })
+      expect(body[1]).toMatchObject({
+        id: ASSISTANT_MESSAGE_ID,
+        role: 'assistant',
+        toolEvents: [
+          {
+            toolCallId: 'tc-1',
+            toolName: 'read_file',
+            status: 'completed',
+            input: { path: 'main.tex' },
+            timestamp: 2000,
+          },
+        ],
+      })
+      expect(LlmAgentApiHandler.promises.getRunSteps).toHaveBeenCalledWith(
+        PROJECT_ID,
+        RUN_ID
+      )
+    })
+
+    it('falls back gracefully when getRunSteps fails', async function () {
+      const ASSISTANT_MESSAGE_ID = 'eee000000000000000000002'
+      ChatApiHandler.promises.getThread.mockResolvedValueOnce({
+        messages: [
+          {
+            id: ASSISTANT_MESSAGE_ID,
+            user_id: USER_ID,
+            content: 'I read the file.',
+            timestamp: 2,
+          },
+        ],
+      })
+      AgentConversationManager.promises.getMessageMetadata.mockResolvedValueOnce(
+        new Map([
+          [ASSISTANT_MESSAGE_ID, { role: 'assistant', runId: RUN_ID }],
+        ])
+      )
+      LlmAgentApiHandler.promises.getRunSteps.mockRejectedValueOnce(
+        new Error('service unavailable')
+      )
+
+      const req = {
+        params: {
+          project_id: PROJECT_ID,
+          conversation_id: CONVERSATION_ID,
+        },
+        session: {},
+      }
+      const res = makeRes()
+      await LlmAgentController.getConversationMessages(req, res, vi.fn())
+
+      const body = JSON.parse(res.body)
+      expect(body).toHaveLength(1)
+      expect(body[0]).toMatchObject({
+        id: ASSISTANT_MESSAGE_ID,
+        role: 'assistant',
+      })
+      expect(body[0].toolEvents).toBeUndefined()
+    })
+
+    it('marks tool events as error when the matching toolResult is missing or errored', async function () {
+      const ASSISTANT_MESSAGE_ID = 'eee000000000000000000003'
+      ChatApiHandler.promises.getThread.mockResolvedValueOnce({
+        messages: [
+          {
+            id: ASSISTANT_MESSAGE_ID,
+            user_id: USER_ID,
+            content: 'attempted three tools',
+            timestamp: 1,
+          },
+        ],
+      })
+      AgentConversationManager.promises.getMessageMetadata.mockResolvedValueOnce(
+        new Map([
+          [ASSISTANT_MESSAGE_ID, { role: 'assistant', runId: RUN_ID }],
+        ])
+      )
+      LlmAgentApiHandler.promises.getRunSteps.mockResolvedValueOnce({
+        steps: [
+          {
+            name: 'llm.complete',
+            startedAt: new Date(1000).toISOString(),
+            finishedAt: new Date(2000).toISOString(),
+            output: {
+              toolCalls: [
+                { toolCallId: 'ok', toolName: 'read_file', input: { path: 'a' } },
+                { toolCallId: 'errfield', toolName: 'edit_file', input: { path: 'b' } },
+                { toolCallId: 'missing', toolName: 'compile_and_check', input: {} },
+              ],
+              toolResults: [
+                { toolCallId: 'ok', toolName: 'read_file', output: 'contents' },
+                {
+                  toolCallId: 'errfield',
+                  toolName: 'edit_file',
+                  error: 'oldText not found',
+                },
+                // 'missing' deliberately omitted
+              ],
+            },
+          },
+        ],
+      })
+
+      const req = {
+        params: { project_id: PROJECT_ID, conversation_id: CONVERSATION_ID },
+        session: {},
+      }
+      const res = makeRes()
+      await LlmAgentController.getConversationMessages(req, res, vi.fn())
+
+      const events = JSON.parse(res.body)[0].toolEvents
+      expect(events).toHaveLength(3)
+      expect(events.find(e => e.toolCallId === 'ok').status).toBe('completed')
+      expect(events.find(e => e.toolCallId === 'errfield').status).toBe('error')
+      expect(events.find(e => e.toolCallId === 'missing').status).toBe('error')
     })
 
     it('returns 403 from getConversationMessages when no user is in session', async function () {
@@ -527,6 +744,34 @@ describe('LlmAgentController', function () {
       )
       expect(res.statusCode).toBe(204)
     })
+
+    it('accepts agent changes and emits the normal accept-changes event', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          docId: 'doc-main',
+          changeIds: ['change-1', 'change-2'],
+          userId: USER_ID,
+        },
+      }
+      const res = makeRes()
+      await LlmAgentController.agentAcceptChanges(req, res, vi.fn())
+
+      expect(DocumentUpdaterHandler.promises.acceptChanges).toHaveBeenCalledWith(
+        PROJECT_ID,
+        'doc-main',
+        ['change-1', 'change-2'],
+        USER_ID
+      )
+      expect(EditorRealTimeController.emitToRoom).toHaveBeenCalledWith(
+        PROJECT_ID,
+        'accept-changes',
+        'doc-main',
+        ['change-1']
+      )
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body)).toEqual({ acceptedChangeIds: ['change-1'] })
+    })
   })
 
   describe('agentMoveFile', function () {
@@ -633,7 +878,7 @@ describe('LlmAgentController', function () {
         '\n' +
         './main.tex:5: Undefined control sequence.\n' +
         'l.5 \\badcommand\n'
-      CompileManager.promises.compile.mockResolvedValueOnce({
+      AgentCompileCoordinator.compile.mockResolvedValueOnce({
         status: 'failure',
         outputFiles: [
           {
@@ -671,7 +916,7 @@ describe('LlmAgentController', function () {
     })
 
     it('returns empty entries when outputFiles is empty', async function () {
-      CompileManager.promises.compile.mockResolvedValueOnce({
+      AgentCompileCoordinator.compile.mockResolvedValueOnce({
         status: 'failure',
         outputFiles: [],
       })
@@ -689,7 +934,7 @@ describe('LlmAgentController', function () {
     })
 
     it('returns empty entries when fetching output.log fails', async function () {
-      CompileManager.promises.compile.mockResolvedValueOnce({
+      AgentCompileCoordinator.compile.mockResolvedValueOnce({
         status: 'failure',
         outputFiles: [
           {
@@ -714,7 +959,7 @@ describe('LlmAgentController', function () {
       const blgContent =
         'This is BibTeX, Version 0.99d (TeX Live)\n' +
         'A bad cross reference---entry "foo"\nrefers to entry "bar", which doesn\'t exist\n'
-      CompileManager.promises.compile.mockResolvedValueOnce({
+      AgentCompileCoordinator.compile.mockResolvedValueOnce({
         status: 'failure',
         outputFiles: [
           {
@@ -740,6 +985,30 @@ describe('LlmAgentController', function () {
       const res = makeRes()
       await LlmAgentController.internalCompile(req, res, vi.fn())
       expect(res.statusCode).toBe(400)
+    })
+
+    it('routes through AgentCompileCoordinator (not CompileManager directly)', async function () {
+      fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ pageCount: 1 }),
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const req = makeCompileReq({ rootDoc_id: 'doc-root', stopOnFirstError: true })
+      const res = makeRes()
+      await LlmAgentController.internalCompile(req, res, vi.fn())
+
+      expect(AgentCompileCoordinator.compile).toHaveBeenCalledTimes(1)
+      expect(CompileManager.promises.compile).not.toHaveBeenCalled()
+      const [pid, uid, opts] = AgentCompileCoordinator.compile.mock.calls[0]
+      expect(pid).toBe(PROJECT_ID)
+      expect(uid).toBe(USER_ID)
+      expect(opts).toMatchObject({
+        isAutoCompile: false,
+        fileLineErrors: true,
+        rootDoc_id: 'doc-root',
+        stopOnFirstError: true,
+      })
     })
   })
 
