@@ -140,6 +140,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   const simulationStopRef = useRef(false)
   const simulationConversationIdRef = useRef<string | null>(null)
   const initialScrollConversationIdRef = useRef<string | null>(null)
+  const prevIsAwaitingRef = useRef(isAwaitingAgentResponse);
 
   const setMessagesWithRef = useCallback((newMessages: ChatbotMessage[] | ((prev: ChatbotMessage[]) => ChatbotMessage[])) => {
     setMessages(prev => {
@@ -638,34 +639,58 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   }, [setMessagesWithRef])
 
   const stopGeneration = useCallback(() => {
-    simulationStopRef.current = true
+    simulationStopRef.current = true;
+    
+    // Auto-collapse any running status groups
+    const allStatusGroupIds = computedStatusGroupIds;
+    const groupsToCollapse = allStatusGroupIds.filter(id => 
+      !autoCompactedGroupIds.includes(id) && !collapsedStatusGroupIds.includes(id)
+    );
+    
+    if (groupsToCollapse.length > 0) {
+      setAutoCompactedGroupIds(prev => [...prev, ...groupsToCollapse]);
+      setCollapsedStatusGroupIds(prev => [...prev, ...groupsToCollapse]);
+      setExpandedStatusGroupIds(prev => prev.filter(id => !groupsToCollapse.includes(id)));
+    }
     
     if (activeRunIdRef.current) {
-      canceledRunIdsRef.current.add(activeRunIdRef.current)
+      canceledRunIdsRef.current.add(activeRunIdRef.current);
       
       if (socket && activeConversationIdRef.current) {
         socket.emit('agent:stop', {
           conversationId: activeConversationIdRef.current,
           runId: activeRunIdRef.current
-        })
+        });
       }
       
-      activeRunIdRef.current = null
+      activeRunIdRef.current = null;
     }
     
-    submitAbortControllerRef.current?.abort()
-    submitAbortControllerRef.current = null
+    submitAbortControllerRef.current?.abort();
+    submitAbortControllerRef.current = null;
 
-    const conversationId = simulationConversationIdRef.current ?? activeConversationIdRef.current
+    const conversationId = simulationConversationIdRef.current ?? activeConversationIdRef.current;
     if (conversationId) {
-      cleanupPendingToolsForConversation(conversationId)
+      cleanupPendingToolsForConversation(conversationId);
     }
 
-    simulationConversationIdRef.current = null
+    simulationConversationIdRef.current = null;
 
-    setIsAwaitingAgentResponse(false)
-    setIsSending(false)
-  }, [activeConversationIdRef, cleanupPendingToolsForConversation, setIsAwaitingAgentResponse, setIsSending, socket])
+    setIsAwaitingAgentResponse(false);
+    setIsSending(false);
+  }, [
+    activeConversationIdRef, 
+    cleanupPendingToolsForConversation, 
+    setIsAwaitingAgentResponse, 
+    setIsSending, 
+    socket,
+    computedStatusGroupIds,
+    autoCompactedGroupIds,
+    collapsedStatusGroupIds,
+    setAutoCompactedGroupIds,
+    setCollapsedStatusGroupIds,
+    setExpandedStatusGroupIds
+  ]);
 
   const simulateFullConversation = useCallback(async () => {
     if (isSending || isAwaitingAgentResponse) {
@@ -889,6 +914,23 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       })
     }
   }, [autoCompactedGroupIds, computedStatusGroupIds, messages, setAutoCompactedGroupIds, setCollapsedStatusGroupIds, setExpandedStatusGroupIds, shouldAutoScrollRef, messagesContainerRef])
+
+  useEffect(() => {
+    // When we transition from awaiting response to not awaiting (generation finished or stopped)
+    if (prevIsAwaitingRef.current === true && isAwaitingAgentResponse === false) {
+      // Collapse any status groups that aren't already collapsed
+      const groupsToCollapse = computedStatusGroupIds.filter(id => 
+        !autoCompactedGroupIds.includes(id) && !collapsedStatusGroupIds.includes(id)
+      );
+      
+      if (groupsToCollapse.length > 0) {
+        setAutoCompactedGroupIds(prev => [...prev, ...groupsToCollapse]);
+        setCollapsedStatusGroupIds(prev => [...prev, ...groupsToCollapse]);
+        setExpandedStatusGroupIds(prev => prev.filter(id => !groupsToCollapse.includes(id)));
+      }
+    }
+    prevIsAwaitingRef.current = isAwaitingAgentResponse;
+  }, [isAwaitingAgentResponse, computedStatusGroupIds, autoCompactedGroupIds, collapsedStatusGroupIds, setAutoCompactedGroupIds, setCollapsedStatusGroupIds, setExpandedStatusGroupIds]);
 
   useEffect(() => {
     let cancelled = false
