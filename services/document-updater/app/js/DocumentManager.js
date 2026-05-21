@@ -1005,14 +1005,47 @@ const DocumentManager = {
 
     // 4. Apply the OT update normally. This produces correct visible content;
     //    its ranges may be messy if there was overlap.
+    //
+    //    Two narrowing rules applied to the OT op (NOT to the section 2/3/6/7
+    //    region calculations, which keep the original pos/oldText/newText):
+    //
+    //    a) Trim a shared prefix/suffix. The frontend chip reads from its own
+    //       RangesTracker (built from the OT op), so when the agent supplies
+    //       context like oldText="abc world" → newText="abc earth" we don't
+    //       want the chip to show the whole "abc " on both sides as old/new —
+    //       the actual diff is "world"→"earth". For pure deletes with context
+    //       (oldText="abc X def" → newText="abc def"), trimming reduces the
+    //       OT op to a single pure-delete of " X", so the chip shows ONLY
+    //       the deletion (no posterior context shown as "new text").
+    //
+    //    b) Skip empty halves. The ranges-tracker treats `i: ""` / `d: ""` as
+    //       real ops and creates zero-length tracked changes from them, which
+    //       survive consolidation and show up as unrejectable phantom chips.
+    let prefixLen = 0
+    const minLen = Math.min(oldText.length, newText.length)
+    while (prefixLen < minLen && oldText[prefixLen] === newText[prefixLen]) {
+      prefixLen++
+    }
+    let suffixLen = 0
+    while (
+      suffixLen < minLen - prefixLen &&
+      oldText[oldText.length - 1 - suffixLen] ===
+        newText[newText.length - 1 - suffixLen]
+    ) {
+      suffixLen++
+    }
+    const otPos = pos + prefixLen
+    const otOldText = oldText.slice(prefixLen, oldText.length - suffixLen)
+    const otNewText = newText.slice(prefixLen, newText.length - suffixLen)
+
     const tcSeed = RangesTracker.generateIdSeed()
+    const ops = []
+    if (otOldText.length > 0) ops.push({ p: otPos, d: otOldText })
+    if (otNewText.length > 0) ops.push({ p: otPos, i: otNewText })
     await UpdateManager.promises.applyUpdate(projectId, docId, {
       doc: docId,
       v: before.version,
-      op: [
-        { p: pos, d: oldText },
-        { p: pos, i: newText },
-      ],
+      op: ops,
       meta: { user_id: userId, tc: tcSeed, source: 'agent' },
     })
 

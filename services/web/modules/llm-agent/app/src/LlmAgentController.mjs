@@ -7,6 +7,7 @@ import ChatApiHandler from '../../../../app/src/Features/Chat/ChatApiHandler.mjs
 import ChatManager from '../../../../app/src/Features/Chat/ChatManager.mjs'
 import EditorController from '../../../../app/src/Features/Editor/EditorController.mjs'
 import EditorRealTimeController from '../../../../app/src/Features/Editor/EditorRealTimeController.mjs'
+import DocumentUpdaterHandler from '../../../../app/src/Features/DocumentUpdater/DocumentUpdaterHandler.mjs'
 import UserInfoManager from '../../../../app/src/Features/User/UserInfoManager.mjs'
 import UserInfoController from '../../../../app/src/Features/User/UserInfoController.mjs'
 import CompileManager from '../../../../app/src/Features/Compile/CompileManager.mjs'
@@ -299,6 +300,32 @@ async function agentToolCall(req, res) {
   res.sendStatus(204)
 }
 
+async function agentAcceptChanges(req, res) {
+  const { project_id: projectId } = req.params
+  const { docId, changeIds, userId } = req.body
+  if (!docId || !Array.isArray(changeIds) || !userId) {
+    return res
+      .status(400)
+      .json({ error: 'docId, changeIds and userId required' })
+  }
+
+  const response = await DocumentUpdaterHandler.promises.acceptChanges(
+    projectId,
+    docId,
+    changeIds,
+    userId
+  )
+
+  EditorRealTimeController.emitToRoom(
+    projectId,
+    'accept-changes',
+    docId,
+    response.acceptedChangeIds
+  )
+
+  res.json(response)
+}
+
 async function agentCreateFile(req, res) {
   const { project_id: projectId } = req.params
   const { path, content, userId } = req.body
@@ -574,6 +601,7 @@ export default {
   sendMessage: expressify(sendMessage),
   agentComplete: expressify(agentComplete),
   agentToolCall: expressify(agentToolCall),
+  agentAcceptChanges: expressify(agentAcceptChanges),
   agentCreateFile: expressify(agentCreateFile),
   agentDeleteFile: expressify(agentDeleteFile),
   agentMoveFile: expressify(agentMoveFile),

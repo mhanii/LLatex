@@ -2,6 +2,7 @@
 
 import { tool } from 'ai'
 import { TOOL_REGISTRY } from './registry.js'
+import { autoAcceptTrackChangesBeforeEdit } from './auto_accept_track_changes.js'
 
 /**
  * Build a Vercel AI SDK tool map by selecting entries from the canonical
@@ -29,12 +30,25 @@ export function buildTools(ctx, toolNames) {
           input,
         })
         try {
-          const output = await def.execute(input, ctx)
-          await ctx.onToolEvent?.({
-            toolName: name,
-            status: 'completed',
-            input,
-          })
+          let output
+          if (name === 'edit_file') {
+            output = await autoAcceptTrackChangesBeforeEdit(input, ctx)
+          }
+          if (output == null) {
+            output = await def.execute(input, ctx)
+            await ctx.onToolEvent?.({
+              toolName: name,
+              status: 'completed',
+              input,
+            })
+          } else {
+            await ctx.onToolEvent?.({
+              toolName: name,
+              status: 'error',
+              input,
+              error: output,
+            })
+          }
           return output
         } catch (err) {
           await ctx.onToolEvent?.({

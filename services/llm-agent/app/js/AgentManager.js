@@ -106,6 +106,7 @@ export async function run(runId, input, startedAt, opts = {}) {
       runId,
       conversationId: input.conversationId,
       context: input.context,
+      autoAcceptTrackChangesOnEdit: (input.chatHistory ?? []).length > 0,
       onToolEvent: async event => {
         try {
           await notifyWebAgentToolCall(input.projectId, {

@@ -15,6 +15,7 @@ let ProjectEntityHandler
 let ProjectLocator
 let EditorController
 let EditorRealTimeController
+let DocumentUpdaterHandler
 let LlmAgentApiHandler
 let ProjectCreationHandler
 let AgentConversationManager
@@ -171,6 +172,20 @@ describe('LlmAgentController', function () {
       '../../../../../app/src/Features/Editor/EditorRealTimeController.mjs',
       () => ({
         default: EditorRealTimeController,
+      })
+    )
+
+    DocumentUpdaterHandler = {
+      promises: {
+        acceptChanges: vi.fn().mockResolvedValue({
+          acceptedChangeIds: ['change-1'],
+        }),
+      },
+    }
+    vi.doMock(
+      '../../../../../app/src/Features/DocumentUpdater/DocumentUpdaterHandler.mjs',
+      () => ({
+        default: DocumentUpdaterHandler,
       })
     )
 
@@ -526,6 +541,34 @@ describe('LlmAgentController', function () {
         })
       )
       expect(res.statusCode).toBe(204)
+    })
+
+    it('accepts agent changes and emits the normal accept-changes event', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          docId: 'doc-main',
+          changeIds: ['change-1', 'change-2'],
+          userId: USER_ID,
+        },
+      }
+      const res = makeRes()
+      await LlmAgentController.agentAcceptChanges(req, res, vi.fn())
+
+      expect(DocumentUpdaterHandler.promises.acceptChanges).toHaveBeenCalledWith(
+        PROJECT_ID,
+        'doc-main',
+        ['change-1', 'change-2'],
+        USER_ID
+      )
+      expect(EditorRealTimeController.emitToRoom).toHaveBeenCalledWith(
+        PROJECT_ID,
+        'accept-changes',
+        'doc-main',
+        ['change-1']
+      )
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body)).toEqual({ acceptedChangeIds: ['change-1'] })
     })
   })
 

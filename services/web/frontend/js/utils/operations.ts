@@ -37,3 +37,13 @@ export const visibleTextLength = (op: AnyOperation) => {
 
   return 0
 }
+
+export const sortedChanges = <T extends EditOperation>(
+  changes: Change<T>[]
+): Change<T>[] =>
+  [...changes].sort((a, b) => {
+    if (a.op.p !== b.op.p) return a.op.p - b.op.p
+    if (isInsertChange(a) && isDeleteChange(b)) return -1
+    if (isDeleteChange(a) && isInsertChange(b)) return 1
+    return a.id.localeCompare(b.id)
+  })
