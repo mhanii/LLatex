@@ -2,7 +2,6 @@
 
 import { tool } from 'ai'
 import { TOOL_REGISTRY } from './registry.js'
-import { autoAcceptTrackChangesBeforeEdit } from './auto_accept_track_changes.js'
 
 /**
  * Build a Vercel AI SDK tool map by selecting entries from the canonical
@@ -30,25 +29,26 @@ export function buildTools(ctx, toolNames) {
           input,
         })
         try {
-          let output
-          if (name === 'edit_file') {
-            output = await autoAcceptTrackChangesBeforeEdit(input, ctx)
-          }
-          if (output == null) {
-            output = await def.execute(input, ctx)
-            await ctx.onToolEvent?.({
-              toolName: name,
-              status: 'completed',
-              input,
-            })
-          } else {
+          // Tools may define a preExecute hook that runs before `execute`.
+          // A non-null return short-circuits dispatch and becomes the output.
+          const preOutput = def.preExecute
+            ? await def.preExecute(input, ctx)
+            : null
+          if (preOutput != null) {
             await ctx.onToolEvent?.({
               toolName: name,
               status: 'error',
               input,
-              error: output,
+              error: preOutput,
             })
+            return preOutput
           }
+          const output = await def.execute(input, ctx)
+          await ctx.onToolEvent?.({
+            toolName: name,
+            status: 'completed',
+            input,
+          })
           return output
         } catch (err) {
           await ctx.onToolEvent?.({

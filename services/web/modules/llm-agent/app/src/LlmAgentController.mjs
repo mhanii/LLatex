@@ -177,17 +177,32 @@ function toEpochMs(value) {
   return Number.isFinite(ms) ? ms : null
 }
 
+// A toolResult counts as an error if it was never written (the tool crashed
+// or the run was interrupted before it returned), if it carries an explicit
+// `error` field, or if its output object signals failure.
+function toolResultStatus(result) {
+  if (!result) return 'error'
+  if (result.error) return 'error'
+  if (result.output && typeof result.output === 'object' && result.output.error) {
+    return 'error'
+  }
+  return 'completed'
+}
+
 function buildToolEvents(steps) {
   const events = []
   for (const step of steps) {
     const output = step.output
     if (!output) continue
     const toolCalls = output.toolCalls ?? []
+    const resultsById = new Map(
+      (output.toolResults ?? []).map(r => [r.toolCallId, r])
+    )
     for (const tc of toolCalls) {
       events.push({
         toolCallId: tc.toolCallId,
         toolName: tc.toolName,
-        status: 'completed',
+        status: toolResultStatus(resultsById.get(tc.toolCallId)),
         input: tc.input ?? tc.args ?? {},
         timestamp:
           toEpochMs(step.finishedAt) ?? toEpochMs(step.startedAt) ?? Date.now(),

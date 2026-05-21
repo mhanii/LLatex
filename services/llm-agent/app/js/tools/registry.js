@@ -18,6 +18,7 @@ import { listSkills } from './list_skills.js'
 import { readSkill } from './read_skill.js'
 import { grep } from './grep.js'
 import { askQuestion } from './ask_question.js'
+import { autoAcceptTrackChangesBeforeEdit } from './auto_accept_track_changes.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -35,6 +36,7 @@ function loadPrompt(name) {
  * @property {string} usagePrompt      - one-line "when to use this" hint composed into the agent system prompt for agents that allow this tool
  * @property {z.ZodTypeAny} inputSchema
  * @property {(input: any, ctx: import('../types.js').RunContext) => Promise<unknown>} execute
+ * @property {(input: any, ctx: import('../types.js').RunContext) => Promise<unknown>} [preExecute]  Optional pre-step. If it returns a non-null value, that value becomes the tool output and `execute` is skipped — used e.g. by edit_file to auto-accept pending agent track-changes before editing.
  */
 
 /**
@@ -92,6 +94,7 @@ export const TOOL_REGISTRY = {
       oldText: z.string().describe('Exact text to replace (must match verbatim)'),
       newText: z.string().describe('Replacement text'),
     }),
+    preExecute: autoAcceptTrackChangesBeforeEdit,
     execute: editFile,
   },
 

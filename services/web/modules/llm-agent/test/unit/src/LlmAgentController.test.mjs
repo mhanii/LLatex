@@ -550,6 +550,63 @@ describe('LlmAgentController', function () {
       expect(body[0].toolEvents).toBeUndefined()
     })
 
+    it('marks tool events as error when the matching toolResult is missing or errored', async function () {
+      const ASSISTANT_MESSAGE_ID = 'eee000000000000000000003'
+      ChatApiHandler.promises.getThread.mockResolvedValueOnce({
+        messages: [
+          {
+            id: ASSISTANT_MESSAGE_ID,
+            user_id: USER_ID,
+            content: 'attempted three tools',
+            timestamp: 1,
+          },
+        ],
+      })
+      AgentConversationManager.promises.getMessageMetadata.mockResolvedValueOnce(
+        new Map([
+          [ASSISTANT_MESSAGE_ID, { role: 'assistant', runId: RUN_ID }],
+        ])
+      )
+      LlmAgentApiHandler.promises.getRunSteps.mockResolvedValueOnce({
+        steps: [
+          {
+            name: 'llm.complete',
+            startedAt: new Date(1000).toISOString(),
+            finishedAt: new Date(2000).toISOString(),
+            output: {
+              toolCalls: [
+                { toolCallId: 'ok', toolName: 'read_file', input: { path: 'a' } },
+                { toolCallId: 'errfield', toolName: 'edit_file', input: { path: 'b' } },
+                { toolCallId: 'missing', toolName: 'compile_and_check', input: {} },
+              ],
+              toolResults: [
+                { toolCallId: 'ok', toolName: 'read_file', output: 'contents' },
+                {
+                  toolCallId: 'errfield',
+                  toolName: 'edit_file',
+                  error: 'oldText not found',
+                },
+                // 'missing' deliberately omitted
+              ],
+            },
+          },
+        ],
+      })
+
+      const req = {
+        params: { project_id: PROJECT_ID, conversation_id: CONVERSATION_ID },
+        session: {},
+      }
+      const res = makeRes()
+      await LlmAgentController.getConversationMessages(req, res, vi.fn())
+
+      const events = JSON.parse(res.body)[0].toolEvents
+      expect(events).toHaveLength(3)
+      expect(events.find(e => e.toolCallId === 'ok').status).toBe('completed')
+      expect(events.find(e => e.toolCallId === 'errfield').status).toBe('error')
+      expect(events.find(e => e.toolCallId === 'missing').status).toBe('error')
+    })
+
     it('returns 403 from getConversationMessages when no user is in session', async function () {
       SessionManager.getLoggedInUserId.mockReturnValue(null)
       const req = {
