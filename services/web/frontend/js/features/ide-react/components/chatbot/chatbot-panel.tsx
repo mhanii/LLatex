@@ -121,6 +121,7 @@ export default function ChatbotPanel() {
     isAwaitingAgentResponse: state.isAwaitingAgentResponse,
     setIsAwaitingAgentResponse: state.setIsAwaitingAgentResponse,
     setIsLoadingMessages: state.setIsLoadingMessages,
+    isLoadingMessages: state._isLoadingMessages,
     referenceText: state.referenceText,
     setReferenceText: state.setReferenceText,
     referenceLines: state.referenceLines,
@@ -222,6 +223,8 @@ export default function ChatbotPanel() {
         messagesContainerRef={state.messagesContainerRef}
         shouldAutoScroll={state.shouldAutoScroll}
         onJumpToLatestMessage={handleJumpToLatestMessage}
+        activeConversationId={state.activeConversationId}
+        isLoadingMessages={state._isLoadingMessages}
       />
 
       <ChatbotDebugPanel 

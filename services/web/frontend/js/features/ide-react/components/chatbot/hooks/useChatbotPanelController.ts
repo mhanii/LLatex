@@ -26,6 +26,7 @@ export type ChatbotPanelControllerArgs = {
   isAwaitingAgentResponse: boolean
   setIsAwaitingAgentResponse: React.Dispatch<React.SetStateAction<boolean>>
   setIsLoadingMessages: React.Dispatch<React.SetStateAction<boolean>>
+  isLoadingMessages: boolean
   referenceText: string | null
   setReferenceText: React.Dispatch<React.SetStateAction<string | null>>
   referenceLines: { start: number; end: number } | null
@@ -87,6 +88,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     isAwaitingAgentResponse,
     setIsAwaitingAgentResponse,
     setIsLoadingMessages,
+    isLoadingMessages,
     referenceText,
     setReferenceText,
     referenceLines,
@@ -137,6 +139,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   const generationStoppedRef = useRef(false)
   const simulationStopRef = useRef(false)
   const simulationConversationIdRef = useRef<string | null>(null)
+  const initialScrollConversationIdRef = useRef<string | null>(null)
 
   const setMessagesWithRef = useCallback((newMessages: ChatbotMessage[] | ((prev: ChatbotMessage[]) => ChatbotMessage[])) => {
     setMessages(prev => {
@@ -689,6 +692,45 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       return !simulationStopRef.current
     }
 
+    // Helper to stream a message character by character with auto-scroll
+    const streamMessage = async (fullText: string, conversationId: string, chunkDelayMs: number = 30) => {
+      const messageId = createMessageId('assistant')
+      let currentText = ''
+      
+      // Create placeholder message
+      appendMessage({
+        id: messageId,
+        role: 'assistant',
+        text: '',
+        conversationId,
+      })
+
+      // Stream characters
+      for (let i = 0; i < fullText.length; i++) {
+        if (simulationStopRef.current) return false
+        currentText += fullText[i]
+        
+        // Update the message
+        setMessages(prev => 
+          prev.map(msg => 
+            msg.id === messageId 
+              ? { ...msg, text: currentText }
+              : msg
+          )
+        )
+        
+        // Auto-scroll to bottom during streaming if shouldAutoScroll is true
+        if (shouldAutoScroll && messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+        }
+        
+        // Wait between chunks (smaller delay for smoother animation)
+        await new Promise(resolve => setTimeout(resolve, chunkDelayMs))
+      }
+      
+      return true
+    }
+
     try {
       if (simulationStopRef.current) return
 
@@ -701,15 +743,15 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         conversationId: simConversationId,
       })
 
-      if (!(await waitWithStopCheck(300))) return
+      if (!(await waitWithStopCheck(500))) return
 
-      // Tool sequence
+      // Tool sequence with shorter durations for testing
       const tools = [
-        { name: 'list_files', input: {}, duration: 1500 },
-        { name: 'read_file', input: { path: 'src/main.py' }, duration: 1200 },
-        { name: 'read_file', input: { path: 'src/config.py' }, duration: 1000 },
-        { name: 'create_file', input: { path: 'src/new_config.yaml' }, duration: 800 },
-        { name: 'edit_file', input: { path: 'src/new_config.yaml' }, duration: 600 },
+        { name: 'list_files', input: {}, duration: 800 },
+        { name: 'read_file', input: { path: 'src/main.py' }, duration: 600 },
+        { name: 'read_file', input: { path: 'src/config.py' }, duration: 500 },
+        { name: 'create_file', input: { path: 'src/new_config.yaml' }, duration: 400 },
+        { name: 'edit_file', input: { path: 'src/new_config.yaml' }, duration: 300 },
       ]
 
       for (let i = 0; i < tools.length; i++) {
@@ -730,7 +772,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         // Wait for completion
         if (!(await waitWithStopCheck(tool.duration))) return
         
-        // Complete tool - this will be batched
+        // Complete tool
         handleToolCallEvent({
           conversationId: simConversationId,
           runId: simRunId,
@@ -741,32 +783,28 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
           timestamp: Date.now(),
         })
         
-        // Force flush pending events for this conversation after each tool completes
+        // Force flush pending events
         flushPendingStatusMessages(simConversationId)
 
         // Agent thinking time between tools
         if (i < tools.length - 1) {
-          if (!(await waitWithStopCheck(400))) return
+          if (!(await waitWithStopCheck(300))) return
         }
       }
 
       // Wait a bit before sending the assistant message
-      if (!(await waitWithStopCheck(800))) return
+      if (!(await waitWithStopCheck(400))) return
       
-      // Assistant message - all tools should be completed by now
-      appendMessage({
-        id: createMessageId('assistant'),
-        role: 'assistant',
-        text: "I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?",
-        conversationId: simConversationId,
-      })
+      // Stream the assistant message
+      const assistantMessage = `I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?`
+      
+      await streamMessage(assistantMessage, simConversationId, 2)
 
-      // Final flush to ensure everything is displayed
+      // Final flush
       flushPendingStatusMessages(simConversationId)
 
     } catch (error) {
       debugConsole.error('Error in simulation:', error)
-      // Only clean up on error to prevent stuck pending messages
       if (simConversationId) {
         cleanupPendingToolsForConversation(simConversationId)
       }
@@ -780,11 +818,12 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     appendMessage,
     cleanupPendingToolsForConversation,
     createMessageId,
-    flushPendingStatusMessages, // Add this to dependencies
+    flushPendingStatusMessages,
     handleToolCallEvent,
     isSending,
     isAwaitingAgentResponse,
     setIsSending,
+    setMessages,
   ])
 
   useEffect(() => {
@@ -1033,11 +1072,45 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   useEffect(() => {
     const container = messagesContainerRef.current
     if (!container || !shouldAutoScroll) return
+    
     const lastMessage = messages[messages.length - 1]
-    if (lastMessage && lastMessage.role !== 'status') {
+    if (!lastMessage) return
+    
+    // Only skip auto-scroll for a brief moment (200ms) after assistant message appears
+    // This gives the animation a chance to start without jumping
+    if (lastMessage.role === 'assistant') {
+      const timeoutId = setTimeout(() => {
+        if (shouldAutoScrollRef.current && messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+        }
+      }, 200)
+      return () => clearTimeout(timeoutId)
+    }
+    
+    if (lastMessage.role !== 'status') {
       container.scrollTop = container.scrollHeight
     }
   }, [messages, messagesContainerRef, shouldAutoScroll])
+
+  useEffect(() => {
+    if (isLoadingMessages) return
+    if (!activeConversationId) return
+    if (messages.length === 0) return
+    if (initialScrollConversationIdRef.current === activeConversationId) return
+
+    const container = messagesContainerRef.current
+    if (!container) return
+
+    initialScrollConversationIdRef.current = activeConversationId
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const currentContainer = messagesContainerRef.current
+        if (!currentContainer) return
+        currentContainer.scrollTop = currentContainer.scrollHeight
+      })
+    })
+  }, [activeConversationId, isLoadingMessages, messages.length, messagesContainerRef])
 
   useEffect(() => {
     if (!chatDockDragging) return

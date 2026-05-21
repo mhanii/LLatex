@@ -172,6 +172,41 @@
   line-height: normal;
 }
 
+.ide-chatbot-message-content-reveal {
+  animation: ide-chatbot-message-reveal var(--ide-chatbot-message-reveal-duration, 1ms) ease-out forwards;
+}
+
+@keyframes ide-chatbot-message-reveal {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes revealMessage {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px);
+    max-height: 0;
+  }
+  10% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    max-height: 2000px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ide-chatbot-message-content-reveal {
+    animation: ide-chatbot-message-reveal var(--ide-chatbot-message-reveal-duration, 1ms) ease-out forwards;
+  }
+}
+
 .ide-chatbot-message-actions {
   position: absolute;
   left: 0;
