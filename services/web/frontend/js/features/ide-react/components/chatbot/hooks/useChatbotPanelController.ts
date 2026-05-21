@@ -930,7 +930,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       }
     }
     prevIsAwaitingRef.current = isAwaitingAgentResponse;
-  }, [isAwaitingAgentResponse, computedStatusGroupIds, autoCompactedGroupIds, collapsedStatusGroupIds]);
+  }, [isAwaitingAgentResponse, computedStatusGroupIds, autoCompactedGroupIds, collapsedStatusGroupIds, setAutoCompactedGroupIds, setCollapsedStatusGroupIds, setExpandedStatusGroupIds]);
 
   useEffect(() => {
     let cancelled = false
