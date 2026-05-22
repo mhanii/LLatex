@@ -169,6 +169,61 @@ async function listConversations(req, res) {
   res.json(conversations)
 }
 
+async function cancelRun(req, res) {
+  const {
+    project_id: projectId,
+    conversation_id: conversationId,
+    run_id: runId,
+  } = req.params
+  const userId = SessionManager.getLoggedInUserId(req.session)
+  if (userId == null) {
+    return res.status(403).json({ error: 'not logged in' })
+  }
+  // Auth: the requesting user must own the conversation, and the runId must
+  // be the conversation's currently-active run (set by recordRun on each
+  // startRun and never re-pointed elsewhere). This prevents a project
+  // collaborator from cancelling another user's run by guessing the runId.
+  const conversation = await AgentConversationManager.promises.getConversation(
+    projectId,
+    conversationId,
+    userId
+  )
+  if (!conversation) {
+    return res.status(404).json({ error: 'agent conversation not found' })
+  }
+  if (!runId || conversation.lastRunId !== runId) {
+    return res
+      .status(404)
+      .json({ error: 'run not found on this conversation' })
+  }
+  try {
+    const result = await LlmAgentApiHandler.promises.cancelRun(projectId, runId)
+    res.status(202).json(result)
+  } catch (err) {
+    // 404 from llm-agent means the run is already gone — treat as success
+    // from the caller's perspective.
+    if (err?.response?.status === 404 || err?.statusCode === 404) {
+      return res.status(202).json({ cancelled: false })
+    }
+    throw err
+  }
+}
+
+async function agentCancelled(req, res) {
+  const { project_id: projectId } = req.params
+  const { conversationId, runId } = req.body
+  if (!conversationId || !runId) {
+    return res
+      .status(400)
+      .json({ error: 'conversationId and runId required' })
+  }
+  EditorRealTimeController.emitToRoom(projectId, 'agent:cancelled', {
+    conversationId,
+    runId,
+  })
+  res.sendStatus(204)
+}
+
 // Steps arrive over HTTP, so Date fields are ISO strings after JSON parsing,
 // not Date instances — `.getTime()` would be undefined on them.
 function toEpochMs(value) {
@@ -664,7 +719,9 @@ export default {
   listConversations: expressify(listConversations),
   getConversationMessages: expressify(getConversationMessages),
   sendMessage: expressify(sendMessage),
+  cancelRun: expressify(cancelRun),
   agentComplete: expressify(agentComplete),
+  agentCancelled: expressify(agentCancelled),
   agentToolCall: expressify(agentToolCall),
   agentAcceptChanges: expressify(agentAcceptChanges),
   agentCreateFile: expressify(agentCreateFile),

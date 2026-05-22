@@ -73,6 +73,37 @@ async function notifyWebAgentToolCall(projectId, payload) {
   }
 }
 
+async function notifyWebAgentCancelled(projectId, payload) {
+  const response = await fetch(
+    webUrl(`/internal/project/${projectId}/agent/cancelled`),
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: basicAuth(),
+      },
+      body: JSON.stringify(payload),
+    }
+  )
+  if (!response.ok) {
+    throw new Error(
+      `agent cancellation callback failed with HTTP ${response.status}`
+    )
+  }
+}
+
+// In-memory registry of in-flight runs. cancelRun() looks up the run's
+// AbortController and aborts it; the run loop checks the signal between
+// iterations and unwinds with type: 'cancelled'.
+const activeRuns = new Map()
+
+export function cancelRun(runId) {
+  const entry = activeRuns.get(runId)
+  if (!entry) return false
+  entry.controller.abort()
+  return true
+}
+
 /**
  * Entry point for the agent loop. Called without await (fire-and-forget)
  * so the HTTP response can return immediately with the runId.
@@ -83,6 +114,9 @@ async function notifyWebAgentToolCall(projectId, payload) {
  * @param {{ agentName?: string }} [opts]
  */
 export async function run(runId, input, startedAt, opts = {}) {
+  const abortController = new AbortController()
+  activeRuns.set(runId, { controller: abortController })
+  const signal = abortController.signal
   try {
     const agent =
       (opts.agentName ? getAgent(opts.agentName) : null) ?? defaultAgent()
@@ -129,6 +163,7 @@ export async function run(runId, input, startedAt, opts = {}) {
     let finalText = ''
 
     for (let i = 0; i < maxSteps; i++) {
+      if (signal.aborted) break
       const stepStart = new Date()
       const messages = await cm.render()
 
@@ -136,6 +171,7 @@ export async function run(runId, input, startedAt, opts = {}) {
         model,
         tools,
         messages,
+        abortSignal: signal,
         ...(agent.temperature != null
           ? { temperature: agent.temperature }
           : {}),
@@ -251,7 +287,9 @@ export async function run(runId, input, startedAt, opts = {}) {
     }
 
     let output
-    if (runCtx.pendingQuestion) {
+    if (signal.aborted) {
+      output = { type: 'cancelled', content: 'Generation cancelled by user.' }
+    } else if (runCtx.pendingQuestion) {
       output = {
         type: 'question',
         content: runCtx.pendingQuestion.text,
@@ -271,26 +309,21 @@ export async function run(runId, input, startedAt, opts = {}) {
         content,
       }
     }
-    const content = output.content
     await finalizeRun(runId, output, startedAt)
-    try {
-      await notifyWebAgentComplete(input.projectId, {
-        conversationId: input.conversationId,
-        runId,
-        userId: input.userId,
-        content,
-      })
-    } catch (notifyErr) {
-      logger.warn(
-        { err: notifyErr, runId, projectId: input.projectId },
-        'agent completion callback failed'
-      )
-    }
-  } catch (err) {
-    logger.error({ err, runId }, 'agent run failed')
-    try {
-      const output = { type: 'error', content: err.message }
-      await finalizeRun(runId, output, startedAt)
+    if (output.type === 'cancelled') {
+      try {
+        await notifyWebAgentCancelled(input.projectId, {
+          conversationId: input.conversationId,
+          runId,
+          userId: input.userId,
+        })
+      } catch (notifyErr) {
+        logger.warn(
+          { err: notifyErr, runId, projectId: input.projectId },
+          'agent cancellation callback failed'
+        )
+      }
+    } else {
       try {
         await notifyWebAgentComplete(input.projectId, {
           conversationId: input.conversationId,
@@ -301,14 +334,61 @@ export async function run(runId, input, startedAt, opts = {}) {
       } catch (notifyErr) {
         logger.warn(
           { err: notifyErr, runId, projectId: input.projectId },
-          'agent error completion callback failed'
+          'agent completion callback failed'
         )
       }
-    } catch (finalizeErr) {
-      logger.error(
-        { err: finalizeErr, runId },
-        'failed to finalize errored run'
-      )
     }
+  } catch (err) {
+    // generateText throws an AbortError-shaped error when its abortSignal
+    // fires mid-call. Treat that as a clean cancellation rather than a crash.
+    const aborted =
+      signal.aborted ||
+      err?.name === 'AbortError' ||
+      err?.name === 'ResponseAborted'
+    if (aborted) {
+      const output = {
+        type: 'cancelled',
+        content: 'Generation cancelled by user.',
+      }
+      try {
+        await finalizeRun(runId, output, startedAt)
+        await notifyWebAgentCancelled(input.projectId, {
+          conversationId: input.conversationId,
+          runId,
+          userId: input.userId,
+        })
+      } catch (cancelErr) {
+        logger.warn(
+          { err: cancelErr, runId },
+          'failed to finalize cancelled run'
+        )
+      }
+    } else {
+      logger.error({ err, runId }, 'agent run failed')
+      try {
+        const output = { type: 'error', content: err.message }
+        await finalizeRun(runId, output, startedAt)
+        try {
+          await notifyWebAgentComplete(input.projectId, {
+            conversationId: input.conversationId,
+            runId,
+            userId: input.userId,
+            content: output.content,
+          })
+        } catch (notifyErr) {
+          logger.warn(
+            { err: notifyErr, runId, projectId: input.projectId },
+            'agent error completion callback failed'
+          )
+        }
+      } catch (finalizeErr) {
+        logger.error(
+          { err: finalizeErr, runId },
+          'failed to finalize errored run'
+        )
+      }
+    }
+  } finally {
+    activeRuns.delete(runId)
   }
 }

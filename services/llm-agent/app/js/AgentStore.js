@@ -117,11 +117,17 @@ export async function markContextItemReplaced(runId, oldId, newId, when) {
  */
 export async function finalizeRun(runId, output, startedAt) {
   const finishedAt = new Date()
+  const status =
+    output.type === 'error'
+      ? 'error'
+      : output.type === 'cancelled'
+        ? 'cancelled'
+        : 'done'
   await db.agentRuns.updateOne(
     { _id: new ObjectId(runId) },
     {
       $set: {
-        status: output.type === 'error' ? 'error' : 'done',
+        status,
         output,
         finishedAt,
         durationMs: finishedAt.getTime() - startedAt.getTime(),
