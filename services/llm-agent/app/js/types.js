@@ -111,7 +111,7 @@
  * @property {ProjectContext} [context]
  * @property {boolean} [autoAcceptTrackChangesOnEdit] - Whether edit_file should accept pending agent changes before its first edit per doc. Enabled for follow-up turns only.
  * @property {{questions: Array<AgentQuestion>, text: string}} [pendingQuestion] - Set by the ask_question tool to signal AgentManager to terminate the run with a question output.
- * @property {(event: {toolName: string, status: 'running'|'completed'|'error', input?: unknown, error?: string}) => Promise<void>} [onToolEvent]
+ * @property {(event: {toolCallId?: string, toolName: string, status: 'running'|'completed'|'error', input?: unknown, error?: string}) => Promise<void>} [onToolEvent]
  */
 
 /**

@@ -35,5 +35,14 @@ export function createServer() {
     }
   })
 
+  app.post('/project/:projectId/run/:runId/cancel', async (req, res) => {
+    try {
+      await AgentController.cancelRun(req, res)
+    } catch (err) {
+      logger.error({ err }, 'unhandled error in AgentController.cancelRun')
+      res.status(500).json({ error: 'internal error' })
+    }
+  })
+
   return { app }
 }

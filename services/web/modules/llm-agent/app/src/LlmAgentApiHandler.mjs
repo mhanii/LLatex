@@ -33,6 +33,18 @@ async function getRunSteps(projectId, runId) {
   })
 }
 
+/**
+ * @param {string} projectId
+ * @param {string} runId
+ * @returns {Promise<{ cancelled: boolean }>}
+ */
+async function cancelRun(projectId, runId) {
+  return await fetchJson(
+    agentUrl(`/project/${projectId}/run/${runId}/cancel`),
+    { method: 'POST' }
+  )
+}
+
 export default {
-  promises: { startRun, getRunSteps },
+  promises: { startRun, getRunSteps, cancelRun },
 }

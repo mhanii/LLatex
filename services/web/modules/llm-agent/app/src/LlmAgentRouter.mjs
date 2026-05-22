@@ -31,6 +31,12 @@ export default {
       AuthorizationMiddleware.ensureUserCanReadProject,
       LlmAgentController.sendMessage
     )
+    webRouter.post(
+      '/project/:project_id/agent/conversations/:conversation_id/runs/:run_id/cancel',
+      AuthenticationController.requireLogin(),
+      AuthorizationMiddleware.ensureUserCanReadProject,
+      LlmAgentController.cancelRun
+    )
   },
 
   // Internal service-to-service routes must be registered before CSRF middleware
@@ -41,6 +47,11 @@ export default {
       '/internal/project/:project_id/agent/complete',
       requirePrivateApiAuth(),
       LlmAgentController.agentComplete
+    )
+    webRouter.post(
+      '/internal/project/:project_id/agent/cancelled',
+      requirePrivateApiAuth(),
+      LlmAgentController.agentCancelled
     )
     webRouter.post(
       '/internal/project/:project_id/agent/tool-call',
