@@ -59,20 +59,21 @@ export const useConversationUtilities = (
       try {
         await deleteJSON(apiPath(`/conversations/${conversationId}`))
 
-        setConversations(prev => {
-          const next = prev.filter(c => c.id !== conversationId)
+        // Compute the post-delete list once so the setConversations updater
+        // stays pure (Strict Mode invokes pure updaters twice). The
+        // active-conversation switch and the empty-list "create a new one"
+        // path run AFTER the state update, not inside it.
+        const remaining = conversations.filter(c => c.id !== conversationId)
+        setConversations(prev => prev.filter(c => c.id !== conversationId))
 
-          if (activeConversationId === conversationId) {
-            if (next.length > 0) {
-              setActiveConversationId(next[0].id)
-            } else {
-              // fire-and-forget: create a new conversation if none remain
-              createConversation().catch(debugConsole.error)
-            }
+        if (activeConversationId === conversationId) {
+          if (remaining.length > 0) {
+            setActiveConversationId(remaining[0].id)
+          } else {
+            // fire-and-forget: create a new conversation if none remain
+            createConversation().catch(debugConsole.error)
           }
-
-          return next
-        })
+        }
       } catch (error) {
         debugConsole.error(error)
       }

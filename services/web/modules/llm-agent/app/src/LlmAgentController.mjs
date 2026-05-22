@@ -171,6 +171,21 @@ async function listConversations(req, res) {
 
 async function deleteConversation(req, res) {
   const { project_id: projectId, conversation_id: conversationId } = req.params
+  const userId = SessionManager.getLoggedInUserId(req.session)
+  if (userId == null) {
+    return res.status(403).json({ error: 'not logged in' })
+  }
+  // Scope the delete to the requesting user. Without this, any collaborator
+  // with read access to the project could delete any other user's conversation
+  // by guessing the conversationId.
+  const conversation = await AgentConversationManager.promises.getConversation(
+    projectId,
+    conversationId,
+    userId
+  )
+  if (!conversation) {
+    return res.status(404).json({ error: 'agent conversation not found' })
+  }
   const deletedCount = await AgentConversationManager.promises.deleteConversation(
     projectId,
     conversationId

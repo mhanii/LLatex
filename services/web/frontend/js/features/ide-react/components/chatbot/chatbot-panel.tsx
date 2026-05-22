@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useMemo, useState } from 'react'
 import { useIdeContext } from '@/shared/context/ide-context'
 import { useLayoutContext } from '@/shared/context/layout-context'
 import { useEditorManagerContext } from '@/features/ide-react/context/editor-manager-context'
@@ -13,7 +13,19 @@ import { useChatbotPanelController } from './hooks/useChatbotPanelController'
 import { ChatbotHeader } from './components/ChatbotHeader'
 import { ChatbotMessagesContainer } from './components/ChatbotMessagesContainer'
 import { ChatbotComposer } from './components/ChatbotComposer'
-import { ChatbotDebugPanel } from './components/ChatbotDebugPanel'
+
+// Webpack/Terser folds `process.env.NODE_ENV !== 'production'` to a literal
+// boolean in production builds. The dead branch — and the dynamic import()
+// chunk it references — is stripped from the bundle, so the debug panel
+// code never reaches end users.
+const DebugPanel =
+  process.env.NODE_ENV !== 'production'
+    ? lazy(() =>
+        import('./components/ChatbotDebugPanel').then(m => ({
+          default: m.ChatbotDebugPanel,
+        }))
+      )
+    : null
 
 export default function ChatbotPanel() {
   const { projectId } = useProjectContext()
@@ -227,10 +239,14 @@ export default function ChatbotPanel() {
         isLoadingMessages={state._isLoadingMessages}
       />
 
-      <ChatbotDebugPanel 
-        onSimulateToolCall={handleSimulateToolCall}
-        onSimulateConversation={controller.simulateFullConversation}
-      />
+      {DebugPanel && (
+        <Suspense fallback={null}>
+          <DebugPanel
+            onSimulateToolCall={handleSimulateToolCall}
+            onSimulateConversation={controller.simulateFullConversation}
+          />
+        </Suspense>
+      )}
 
       <ChatbotComposer
         inputValue={state.input}
