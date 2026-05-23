@@ -140,7 +140,8 @@ export async function grep(
           }
         }
         return hits
-      } catch {
+      } catch (err) {
+        logger.warn({ err, docId: f.docId, projectId: ctx.projectId }, 'grep: failed to fetch doc')
         return []
       }
     })
