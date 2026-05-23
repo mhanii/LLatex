@@ -1,0 +1,216 @@
+# Production overlay. Use with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Reads secrets from .env (gitignored). See prod.env.example for the variables.
+# Designed for Dokploy: web and clsi-nginx publish via Traefik labels on the
+# external dokploy-network. All other services stay on the default internal
+# network so they're unreachable from outside the host.
+
+volumes:
+  clsi-compiles:
+  clsi-output:
+
+networks:
+  dokploy-network:
+    external: true
+    name: ${DOKPLOY_NETWORK:-dokploy-network}
+
+services:
+  # One-shot init: chowns every persistent volume to uid 1000 before any
+  # service that needs to write to them starts. Fixes the stale-named-volume
+  # ownership trap (Docker only copies image contents into a named volume on
+  # first creation; later image rebuilds don't update existing volumes).
+  volume-init:
+    image: alpine:3
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - |
+        chown -R 1000:1000 \
+          /web-data \
+          /sharelatex-data \
+          /clsi-compiles /clsi-output \
+          /filestore-uploads /filestore-templates \
+          /filestore-public /filestore-user \
+          /history-v1-buckets
+    volumes:
+      - web-data:/web-data
+      - sharelatex-data:/sharelatex-data
+      - clsi-compiles:/clsi-compiles
+      - clsi-output:/clsi-output
+      - filestore-uploads:/filestore-uploads
+      - filestore-template-files:/filestore-templates
+      - filestore-public-files:/filestore-public
+      - filestore-user-files:/filestore-user
+      - history-v1-buckets:/history-v1-buckets
+
+  # One-shot migrations runner. Brings mongo (web) and any future SQL schemas
+  # (history-v1 has knex but currently fs persistor; runs harmlessly anyway)
+  # up to head, then exits. Should be run before rolling new web/history-v1.
+  migrate:
+    build:
+      context: ..
+      dockerfile: services/web/Dockerfile
+      target: app
+    env_file:
+      - dev.env
+      - .env
+    environment:
+      - NODE_ENV=production
+    working_dir: /overleaf/tools/migrations
+    entrypoint:
+      - sh
+      - -c
+      - |
+        echo "Running mongo migrations..."
+        npm run migrations -- migrate -t server-ce
+        echo "Migrations complete."
+    restart: "no"
+    depends_on:
+      mongo:
+        condition: service_started
+      volume-init:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      target: app
+    env_file:
+      - dev.env
+      - .env
+    environment:
+      - NODE_ENV=production
+      - OVERLEAF_ALLOW_PUBLIC_ACCESS=false
+      - COMPILES_USER_CONTENT_DOMAIN=${COMPILES_USER_CONTENT_DOMAIN}
+      - OVERLEAF_SITE_URL=${OVERLEAF_SITE_URL}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - WEB_API_USER=${WEB_API_USER:-overleaf}
+      - WEB_API_PASSWORD=${WEB_API_PASSWORD}
+      - V1_HISTORY_USER=staging
+      - V1_HISTORY_PASS=${V1_HISTORY_PASS}
+    restart: unless-stopped
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - default
+      - dokploy-network
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${DOKPLOY_NETWORK:-dokploy-network}
+      - traefik.http.routers.overleaf-web.rule=Host(`${OVERLEAF_DOMAIN}`)
+      - traefik.http.routers.overleaf-web.entrypoints=websecure
+      - traefik.http.routers.overleaf-web.tls.certresolver=letsencrypt
+      - traefik.http.services.overleaf-web.loadbalancer.server.port=3000
+
+  clsi:
+    env_file:
+      - dev.env
+    environment:
+      - NODE_ENV=production
+      - SANDBOXED_COMPILES=false
+    restart: unless-stopped
+    # !override wipes the base volumes list. We drop the ${PWD} bind mounts
+    # (use named volumes instead, Dokploy-portable) and the docker socket
+    # mount (was only useful for SANDBOXED_COMPILES, which CE can't run —
+    # exposing the host docker socket to a container is a privilege
+    # escalation path and worth removing in production).
+    volumes: !override
+      - clsi-compiles:/overleaf/services/clsi/compiles
+      - clsi-output:/overleaf/services/clsi/output
+      - clsi-cache:/overleaf/services/clsi/cache
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+
+  clsi-nginx:
+    restart: unless-stopped
+    volumes:
+      - clsi-output:/output:ro
+      - ../services/clsi/nginx.conf:/etc/nginx/conf.d/nginx.conf:ro,z
+    networks:
+      - default
+      - dokploy-network
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${DOKPLOY_NETWORK:-dokploy-network}
+      - traefik.http.routers.overleaf-output.rule=Host(`${OVERLEAF_OUTPUT_DOMAIN}`)
+      - traefik.http.routers.overleaf-output.entrypoints=websecure
+      - traefik.http.routers.overleaf-output.tls.certresolver=letsencrypt
+      - traefik.http.services.overleaf-output.loadbalancer.server.port=8080
+
+  filestore:
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+
+  history-v1:
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+
+  docstore:
+    environment: { NODE_ENV: production }
+    restart: unless-stopped
+
+  document-updater:
+    environment: { NODE_ENV: production }
+    restart: unless-stopped
+
+  project-history:
+    environment: { NODE_ENV: production }
+    restart: unless-stopped
+
+  real-time:
+    environment: { NODE_ENV: production }
+    restart: unless-stopped
+
+  chat:
+    environment: { NODE_ENV: production }
+    restart: unless-stopped
+
+  contacts:
+    environment: { NODE_ENV: production }
+    restart: unless-stopped
+
+  notifications:
+    environment: { NODE_ENV: production }
+    restart: unless-stopped
+
+  llm-agent:
+    env_file:
+      - dev.env
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORTKEY_API_KEY=${PORTKEY_API_KEY}
+      - PORTKEY_VIRTUAL_KEY=${PORTKEY_VIRTUAL_KEY}
+      - PORTKEY_CONFIG=${PORTKEY_CONFIG}
+      - PORTKEY_BASE_URL=${PORTKEY_BASE_URL}
+      - LLM_MODEL=${LLM_MODEL}
+      - LLM_JUDGE_MODEL=${LLM_JUDGE_MODEL}
+    restart: unless-stopped
+
+  mongo:
+    restart: unless-stopped
+    # Do not publish 27017 to the host in production.
+    ports: !reset []
+
+  redis:
+    restart: unless-stopped
+    ports: !reset []
+
+  # Webpack is a dev-only convenience. The production web image (target: app)
+  # already bakes the webpack:production build into its public/ directory.
+  # Disable by assigning a profile that's never enabled.
+  webpack:
+    profiles: ["never-in-prod"]
