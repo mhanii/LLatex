@@ -1,0 +1,233 @@
+#!/usr/bin/env node
+//
+// End-to-end smoke for the per-user agent quota gate.
+//
+// What it does:
+//   1. Creates a fresh user via create-user-with-password.mjs (inside the
+//      `web` container) with outputTokensLimit=50 — small enough that
+//      ESTIMATE_OUTPUT_TOKENS (4000 in LlmAgentController) clamps the
+//      reservation to the full cap, so one in-flight run blocks the next.
+//   2. Logs in over HTTP via /dev/csrf + /login.
+//   3. Creates a project via /project/new.
+//   4. Sends a chat message — asserts 202.
+//   5. Sends a second chat message immediately — asserts 402 with
+//      `agent_quota_exceeded` / `reason='output_tokens'` and the
+//      user-facing message. This is the gate firing on the reservation
+//      registered by the first call — no need to wait for the LLM to
+//      respond.
+//   6. Cancels the in-flight run to leave the test environment clean.
+//
+// Usage:
+//   develop/bin/e2e-quota-smoke
+//
+// Optional env:
+//   OVERLEAF_URL          (default http://localhost)
+//   WEB_CONTAINER         (default develop-web-1)
+//   E2E_OUTPUT_LIMIT      (default 50)
+
+import { execSync } from 'node:child_process'
+import crypto from 'node:crypto'
+
+const BASE = process.env.OVERLEAF_URL || 'http://localhost'
+const WEB_CONTAINER = process.env.WEB_CONTAINER || 'develop-web-1'
+const OUTPUT_LIMIT = parseInt(process.env.E2E_OUTPUT_LIMIT, 10) || 50
+
+const stamp = Date.now()
+const EMAIL = `quota-smoke-${stamp}@example.com`
+// Password must not be "too similar" to the email per
+// AuthenticationManager._validatePasswordNotTooSimilar — must not share
+// the timestamp or "smoke" / "quota" substrings.
+const PASSWORD = `Zr7-bN4f-${randomHex(12)}`
+
+function randomHex(n) {
+  return [...crypto.getRandomValues(new Uint8Array(Math.ceil(n / 2)))]
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, n)
+}
+
+const GREEN = '\x1b[32m'
+const RED = '\x1b[31m'
+const YELLOW = '\x1b[33m'
+const RESET = '\x1b[0m'
+
+function pass(msg) {
+  console.log(`${GREEN}✓${RESET} ${msg}`)
+}
+function step(msg) {
+  console.log(`${YELLOW}→${RESET} ${msg}`)
+}
+function fail(msg, extra) {
+  console.error(`${RED}✗${RESET} ${msg}`)
+  if (extra) console.error(`  ${extra}`)
+  process.exit(1)
+}
+
+// --- cookie jar ----------------------------------------------------------
+
+const jar = new Map() // name -> value
+
+function jarHeader() {
+  return [...jar.entries()].map(([n, v]) => `${n}=${v}`).join('; ')
+}
+
+function captureCookies(res) {
+  for (const setCookie of res.headers.getSetCookie?.() ?? []) {
+    const [pair] = setCookie.split(';')
+    const idx = pair.indexOf('=')
+    if (idx <= 0) continue
+    jar.set(pair.slice(0, idx).trim(), pair.slice(idx + 1).trim())
+  }
+}
+
+async function req(path, opts = {}) {
+  const headers = { ...(opts.headers ?? {}) }
+  const cookie = jarHeader()
+  if (cookie) headers.cookie = cookie
+  const res = await fetch(BASE + path, { ...opts, headers, redirect: 'manual' })
+  captureCookies(res)
+  return res
+}
+
+async function getCsrf() {
+  const res = await req('/dev/csrf')
+  if (res.status !== 200) {
+    fail(`GET /dev/csrf returned ${res.status}`)
+  }
+  return (await res.text()).trim()
+}
+
+// --- main ----------------------------------------------------------------
+
+;(async () => {
+  step(
+    `Creating user ${EMAIL} with output-tokens-limit=${OUTPUT_LIMIT}, cost unlimited`
+  )
+  try {
+    execSync(
+      `docker exec ${WEB_CONTAINER} node modules/server-ce-scripts/scripts/create-user-with-password.mjs --email=${EMAIL} --password='${PASSWORD}' --output-tokens-limit=${OUTPUT_LIMIT} --cost-usd-limit=-1`,
+      { stdio: 'inherit' }
+    )
+  } catch (err) {
+    fail('create-user-with-password.mjs failed', err.message)
+  }
+  pass('user created via admin script')
+
+  step('Logging in over HTTP')
+  let csrf = await getCsrf()
+  // Accept: application/json makes /login return a JSON body instead
+  // of the form-flow 302 redirect to /project.
+  const loginRes = await req('/login', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json',
+      'x-csrf-token': csrf,
+    },
+    body: JSON.stringify({
+      email: EMAIL,
+      password: PASSWORD,
+      'g-recaptcha-response': 'valid',
+    }),
+  })
+  if (loginRes.status !== 200) {
+    fail(
+      `POST /login returned ${loginRes.status}`,
+      (await loginRes.text()).slice(0, 400)
+    )
+  }
+  pass('logged in (session cookie captured)')
+
+  // CSRF rotates on auth state change — fetch a fresh one bound to the
+  // logged-in session.
+  csrf = await getCsrf()
+
+  step('Creating a project for the new user')
+  const projRes = await req('/project/new', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-csrf-token': csrf,
+    },
+    body: JSON.stringify({ projectName: `quota-smoke-${stamp}`, template: 'none' }),
+  })
+  if (projRes.status !== 200) {
+    fail(
+      `POST /project/new returned ${projRes.status}`,
+      (await projRes.text()).slice(0, 400)
+    )
+  }
+  const { project_id: projectId } = await projRes.json()
+  if (!projectId) fail('project/new response had no project_id')
+  pass(`created project ${projectId}`)
+
+  step('Sending first agent message (expect 202)')
+  const msg1 = await req(`/project/${projectId}/agent/message`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+    body: JSON.stringify({
+      message: 'write a short LaTeX paragraph about cats',
+    }),
+  })
+  if (msg1.status !== 202) {
+    fail(
+      `first agent message returned ${msg1.status}, expected 202`,
+      (await msg1.text()).slice(0, 400)
+    )
+  }
+  const { runId, conversationId } = await msg1.json()
+  pass(`first message accepted: runId=${runId} conversationId=${conversationId}`)
+
+  step(
+    'Sending second agent message immediately (expect 402, in-flight reservation covers the whole cap)'
+  )
+  const msg2 = await req(`/project/${projectId}/agent/message`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+    body: JSON.stringify({ message: 'and another one' }),
+  })
+  if (msg2.status !== 402) {
+    fail(
+      `second agent message returned ${msg2.status}, expected 402`,
+      (await msg2.text()).slice(0, 400)
+    )
+  }
+  const errBody = await msg2.json()
+  if (errBody.error !== 'agent_quota_exceeded') {
+    fail(
+      `expected error=agent_quota_exceeded, got: ${JSON.stringify(errBody)}`
+    )
+  }
+  if (errBody.reason !== 'output_tokens') {
+    fail(`expected reason=output_tokens, got: ${errBody.reason}`)
+  }
+  if (!errBody.message || typeof errBody.message !== 'string') {
+    fail(`expected a user-facing message, got: ${JSON.stringify(errBody)}`)
+  }
+  pass('second message correctly blocked with 402 agent_quota_exceeded')
+  console.log(`  reason:  ${errBody.reason}`)
+  console.log(`  message: "${errBody.message}"`)
+  console.log(`  quota:   ${JSON.stringify(errBody.quota)}`)
+
+  step('Cleanup: cancelling the in-flight run')
+  const cancelRes = await req(
+    `/project/${projectId}/agent/conversations/${conversationId}/runs/${runId}/cancel`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body: '{}',
+    }
+  )
+  if (cancelRes.status !== 202 && cancelRes.status !== 204) {
+    console.warn(
+      `${YELLOW}!${RESET} cancel returned ${cancelRes.status} (non-fatal — run will finish on its own)`
+    )
+  } else {
+    pass('cancelled in-flight run')
+  }
+
+  console.log(`\n${GREEN}ALL ASSERTIONS PASSED${RESET}`)
+  console.log(`(test user remains: ${EMAIL} — delete manually if desired)`)
+})().catch(err => {
+  fail('uncaught error', err.stack ?? err.message)
+})
