@@ -8,11 +8,13 @@ import {
   appendContextItem,
   appendStep,
   finalizeRun,
+  incrementUsage,
   markContextItemReplaced,
 } from './AgentStore.js'
 import { getAgent, defaultAgent } from './agents/registry.js'
 import { buildTools } from './tools/index.js'
 import { createModel } from './providers/vercelPortkey.js'
+import { calcCostUsd } from './cost/priceTable.js'
 import { ContextManager } from './context/ContextManager.js'
 import {
   seedSystemPrompt,
@@ -117,6 +119,11 @@ export async function run(runId, input, startedAt, opts = {}) {
   const abortController = new AbortController()
   activeRuns.set(runId, { controller: abortController })
   const signal = abortController.signal
+  // Hoisted so the catch block can include partial-run usage in the
+  // completion/cancellation callback payload — the user is still billed
+  // for tokens spent before an error or cancellation.
+  let totalOutputTokens = 0
+  let totalCostUsd = 0
   try {
     const agent =
       (opts.agentName ? getAgent(opts.agentName) : null) ?? defaultAgent()
@@ -186,6 +193,18 @@ export async function run(runId, input, startedAt, opts = {}) {
         text: r.text ?? '',
         providerOptions: r.providerOptions ?? null,
       }))
+      const stepModel = agent.model ?? settings.llm?.defaultModel
+      const stepInputTokens =
+        result.usage?.inputTokens ?? result.usage?.promptTokens ?? 0
+      const stepOutputTokens =
+        result.usage?.outputTokens ?? result.usage?.completionTokens ?? 0
+      const stepCostUsd = calcCostUsd(
+        stepModel,
+        stepInputTokens,
+        stepOutputTokens
+      )
+      totalOutputTokens += stepOutputTokens
+      totalCostUsd += stepCostUsd
       await appendStep(runId, {
         name: 'llm.complete',
         startedAt: stepStart,
@@ -199,13 +218,17 @@ export async function run(runId, input, startedAt, opts = {}) {
           finishReason: result.finishReason,
         },
         metadata: {
-          model: agent.model ?? settings.llm?.defaultModel,
-          inputTokens:
-            result.usage?.inputTokens ?? result.usage?.promptTokens,
-          outputTokens:
-            result.usage?.outputTokens ?? result.usage?.completionTokens,
+          model: stepModel,
+          inputTokens: stepInputTokens,
+          outputTokens: stepOutputTokens,
+          costUsd: stepCostUsd,
           latencyMs: stepEnd.getTime() - stepStart.getTime(),
         },
+      })
+      await incrementUsage(runId, {
+        inputTokens: stepInputTokens,
+        outputTokens: stepOutputTokens,
+        costUsd: stepCostUsd,
       })
 
       // Emit reasoning into the context BEFORE tool_calls so the rendered
@@ -316,6 +339,8 @@ export async function run(runId, input, startedAt, opts = {}) {
           conversationId: input.conversationId,
           runId,
           userId: input.userId,
+          outputTokensDelta: totalOutputTokens,
+          costUsdDelta: totalCostUsd,
         })
       } catch (notifyErr) {
         logger.warn(
@@ -330,6 +355,8 @@ export async function run(runId, input, startedAt, opts = {}) {
           runId,
           userId: input.userId,
           content: output.content,
+          outputTokensDelta: totalOutputTokens,
+          costUsdDelta: totalCostUsd,
         })
       } catch (notifyErr) {
         logger.warn(
@@ -356,6 +383,8 @@ export async function run(runId, input, startedAt, opts = {}) {
           conversationId: input.conversationId,
           runId,
           userId: input.userId,
+          outputTokensDelta: totalOutputTokens,
+          costUsdDelta: totalCostUsd,
         })
       } catch (cancelErr) {
         logger.warn(
@@ -374,6 +403,8 @@ export async function run(runId, input, startedAt, opts = {}) {
             runId,
             userId: input.userId,
             content: output.content,
+            outputTokensDelta: totalOutputTokens,
+            costUsdDelta: totalCostUsd,
           })
         } catch (notifyErr) {
           logger.warn(

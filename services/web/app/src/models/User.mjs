@@ -218,6 +218,18 @@ export const UserSchema = new Schema(
     aiFeatures: {
       enabled: { type: Boolean, default: true },
     },
+    agentQuota: {
+      outputTokensLimit: {
+        type: Number,
+        default: () => Settings.agentQuota?.defaults?.outputTokensLimit ?? -1,
+      },
+      outputTokensUsed: { type: Number, default: 0 },
+      costUsdLimit: {
+        type: Number,
+        default: () => Settings.agentQuota?.defaults?.costUsdLimit ?? -1,
+      },
+      costUsdUsed: { type: Number, default: 0 },
+    },
     alphaProgram: { type: Boolean, default: false }, // experimental features
     betaProgram: { type: Boolean, default: false },
     labsProgram: { type: Boolean, default: false },

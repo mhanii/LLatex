@@ -20,6 +20,8 @@ let DocumentUpdaterHandler
 let LlmAgentApiHandler
 let ProjectCreationHandler
 let AgentConversationManager
+let UserGetter
+let UserUpdater
 let LlmAgentController
 
 describe('LlmAgentController', function () {
@@ -252,6 +254,31 @@ describe('LlmAgentController', function () {
       '../../../../../app/src/Features/Project/ProjectCreationHandler.mjs',
       () => ({ default: ProjectCreationHandler })
     )
+
+    // Defaults model an unlimited user — every existing test path stays
+    // green. Quota-specific tests override getUser per-test.
+    UserGetter = {
+      promises: {
+        getUser: vi.fn().mockResolvedValue({
+          agentQuota: {
+            outputTokensLimit: -1,
+            outputTokensUsed: 0,
+            costUsdLimit: -1,
+            costUsdUsed: 0,
+          },
+        }),
+      },
+    }
+    vi.doMock('../../../../../app/src/Features/User/UserGetter.mjs', () => ({
+      default: UserGetter,
+    }))
+
+    UserUpdater = {
+      promises: { updateUser: vi.fn().mockResolvedValue({ matchedCount: 1 }) },
+    }
+    vi.doMock('../../../../../app/src/Features/User/UserUpdater.mjs', () => ({
+      default: UserUpdater,
+    }))
 
     // Import after mocks are registered
     ;({ default: LlmAgentController } = await import(
@@ -1217,6 +1244,292 @@ describe('LlmAgentController', function () {
       const passedLines =
         ProjectCreationHandler.promises.createProjectFromSnippet.mock.calls[0][2]
       expect(Array.isArray(passedLines)).toBe(true)
+    })
+  })
+
+  describe('sendMessage — agent quota gate', function () {
+    it('returns 402 with reason=output_tokens when the user is over the output-token cap', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: 1000,
+          outputTokensUsed: 1500,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+
+      expect(res.statusCode).toBe(402)
+      const body = JSON.parse(res.body)
+      expect(body.error).toBe('agent_quota_exceeded')
+      expect(body.reason).toBe('output_tokens')
+      expect(body.quota).toEqual({
+        outputTokensLimit: 1000,
+        outputTokensUsed: 1500,
+        costUsdLimit: -1,
+        costUsdUsed: 0,
+      })
+    })
+
+    it('returns 402 with reason=cost when the user is over the cost cap', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: -1,
+          outputTokensUsed: 0,
+          costUsdLimit: 1.0,
+          costUsdUsed: 1.05,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+
+      expect(res.statusCode).toBe(402)
+      const body = JSON.parse(res.body)
+      expect(body.reason).toBe('cost')
+    })
+
+    it('reports reason=cost when both caps are exceeded — cost takes precedence', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: 100,
+          outputTokensUsed: 200,
+          costUsdLimit: 0.5,
+          costUsdUsed: 0.6,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(402)
+      expect(JSON.parse(res.body).reason).toBe('cost')
+    })
+
+    it('returns exactly equal-to-limit as exceeded (>= not >)', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: 1000,
+          outputTokensUsed: 1000,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(402)
+    })
+
+    it('passes through when outputTokensLimit is -1 (unlimited) regardless of used', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: -1,
+          outputTokensUsed: 1_000_000_000,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(202)
+    })
+
+    it('passes through when the user document has no agentQuota field at all', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({})
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(202)
+    })
+
+    it('does not create a chat message or conversation when blocked by quota', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: 100,
+          outputTokensUsed: 100,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      await LlmAgentController.sendMessage(makeReq(), makeRes(), vi.fn())
+
+      expect(ChatApiHandler.promises.sendComment).not.toHaveBeenCalled()
+      expect(
+        AgentConversationManager.promises.ensureConversation
+      ).not.toHaveBeenCalled()
+      expect(LlmAgentApiHandler.promises.startRun).not.toHaveBeenCalled()
+      expect(EditorRealTimeController.emitToRoom).not.toHaveBeenCalled()
+    })
+
+    it('queries the user with the agentQuota projection only', async function () {
+      await LlmAgentController.sendMessage(makeReq(), makeRes(), vi.fn())
+      expect(UserGetter.promises.getUser).toHaveBeenCalledWith(USER_ID, {
+        agentQuota: 1,
+      })
+    })
+
+    it('runs the quota check before any side effects (fails fast)', async function () {
+      // Simulate ChatApiHandler crashing. If the quota check ran after
+      // sendComment, the test would see the chat error rather than the 402.
+      ChatApiHandler.promises.sendComment.mockRejectedValueOnce(
+        new Error('chat down')
+      )
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: 1,
+          outputTokensUsed: 5,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(402)
+    })
+  })
+
+  describe('agentComplete + agentCancelled — usage delta', function () {
+    it('agentComplete $inc s the user when outputTokensDelta and costUsdDelta are present', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          userId: USER_ID,
+          content: 'response from agent',
+          runId: RUN_ID,
+          outputTokensDelta: 1234,
+          costUsdDelta: 0.0042,
+        },
+      }
+      await LlmAgentController.agentComplete(req, makeRes(), vi.fn())
+
+      expect(UserUpdater.promises.updateUser).toHaveBeenCalledOnce()
+      expect(UserUpdater.promises.updateUser).toHaveBeenCalledWith(USER_ID, {
+        $inc: {
+          'agentQuota.outputTokensUsed': 1234,
+          'agentQuota.costUsdUsed': 0.0042,
+        },
+      })
+    })
+
+    it('agentComplete skips the $inc when both deltas are zero', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          userId: USER_ID,
+          content: 'response',
+          runId: RUN_ID,
+          outputTokensDelta: 0,
+          costUsdDelta: 0,
+        },
+      }
+      await LlmAgentController.agentComplete(req, makeRes(), vi.fn())
+      expect(UserUpdater.promises.updateUser).not.toHaveBeenCalled()
+    })
+
+    it('agentComplete skips the $inc when deltas are absent (older caller)', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          userId: USER_ID,
+          content: 'response',
+          runId: RUN_ID,
+        },
+      }
+      await LlmAgentController.agentComplete(req, makeRes(), vi.fn())
+      expect(UserUpdater.promises.updateUser).not.toHaveBeenCalled()
+    })
+
+    it('agentComplete skips the $inc when userId is absent', async function () {
+      // messageId path — no userId in the body. Must not $inc anyone.
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          messageId: MESSAGE_ID,
+          outputTokensDelta: 100,
+          costUsdDelta: 0.01,
+        },
+      }
+      await LlmAgentController.agentComplete(req, makeRes(), vi.fn())
+      expect(UserUpdater.promises.updateUser).not.toHaveBeenCalled()
+    })
+
+    it('agentCancelled $inc s the user for partial-run usage', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          runId: RUN_ID,
+          userId: USER_ID,
+          outputTokensDelta: 17,
+          costUsdDelta: 0.001,
+        },
+      }
+      const res = makeRes()
+      await LlmAgentController.agentCancelled(req, res, vi.fn())
+
+      expect(res.statusCode).toBe(204)
+      expect(UserUpdater.promises.updateUser).toHaveBeenCalledWith(USER_ID, {
+        $inc: {
+          'agentQuota.outputTokensUsed': 17,
+          'agentQuota.costUsdUsed': 0.001,
+        },
+      })
+      expect(EditorRealTimeController.emitToRoom).toHaveBeenCalledWith(
+        PROJECT_ID,
+        'agent:cancelled',
+        { conversationId: CONVERSATION_ID, runId: RUN_ID }
+      )
+    })
+
+    it('agentCancelled still 204s and emits when no usage was incurred (cancelled before first step)', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          runId: RUN_ID,
+          userId: USER_ID,
+          outputTokensDelta: 0,
+          costUsdDelta: 0,
+        },
+      }
+      const res = makeRes()
+      await LlmAgentController.agentCancelled(req, res, vi.fn())
+
+      expect(res.statusCode).toBe(204)
+      expect(UserUpdater.promises.updateUser).not.toHaveBeenCalled()
+      expect(EditorRealTimeController.emitToRoom).toHaveBeenCalled()
+    })
+
+    it('agentCancelled still 400s when conversationId or runId are missing', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: { runId: RUN_ID, userId: USER_ID },
+      }
+      const res = makeRes()
+      await LlmAgentController.agentCancelled(req, res, vi.fn())
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('coerces string-valued deltas (e.g. JSON re-serialised) to numbers', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          userId: USER_ID,
+          content: 'r',
+          runId: RUN_ID,
+          outputTokensDelta: '500',
+          costUsdDelta: '0.02',
+        },
+      }
+      await LlmAgentController.agentComplete(req, makeRes(), vi.fn())
+      expect(UserUpdater.promises.updateUser).toHaveBeenCalledWith(USER_ID, {
+        $inc: {
+          'agentQuota.outputTokensUsed': 500,
+          'agentQuota.costUsdUsed': 0.02,
+        },
+      })
     })
   })
 })

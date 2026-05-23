@@ -437,6 +437,17 @@ module.exports = {
     unlimitedQuota: 'unlimited',
   },
 
+  // Per-user LLM-agent spend caps. -1 = unlimited. Lifetime totals,
+  // accumulated by the llm-agent run-complete/cancel callbacks.
+  agentQuota: {
+    defaults: {
+      outputTokensLimit:
+        parseInt(process.env.AGENT_DEFAULT_OUTPUT_TOKENS_LIMIT, 10) || -1,
+      costUsdLimit:
+        parseFloat(process.env.AGENT_DEFAULT_COST_USD_LIMIT) || -1,
+    },
+  },
+
   quotaGrants: {
     ai: {
       free: 0,

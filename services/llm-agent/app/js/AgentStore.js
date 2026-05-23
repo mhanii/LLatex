@@ -28,8 +28,30 @@ export async function createRun(projectId, input) {
     finishedAt: null,
     durationMs: null,
     error: null,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCostUsd: 0,
   })
   return result.insertedId.toString()
+}
+
+/**
+ * Atomically add to the run-level usage counters. Called once per LLM step.
+ *
+ * @param {string} runId
+ * @param {{ inputTokens?: number, outputTokens?: number, costUsd?: number }} delta
+ */
+export async function incrementUsage(runId, delta) {
+  await db.agentRuns.updateOne(
+    { _id: new ObjectId(runId) },
+    {
+      $inc: {
+        totalInputTokens: delta.inputTokens ?? 0,
+        totalOutputTokens: delta.outputTokens ?? 0,
+        totalCostUsd: delta.costUsd ?? 0,
+      },
+    }
+  )
 }
 
 /**

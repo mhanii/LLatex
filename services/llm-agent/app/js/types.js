@@ -52,6 +52,7 @@
  * @property {string} [model]
  * @property {number} [inputTokens]
  * @property {number} [outputTokens]
+ * @property {number} [costUsd]
  * @property {number} latencyMs
  */
 

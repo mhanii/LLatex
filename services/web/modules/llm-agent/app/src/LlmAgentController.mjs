@@ -10,6 +10,8 @@ import EditorRealTimeController from '../../../../app/src/Features/Editor/Editor
 import DocumentUpdaterHandler from '../../../../app/src/Features/DocumentUpdater/DocumentUpdaterHandler.mjs'
 import UserInfoManager from '../../../../app/src/Features/User/UserInfoManager.mjs'
 import UserInfoController from '../../../../app/src/Features/User/UserInfoController.mjs'
+import UserUpdater from '../../../../app/src/Features/User/UserUpdater.mjs'
+import UserGetter from '../../../../app/src/Features/User/UserGetter.mjs'
 import AgentCompileCoordinator from './AgentCompileCoordinator.mjs'
 import ProjectLocator from '../../../../app/src/Features/Project/ProjectLocator.mjs'
 import ProjectGetter from '../../../../app/src/Features/Project/ProjectGetter.mjs'
@@ -23,6 +25,42 @@ import { parseCompileLogs } from './parsers/LogParser.mjs'
 
 function normalizeProjectPath(path) {
   return path.startsWith('/') ? path.slice(1) : path
+}
+
+// Bill partial-or-full run usage back to the user's lifetime totals.
+// Called from the llm-agent service's run-complete and run-cancelled
+// callbacks. Both deltas are optional — silently no-op if absent or zero so
+// older callers (or retried no-token runs) don't blow up.
+async function applyUsageDelta(userId, outputTokensDelta, costUsdDelta) {
+  if (!userId) return
+  const outTok = Number(outputTokensDelta) || 0
+  const costUsd = Number(costUsdDelta) || 0
+  if (outTok === 0 && costUsd === 0) return
+  await UserUpdater.promises.updateUser(userId.toString(), {
+    $inc: {
+      'agentQuota.outputTokensUsed': outTok,
+      'agentQuota.costUsdUsed': costUsd,
+    },
+  })
+}
+
+// Returns { exceeded, reason, quota } describing whether the user has
+// hit either of their lifetime agent caps. A limit of -1 means unlimited
+// and is never enforced. Mirrors LimitationsManager.mjs's convention.
+async function checkAgentQuota(userId) {
+  const user = await UserGetter.promises.getUser(userId, { agentQuota: 1 })
+  const q = user?.agentQuota ?? {}
+  const overOutput =
+    q.outputTokensLimit > 0 && q.outputTokensUsed >= q.outputTokensLimit
+  const overCost = q.costUsdLimit > 0 && q.costUsdUsed >= q.costUsdLimit
+  if (overOutput || overCost) {
+    return {
+      exceeded: true,
+      reason: overCost ? 'cost' : 'output_tokens',
+      quota: q,
+    }
+  }
+  return { exceeded: false, quota: q }
 }
 
 function buildProjectContext(project) {
@@ -79,6 +117,22 @@ async function sendMessage(req, res) {
   const userId = SessionManager.getLoggedInUserId(req.session)
   if (userId == null) {
     return res.status(403).json({ error: 'not logged in' })
+  }
+
+  // Block before any side effects (chat message, conversation creation, etc.)
+  // so a quota-exceeded user doesn't leave an orphan user message in the
+  // thread waiting for a reply that will never come.
+  const quotaCheck = await checkAgentQuota(userId)
+  if (quotaCheck.exceeded) {
+    return res.status(402).json({
+      error: 'agent_quota_exceeded',
+      reason: quotaCheck.reason,
+      message:
+        quotaCheck.reason === 'cost'
+          ? 'You have reached your agent cost limit. Please contact an administrator to raise it.'
+          : 'You have reached your agent output-token limit. Please contact an administrator to raise it.',
+      quota: quotaCheck.quota,
+    })
   }
 
   const conversationId = bodyConversationId ?? new ObjectId().toHexString()
@@ -211,12 +265,14 @@ async function cancelRun(req, res) {
 
 async function agentCancelled(req, res) {
   const { project_id: projectId } = req.params
-  const { conversationId, runId } = req.body
+  const { conversationId, runId, userId, outputTokensDelta, costUsdDelta } =
+    req.body
   if (!conversationId || !runId) {
     return res
       .status(400)
       .json({ error: 'conversationId and runId required' })
   }
+  await applyUsageDelta(userId, outputTokensDelta, costUsdDelta)
   EditorRealTimeController.emitToRoom(projectId, 'agent:cancelled', {
     conversationId,
     runId,
@@ -362,10 +418,20 @@ async function getConversationMessages(req, res) {
 // - { conversationId, userId, content } to create and emit a new chat message
 async function agentComplete(req, res) {
   const { project_id: projectId } = req.params
-  const { conversationId, messageId, userId, content, runId } = req.body
+  const {
+    conversationId,
+    messageId,
+    userId,
+    content,
+    runId,
+    outputTokensDelta,
+    costUsdDelta,
+  } = req.body
   if (!conversationId) {
     return res.status(400).json({ error: 'conversationId required' })
   }
+
+  await applyUsageDelta(userId, outputTokensDelta, costUsdDelta)
 
   let message
   if (messageId) {
