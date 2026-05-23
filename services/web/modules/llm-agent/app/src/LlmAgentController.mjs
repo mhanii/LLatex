@@ -224,6 +224,33 @@ async function agentCancelled(req, res) {
   res.sendStatus(204)
 }
 
+async function deleteConversation(req, res) {
+  const { project_id: projectId, conversation_id: conversationId } = req.params
+  const userId = SessionManager.getLoggedInUserId(req.session)
+  if (userId == null) {
+    return res.status(403).json({ error: 'not logged in' })
+  }
+  // Scope the delete to the requesting user. Without this, any collaborator
+  // with read access to the project could delete any other user's conversation
+  // by guessing the conversationId.
+  const conversation = await AgentConversationManager.promises.getConversation(
+    projectId,
+    conversationId,
+    userId
+  )
+  if (!conversation) {
+    return res.status(404).json({ error: 'agent conversation not found' })
+  }
+  const deletedCount = await AgentConversationManager.promises.deleteConversation(
+    projectId,
+    conversationId
+  )
+  if (!deletedCount) {
+    return res.status(404).json({ error: 'agent conversation not found' })
+  }
+  res.sendStatus(204)
+}
+
 // Steps arrive over HTTP, so Date fields are ISO strings after JSON parsing,
 // not Date instances — `.getTime()` would be undefined on them.
 function toEpochMs(value) {
@@ -717,6 +744,7 @@ async function agentSyntaxCheck(req, res) {
 export default {
   createConversation: expressify(createConversation),
   listConversations: expressify(listConversations),
+  deleteConversation: expressify(deleteConversation),
   getConversationMessages: expressify(getConversationMessages),
   sendMessage: expressify(sendMessage),
   cancelRun: expressify(cancelRun),

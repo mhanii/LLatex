@@ -87,6 +87,10 @@ export const ThreadsProvider: FC<React.PropsWithChildren> = ({ children }) => {
         setData(data)
       })
       .catch(error => {
+        if (error?.response?.status === 404) {
+          setData({})
+          return
+        }
         debugConsole.error(error)
         captureException(error)
         // setError(error)

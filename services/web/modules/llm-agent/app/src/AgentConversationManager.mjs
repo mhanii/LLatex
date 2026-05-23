@@ -81,6 +81,14 @@ async function getConversation(projectId, conversationId, userId) {
   return conversation ? formatConversation(conversation) : null
 }
 
+async function deleteConversation(projectId, conversationId) {
+  const result = await db.agentConversations.deleteOne({
+    _id: normalizeObjectId(conversationId, 'conversationId'),
+    projectId: normalizeObjectId(projectId, 'projectId'),
+  })
+  return result.deletedCount ?? 0
+}
+
 async function ensureConversation(projectId, conversationId, userId, message) {
   const now = new Date()
   // Atomic upsert: a non-atomic findOne+insertOne races on concurrent first
@@ -204,6 +212,7 @@ export default {
   createConversation: callbackify(createConversation),
   listConversations: callbackify(listConversations),
   getConversation: callbackify(getConversation),
+  deleteConversation: callbackify(deleteConversation),
   ensureConversation: callbackify(ensureConversation),
   recordMessage: callbackify(recordMessage),
   getMessageMetadata: callbackify(getMessageMetadata),
@@ -212,6 +221,7 @@ export default {
     createConversation,
     listConversations,
     getConversation,
+    deleteConversation,
     ensureConversation,
     recordMessage,
     getMessageMetadata,
