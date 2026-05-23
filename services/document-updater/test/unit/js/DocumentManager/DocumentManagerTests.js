@@ -1080,6 +1080,249 @@ describe('DocumentManager', function () {
       })
     })
 
+    describe('with an adjacent prior agent insert (cEnd === pos)', function () {
+      // Adjacent-pair consolidation: a prior agent pair whose insert ends
+      // exactly at `pos` (the new edit's start) should be included in the
+      // region so that both pairs get merged into one consolidated pair.
+      // Without this, two separate pairs coexist on the same line → double chip.
+      beforeEach(async function () {
+        // Before: visible "hiworld" — prior pair Insert("hi",0)+Delete("hello",2)
+        this.beforeRanges = {
+          changes: [
+            {
+              id: 'adj-i',
+              op: { p: 0, i: 'hi' }, // ends at pos 2, which equals the new edit's pos
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'adj-d',
+              op: { p: 2, d: 'hello' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+          ],
+          comments: [],
+        }
+        // After OT (delete "world" at 2, insert "earth" at 2):
+        // ranges-tracker shifts the old delete and adds a new OT pair.
+        this.afterRanges = {
+          changes: [
+            {
+              id: 'adj-i',
+              op: { p: 0, i: 'hi' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'adj-d',
+              op: { p: 7, d: 'hello' }, // shifted by newText.length (5)
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'seed-i',
+              op: { p: 2, i: 'earth' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'seed-d',
+              op: { p: 7, d: 'world' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+          ],
+          comments: [],
+        }
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['hiworld'],
+            version: 5,
+            ranges: this.beforeRanges,
+          })
+          .onSecondCall()
+          .resolves({
+            lines: ['hiearth'],
+            version: 6,
+            ranges: this.afterRanges,
+          })
+
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'world', // starts at pos 2 = end of prior insert "hi"
+          'earth',
+          this.user_id
+        )
+      })
+
+      it('consolidates the adjacent prior pair into one', function () {
+        this.RedisManager.promises.updateDocument.called.should.equal(true)
+      })
+
+      it('produces ONE pair with oldest="helloworld" and newest="hiearth"', function () {
+        const call = this.RedisManager.promises.updateDocument.lastCall
+        const ranges = call.args[5]
+        expect(ranges.changes).to.have.lengthOf(2)
+        const insert = ranges.changes.find(c => c.op.i != null)
+        const del = ranges.changes.find(c => c.op.d != null)
+        expect(insert.op).to.deep.equal({ p: 0, i: 'hiearth' })
+        expect(del.op).to.deep.equal({ p: 7, d: 'helloworld' })
+      })
+    })
+
+    describe('with a prior agent pair on the same line, non-adjacent', function () {
+      // Per-line consolidation: two separate-position edits on the same line
+      // should collapse to one consolidated pair. Without this, two chips
+      // appear on the same line (the original "double chip" bug).
+      beforeEach(async function () {
+        // Before: visible "hi mars" — prior pair Insert("hi",0)+Delete("hello",2).
+        // The new edit is on "mars" (pos=3), separated from the prior pair by " ".
+        this.beforeRanges = {
+          changes: [
+            {
+              id: 'pri-i',
+              op: { p: 0, i: 'hi' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'pri-d',
+              op: { p: 2, d: 'hello' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+          ],
+          comments: [],
+        }
+        this.afterRanges = {
+          changes: [
+            {
+              id: 'pri-i',
+              op: { p: 0, i: 'hi' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'pri-d',
+              op: { p: 2, d: 'hello' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'new-i',
+              op: { p: 3, i: 'earth' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'new-d',
+              op: { p: 8, d: 'mars' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+          ],
+          comments: [],
+        }
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['hi mars'],
+            version: 5,
+            ranges: this.beforeRanges,
+          })
+          .onSecondCall()
+          .resolves({
+            lines: ['hi earth'],
+            version: 6,
+            ranges: this.afterRanges,
+          })
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'mars',
+          'earth',
+          this.user_id
+        )
+      })
+      it('collapses both prior pair and new edit into ONE clean pair', function () {
+        const call = this.RedisManager.promises.updateDocument.lastCall
+        const ranges = call.args[5]
+        expect(ranges.changes).to.have.lengthOf(2)
+        const insert = ranges.changes.find(c => c.op.i != null)
+        const del = ranges.changes.find(c => c.op.d != null)
+        expect(insert.op).to.deep.equal({ p: 0, i: 'hi earth' })
+        expect(del.op).to.deep.equal({ p: 8, d: 'hello mars' })
+      })
+    })
+
+    describe('per-line consolidation skips when a HUMAN edit is on the line', function () {
+      // If a non-agent (user) change is anywhere on the line as the agent edit,
+      // bail out of consolidation so we never rewrite human content.
+      beforeEach(async function () {
+        this.beforeRanges = {
+          changes: [
+            {
+              id: 'human-i',
+              op: { p: 0, i: 'hi' },
+              metadata: { user_id: 'human-user', source: 'manual' },
+            },
+          ],
+          comments: [],
+        }
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['hi mars'],
+            version: 5,
+            ranges: this.beforeRanges,
+          })
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'mars',
+          'earth',
+          this.user_id
+        )
+      })
+      it('does NOT consolidate (standard OT path only)', function () {
+        this.RedisManager.promises.updateDocument.called.should.equal(false)
+      })
+    })
+
+    describe('per-line consolidation only includes OUR agent (same user_id)', function () {
+      // A different agent run's tracked change on the same line should NOT
+      // be absorbed into our consolidation — leave it alone.
+      beforeEach(async function () {
+        this.beforeRanges = {
+          changes: [
+            {
+              id: 'other-i',
+              op: { p: 0, i: 'hi' },
+              metadata: { user_id: 'other-agent-run', source: 'agent' },
+            },
+            {
+              id: 'other-d',
+              op: { p: 2, d: 'hello' },
+              metadata: { user_id: 'other-agent-run', source: 'agent' },
+            },
+          ],
+          comments: [],
+        }
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['hi mars'],
+            version: 5,
+            ranges: this.beforeRanges,
+          })
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'mars',
+          'earth',
+          this.user_id
+        )
+      })
+      it('does NOT consolidate (different user)', function () {
+        this.RedisManager.promises.updateDocument.called.should.equal(false)
+      })
+    })
+
     describe('returns 204 without delegating when oldText === newText', function () {
       // Greptile P2 regression: the no-op guard must live in agentReplace
       // itself, not just the HTTP layer.
@@ -1142,6 +1385,194 @@ describe('DocumentManager', function () {
 
       it('does NOT consolidate (never overwrites a user change)', function () {
         this.RedisManager.promises.updateDocument.called.should.equal(false)
+      })
+    })
+
+    describe('OT op trims shared prefix/suffix to the diff window', function () {
+      // The frontend chip renders from its own RangesTracker (built from the
+      // OT op), so we want the chip to show ONLY the actual diff, not the
+      // surrounding context the agent supplied. For "abc world" → "abc earth"
+      // the chip should show "world" → "earth" (not the full line on each
+      // side).
+      beforeEach(async function () {
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['abc world'],
+            version: 5,
+            ranges: { changes: [], comments: [] },
+          })
+
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'abc world',
+          'abc earth',
+          this.user_id
+        )
+      })
+
+      it('sends only the diff window to the OT (shared prefix stripped)', function () {
+        const call = this.UpdateManager.promises.applyUpdate.lastCall
+        expect(call.args[2].op).to.deep.equal([
+          { p: 4, d: 'world' },
+          { p: 4, i: 'earth' },
+        ])
+      })
+    })
+
+    describe('pure delete (newText empty) sends only the delete op', function () {
+      // Original motivation for the trim was: a pure-delete hunk used to
+      // send [{p, d:hunkOld}, {p, i:""}]. The empty-insert half became a
+      // zero-length tracked insert on the frontend that survived
+      // consolidation and rendered as an unrejectable phantom chip.
+      // Fix: skip empty halves at the OT-op level. No trim needed.
+      beforeEach(async function () {
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['alpha beta gamma'],
+            version: 5,
+            ranges: { changes: [], comments: [] },
+          })
+
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'beta ',
+          '',
+          this.user_id
+        )
+      })
+
+      it('sends ONLY the delete op (no phantom empty-insert half)', function () {
+        const call = this.UpdateManager.promises.applyUpdate.lastCall
+        expect(call.args[2].op).to.deep.equal([{ p: 6, d: 'beta ' }])
+      })
+    })
+
+    describe('pure insert (oldText empty) sends only the insert op', function () {
+      beforeEach(async function () {
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['alpha gamma'],
+            version: 5,
+            ranges: { changes: [], comments: [] },
+          })
+
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          '',
+          'beta ',
+          this.user_id,
+          6
+        )
+      })
+
+      it('sends ONLY the insert op (no phantom empty-delete half)', function () {
+        const call = this.UpdateManager.promises.applyUpdate.lastCall
+        expect(call.args[2].op).to.deep.equal([{ p: 6, i: 'beta ' }])
+      })
+    })
+
+    describe('agent adds then deletes the same text in the same cycle (no tracked changes left)', function () {
+      // The agent's second edit reverses the first: visible content returns
+      // to the original, so the consolidated cleanChanges should be EMPTY
+      // (no tracked insert, no tracked delete). The (oldVersionText ===
+      // newVersionText) branch in section 7 handles this — verify it stays
+      // that way.
+      //
+      // Setup simulates the BEFORE state after the agent inserted "aXbc"
+      // (replacing "abc"). The new edit reverses it back to "abc".
+      beforeEach(async function () {
+        this.beforeRanges = {
+          changes: [
+            {
+              id: 'first-i',
+              op: { p: 0, i: 'aXbc' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+            {
+              id: 'first-d',
+              op: { p: 4, d: 'abc' },
+              metadata: { user_id: this.user_id, source: 'agent' },
+            },
+          ],
+          comments: [],
+        }
+        // After the OT for edit 2 ([d:"aXbc", i:"abc"]) applies, the
+        // ranges-tracker collapses everything. We don't model the exact
+        // intermediate mess here — what matters is the visible content is
+        // back to "abc" and cleanChanges encodes that.
+        this.afterRanges = { changes: [], comments: [] }
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['aXbc'],
+            version: 5,
+            ranges: this.beforeRanges,
+          })
+          .onSecondCall()
+          .resolves({
+            lines: ['abc'],
+            version: 6,
+            ranges: this.afterRanges,
+          })
+
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'aXbc',
+          'abc',
+          this.user_id
+        )
+      })
+
+      it('writes consolidated ranges with NO tracked changes', function () {
+        const call = this.RedisManager.promises.updateDocument.lastCall
+        const ranges = call.args[5]
+        expect(ranges.changes).to.deep.equal([])
+      })
+    })
+
+    describe('pure delete with surrounding context shows ONLY the deletion', function () {
+      // User-reported: when the agent supplies surrounding context
+      // (oldText="abc X def", newText="abc def" — just deleting " X"), the
+      // chip used to also show "abc def" as inserted (the new text). With
+      // the trim, the OT op collapses to a single pure-delete of " X" and
+      // the chip shows only the deletion — no posterior text appearing as
+      // "new text".
+      beforeEach(async function () {
+        this.DocumentManager.promises.getDoc = sinon
+          .stub()
+          .onFirstCall()
+          .resolves({
+            lines: ['abc X def'],
+            version: 5,
+            ranges: { changes: [], comments: [] },
+          })
+
+        await this.DocumentManager.promises.agentReplace(
+          this.project_id,
+          this.doc_id,
+          'abc X def',
+          'abc def',
+          this.user_id
+        )
+      })
+
+      it('sends only a pure delete op (no insert half)', function () {
+        const call = this.UpdateManager.promises.applyUpdate.lastCall
+        // Prefix "abc " (4) is trimmed first, then suffix "def" (3): the
+        // remaining diff is delete "X " at position 4. Only one op — no
+        // insert half — so the chip shows ONLY the deletion.
+        expect(call.args[2].op).to.deep.equal([{ p: 4, d: 'X ' }])
       })
     })
   })

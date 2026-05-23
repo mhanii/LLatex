@@ -135,8 +135,14 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   const pendingStatusEventsRef = useRef<Record<string, AgentToolCallEvent[]>>({})
   const submitAbortControllerRef = useRef<AbortController | null>(null)
   const activeRunIdRef = useRef<string | null>(null)
+  const activeRunConversationIdRef = useRef<string | null>(null)
   const canceledRunIdsRef = useRef<Set<string>>(new Set())
   const generationStoppedRef = useRef(false)
+  // pendingCancelRef holds an in-flight stop request waiting on a runId — the
+  // user clicked Stop before the POST /agent/message round-trip returned, so
+  // we have no runId to send to the backend yet. Once the runId arrives in
+  // submitMessage we cancel immediately.
+  const pendingCancelRef = useRef<{ conversationId: string } | null>(null)
   const simulationStopRef = useRef(false)
   const simulationConversationIdRef = useRef<string | null>(null)
   const initialScrollConversationIdRef = useRef<string | null>(null)
@@ -149,6 +155,16 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       return next
     })
   }, [setMessages])
+
+  // Belt-and-suspenders sync for messagesRef. setMessagesWithRef updates the
+  // ref synchronously inside its updater, but appendMessage (from
+  // useMessageUtilities) bypasses it and uses setMessages directly. Without
+  // this effect, code that reads messagesRef.current in async handlers
+  // (notably flushPendingStatusMessages) would not see appendMessage's
+  // inserts and the synthesis branch would be unreachable.
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
   
   const handleChatHeaderPointerDown = useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
@@ -493,7 +509,22 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
 
       setActiveConversationId(result.conversationId)
       activeRunIdRef.current = result.runId
+      activeRunConversationIdRef.current = result.conversationId
       setIsAwaitingAgentResponse(true)
+
+      // The user clicked Stop before we knew the runId. Fire the cancel now.
+      // The generating-state stays on; the agent:cancelled socket event will
+      // clear it once the backend confirms.
+      if (pendingCancelRef.current?.conversationId === result.conversationId) {
+        pendingCancelRef.current = null
+        canceledRunIdsRef.current.add(result.runId)
+        postJSON(
+          apiPath(
+            `/conversations/${result.conversationId}/runs/${result.runId}/cancel`
+          ),
+          { body: {} }
+        ).catch(debugConsole.error)
+      }
       setMessagesWithRef(prev => {
         if (
           prev.some(
@@ -639,58 +670,54 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   }, [setMessagesWithRef])
 
   const stopGeneration = useCallback(() => {
-    simulationStopRef.current = true;
-    
-    // Auto-collapse any running status groups
-    const allStatusGroupIds = computedStatusGroupIds;
-    const groupsToCollapse = allStatusGroupIds.filter(id => 
-      !autoCompactedGroupIds.includes(id) && !collapsedStatusGroupIds.includes(id)
-    );
-    
-    if (groupsToCollapse.length > 0) {
-      setAutoCompactedGroupIds(prev => [...prev, ...groupsToCollapse]);
-      setCollapsedStatusGroupIds(prev => [...prev, ...groupsToCollapse]);
-      setExpandedStatusGroupIds(prev => prev.filter(id => !groupsToCollapse.includes(id)));
-    }
-    
-    if (activeRunIdRef.current) {
-      canceledRunIdsRef.current.add(activeRunIdRef.current);
-      
-      if (socket && activeConversationIdRef.current) {
-        socket.emit('agent:stop', {
-          conversationId: activeConversationIdRef.current,
-          runId: activeRunIdRef.current
-        });
-      }
-      
-      activeRunIdRef.current = null;
-    }
-    
-    submitAbortControllerRef.current?.abort();
-    submitAbortControllerRef.current = null;
-
-    const conversationId = simulationConversationIdRef.current ?? activeConversationIdRef.current;
-    if (conversationId) {
-      cleanupPendingToolsForConversation(conversationId);
+    // Local debug simulation: halt the simulated stream immediately and clear
+    // generating state. This path never talks to the backend.
+    if (simulationConversationIdRef.current) {
+      simulationStopRef.current = true
+      const conversationId = simulationConversationIdRef.current
+      cleanupPendingToolsForConversation(conversationId)
+      simulationConversationIdRef.current = null
+      setIsAwaitingAgentResponse(false)
+      setIsSending(false)
+      return
     }
 
-    simulationConversationIdRef.current = null;
+    // Real run: send the cancel request but KEEP isSending /
+    // isAwaitingAgentResponse on. The generating button + animation remain
+    // visible until the backend confirms by emitting agent:cancelled — that
+    // socket event is what clears the generating state.
+    //
+    // The button stays clickable on purpose. Backend cancellation is
+    // idempotent (cancelling a finished/cancelled run is a no-op), so a user
+    // whose first POST silently dropped can simply click again. Disabling
+    // the button on first click would risk freezing the UI for the lifetime
+    // of the run if the cancel callback never arrives.
+    const runId = activeRunIdRef.current
+    const conversationId =
+      activeRunConversationIdRef.current ?? activeConversationIdRef.current
 
-    setIsAwaitingAgentResponse(false);
-    setIsSending(false);
+    if (!conversationId) return
+
+    if (!runId) {
+      // POST /agent/message hasn't returned yet; we don't know the runId.
+      // Queue the cancellation and let submitMessage fire it when the runId
+      // arrives.
+      pendingCancelRef.current = { conversationId }
+      return
+    }
+
+    canceledRunIdsRef.current.add(runId)
+    postJSON(
+      apiPath(`/conversations/${conversationId}/runs/${runId}/cancel`),
+      { body: {} }
+    ).catch(debugConsole.error)
   }, [
-    activeConversationIdRef, 
-    cleanupPendingToolsForConversation, 
-    setIsAwaitingAgentResponse, 
-    setIsSending, 
-    socket,
-    computedStatusGroupIds,
-    autoCompactedGroupIds,
-    collapsedStatusGroupIds,
-    setAutoCompactedGroupIds,
-    setCollapsedStatusGroupIds,
-    setExpandedStatusGroupIds
-  ]);
+    activeConversationIdRef,
+    apiPath,
+    cleanupPendingToolsForConversation,
+    setIsAwaitingAgentResponse,
+    setIsSending,
+  ])
 
   const simulateFullConversation = useCallback(async () => {
     if (isSending || isAwaitingAgentResponse) {
@@ -1039,14 +1066,37 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       handleToolCallEvent(payload)
     }
 
+    // Backend confirmation that a cancel POST landed and the agent run was
+    // unwound. Until this event arrives the generating UI stays on, so the
+    // user sees the animation continue between clicking Stop and the agent
+    // actually halting.
+    function receivedAgentCancelled(payload: { conversationId: string; runId: string }) {
+      if (payload.conversationId !== activeConversationIdRef.current) return
+      canceledRunIdsRef.current.add(payload.runId)
+      cleanupPendingToolsForConversation(payload.conversationId)
+      if (activeRunIdRef.current === payload.runId) {
+        activeRunIdRef.current = null
+        activeRunConversationIdRef.current = null
+      }
+      if (pendingCancelRef.current?.conversationId === payload.conversationId) {
+        pendingCancelRef.current = null
+      }
+      submitAbortControllerRef.current?.abort()
+      submitAbortControllerRef.current = null
+      setIsAwaitingAgentResponse(false)
+      setIsSending(false)
+    }
+
     socket.on('agent:message', receivedAgentMessage)
     socket.on('agent:tool-call', receivedToolCall)
+    socket.on('agent:cancelled', receivedAgentCancelled)
 
     return () => {
       socket.removeListener('agent:message', receivedAgentMessage)
       socket.removeListener('agent:tool-call', receivedToolCall)
+      socket.removeListener('agent:cancelled', receivedAgentCancelled)
     }
-  }, [activeConversationIdRef, completePendingToolsForConversation, flushPendingStatusMessages, handleToolCallEvent, setIsAwaitingAgentResponse, socket, toChatbotMessage, userId, setConversations])
+  }, [activeConversationIdRef, cleanupPendingToolsForConversation, completePendingToolsForConversation, flushPendingStatusMessages, handleToolCallEvent, setIsAwaitingAgentResponse, setIsSending, socket, toChatbotMessage, userId, setConversations])
 
   useEffect(() => {
     const pendingText = consumePendingChatbotPrefill()

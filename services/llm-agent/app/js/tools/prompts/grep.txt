@@ -1,0 +1,11 @@
+Search for a regular expression across the project's files. Returns matching lines with file path and line number.
+
+Use this to locate symbols, macro definitions, citations, or any text you would otherwise have to read multiple files to find. Always prefer grep over reading full files when you only need to know where something appears.
+
+The pattern is a JavaScript-flavored regular expression. Escape special characters (\\, ., *, +, ?, (, ), [, ], {, }, |, ^, $) when you want to match them literally.
+
+`pathGlob` filters which files are searched. Supports `*` (any chars except `/`), `**` (any chars including `/`), and `?` (one char). Examples: `*.tex`, `chapters/*.tex`, `**/*.bib`. Omit to search all files.
+
+`caseSensitive` defaults to false. `maxResults` defaults to 100 and is capped at 500; results are truncated when the cap is reached.
+
+Returns matches as newline-separated `path:lineNumber:line` strings (ripgrep style). Returns `No matches found` when nothing matches, or an error string when the pattern is invalid.

@@ -1,8 +1,8 @@
 // @ts-check
 
 import logger from '@overleaf/logger'
-import { createRun } from './AgentStore.js'
-import { run } from './AgentManager.js'
+import { createRun, getStepsForRunInProject } from './AgentStore.js'
+import { run, cancelRun } from './AgentManager.js'
 import { getAgent } from './agents/registry.js'
 
 async function startRun(req, res) {
@@ -55,4 +55,28 @@ async function startRun(req, res) {
   res.status(200).json({ runId })
 }
 
-export default { startRun }
+async function getRunSteps(req, res) {
+  const { projectId, runId } = req.params
+  const steps = await getStepsForRunInProject(projectId, runId)
+  if (steps === null) {
+    return res.status(404).json({ error: 'run not found in project' })
+  }
+  res.json({ steps })
+}
+
+async function cancelRunRequest(req, res) {
+  const { projectId, runId } = req.params
+  // Confirm the run belongs to the project before cancelling — guards against
+  // a caller using a runId from another project.
+  const steps = await getStepsForRunInProject(projectId, runId)
+  if (steps === null) {
+    return res.status(404).json({ error: 'run not found in project' })
+  }
+  const cancelled = cancelRun(runId)
+  logger.debug({ runId, projectId, cancelled }, 'agent run cancel requested')
+  // 202 even if the run was no longer in-flight — the user-visible outcome
+  // (no further activity for this run) is the same.
+  res.status(202).json({ cancelled })
+}
+
+export default { startRun, getRunSteps, cancelRun: cancelRunRequest }

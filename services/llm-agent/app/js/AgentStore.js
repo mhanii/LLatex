@@ -50,6 +50,25 @@ export async function getStepsForRun(runId) {
 }
 
 /**
+ * Like getStepsForRun but also enforces that the run belongs to the given
+ * project. Returns null when the run does not exist or belongs to another
+ * project — lets the caller distinguish "no such run" from "empty steps".
+ *
+ * @param {string} projectId
+ * @param {string} runId
+ * @returns {Promise<Array<import('./types.js').RunStep> | null>}
+ */
+export async function getStepsForRunInProject(projectId, runId) {
+  if (!runId || !ObjectId.isValid(runId)) return null
+  const doc = await db.agentRuns.findOne(
+    { _id: new ObjectId(runId), projectId },
+    { projection: { steps: 1 } }
+  )
+  if (!doc) return null
+  return doc.steps ?? []
+}
+
+/**
  * @param {string} runId
  * @param {import('./types.js').RunStep} step
  */
@@ -98,11 +117,17 @@ export async function markContextItemReplaced(runId, oldId, newId, when) {
  */
 export async function finalizeRun(runId, output, startedAt) {
   const finishedAt = new Date()
+  const status =
+    output.type === 'error'
+      ? 'error'
+      : output.type === 'cancelled'
+        ? 'cancelled'
+        : 'done'
   await db.agentRuns.updateOne(
     { _id: new ObjectId(runId) },
     {
       $set: {
-        status: output.type === 'error' ? 'error' : 'done',
+        status,
         output,
         finishedAt,
         durationMs: finishedAt.getTime() - startedAt.getTime(),

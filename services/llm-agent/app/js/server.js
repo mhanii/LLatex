@@ -26,5 +26,23 @@ export function createServer() {
     }
   })
 
+  app.get('/project/:projectId/run/:runId/steps', async (req, res) => {
+    try {
+      await AgentController.getRunSteps(req, res)
+    } catch (err) {
+      logger.error({ err }, 'unhandled error in AgentController.getRunSteps')
+      res.status(500).json({ error: 'internal error' })
+    }
+  })
+
+  app.post('/project/:projectId/run/:runId/cancel', async (req, res) => {
+    try {
+      await AgentController.cancelRun(req, res)
+    } catch (err) {
+      logger.error({ err }, 'unhandled error in AgentController.cancelRun')
+      res.status(500).json({ error: 'internal error' })
+    }
+  })
+
   return { app }
 }

@@ -1,6 +1,7 @@
 // @ts-check
 import { expect } from 'chai'
 import { buildTools } from '../../../app/js/tools/index.js'
+import { fakeResponse, restoreFetch, stubFetch } from './helpers.js'
 
 function makeCtx() {
   return {
@@ -19,12 +20,14 @@ function makeCtx() {
 }
 
 describe('tools/index buildTools', function () {
-  it('returns all 12 tools when toolNames is omitted', function () {
+  afterEach(restoreFetch)
+
+  it('returns every registered tool when toolNames is omitted', function () {
     const tools = buildTools(makeCtx())
-    expect(Object.keys(tools)).to.have.lengthOf(12)
     expect(tools).to.have.all.keys(
       'list_files',
       'read_file',
+      'grep',
       'create_file',
       'edit_file',
       'delete_file',
@@ -34,7 +37,8 @@ describe('tools/index buildTools', function () {
       'compile_and_check',
       'get_pdf_page',
       'list_skills',
-      'read_skill'
+      'read_skill',
+      'ask_question'
     )
   })
 
@@ -82,5 +86,101 @@ describe('tools/index buildTools', function () {
     ])
     expect(a).to.deep.equal([{ path: 'a.tex' }])
     expect(b).to.deep.equal([{ path: 'b.tex' }])
+  })
+
+  it('auto-accepts pending agent changes before the first edit in a follow-up run', async function () {
+    const calls = []
+    stubFetch(async (url, opts) => {
+      calls.push({ url, opts })
+      if (!opts?.method) {
+        return fakeResponse(200, {
+          ranges: {
+            changes: [
+              {
+                id: 'agent-change',
+                metadata: { source: 'agent', user_id: 'user1' },
+              },
+              {
+                id: 'user-change',
+                metadata: { source: 'user', user_id: 'user1' },
+              },
+              {
+                id: 'other-agent-change',
+                metadata: { source: 'agent', user_id: 'other-user' },
+              },
+            ],
+          },
+        })
+      }
+      return fakeResponse(204)
+    })
+
+    const ctx = { ...makeCtx(), autoAcceptTrackChangesOnEdit: true }
+    const tools = buildTools(ctx, ['edit_file'])
+    const result = await tools.edit_file.execute({
+      path: 'main.tex',
+      oldText: 'old',
+      newText: 'new',
+    })
+
+    expect(result).to.equal('Change applied.')
+    expect(calls[0].url).to.include('/project/proj1/doc/d1')
+    expect(calls[1].url).to.include(
+      '/internal/project/proj1/agent/accept-changes'
+    )
+    expect(JSON.parse(calls[1].opts.body)).to.deep.equal({
+      docId: 'd1',
+      changeIds: ['agent-change'],
+      userId: 'user1',
+    })
+    expect(calls[2].url).to.include('/project/proj1/doc/d1/agent-replace')
+  })
+
+  it('does not auto-accept on a first-turn edit run', async function () {
+    const calls = []
+    stubFetch(async (url, opts) => {
+      calls.push({ url, opts })
+      return fakeResponse(204)
+    })
+
+    const tools = buildTools(makeCtx(), ['edit_file'])
+    await tools.edit_file.execute({
+      path: 'main.tex',
+      oldText: 'old',
+      newText: 'new',
+    })
+
+    expect(calls).to.have.length(1)
+    expect(calls[0].url).to.include('/project/proj1/doc/d1/agent-replace')
+  })
+
+  it('only auto-accepts once per doc in the same follow-up run', async function () {
+    const calls = []
+    stubFetch(async (url, opts) => {
+      calls.push({ url, opts })
+      if (!opts?.method) {
+        return fakeResponse(200, { ranges: { changes: [] } })
+      }
+      return fakeResponse(204)
+    })
+
+    const ctx = { ...makeCtx(), autoAcceptTrackChangesOnEdit: true }
+    const tools = buildTools(ctx, ['edit_file'])
+    await tools.edit_file.execute({
+      path: 'main.tex',
+      oldText: 'a',
+      newText: 'b',
+    })
+    await tools.edit_file.execute({
+      path: 'main.tex',
+      oldText: 'c',
+      newText: 'd',
+    })
+
+    expect(calls).to.have.length(3)
+    expect(calls[0].url).to.include('/project/proj1/doc/d1')
+    expect(calls[0].url).not.to.include('/agent-replace')
+    expect(calls[1].url).to.include('/project/proj1/doc/d1/agent-replace')
+    expect(calls[2].url).to.include('/project/proj1/doc/d1/agent-replace')
   })
 })

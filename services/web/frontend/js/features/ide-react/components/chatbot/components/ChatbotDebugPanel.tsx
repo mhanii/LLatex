@@ -16,10 +16,6 @@ export const ChatbotDebugPanel: React.FC<ChatbotDebugPanelProps> = ({
 }) => {
   const [isSimulating, setIsSimulating] = React.useState(false)
 
-  if (process.env.NODE_ENV !== 'development') {
-    return null
-  }
-
   const handleSimulateConversation = async () => {
     if (onSimulateConversation && !isSimulating) {
       setIsSimulating(true)

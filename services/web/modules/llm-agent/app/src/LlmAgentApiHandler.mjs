@@ -22,6 +22,29 @@ async function startRun(projectId, payload) {
   })
 }
 
+/**
+ * @param {string} projectId
+ * @param {string} runId
+ * @returns {Promise<{ steps: Array<{ name: string, output?: { toolCalls?: Array<{ toolCallId: string, toolName: string, input: unknown }>, toolResults?: Array<{ toolCallId: string, toolName: string, input: unknown, output: unknown }> } }> }>}
+ */
+async function getRunSteps(projectId, runId) {
+  return await fetchJson(agentUrl(`/project/${projectId}/run/${runId}/steps`), {
+    method: 'GET',
+  })
+}
+
+/**
+ * @param {string} projectId
+ * @param {string} runId
+ * @returns {Promise<{ cancelled: boolean }>}
+ */
+async function cancelRun(projectId, runId) {
+  return await fetchJson(
+    agentUrl(`/project/${projectId}/run/${runId}/cancel`),
+    { method: 'POST' }
+  )
+}
+
 export default {
-  promises: { startRun },
+  promises: { startRun, getRunSteps, cancelRun },
 }

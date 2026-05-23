@@ -22,15 +22,37 @@ export function buildTools(ctx, toolNames) {
     out[name] = tool({
       description: def.description,
       inputSchema: def.inputSchema,
-      execute: async input => {
+      // The Vercel AI SDK passes per-call metadata as the second arg, including
+      // a unique toolCallId. Threading it through onToolEvent lets the frontend
+      // tell two invocations of the same tool (e.g. compile → edit → compile)
+      // apart — without it, both events collapse onto the same status message
+      // because the fallback id is `${runId}-${toolName}`.
+      execute: async (input, { toolCallId } = {}) => {
         await ctx.onToolEvent?.({
+          toolCallId,
           toolName: name,
           status: 'running',
           input,
         })
         try {
+          // Tools may define a preExecute hook that runs before `execute`.
+          // A non-null return short-circuits dispatch and becomes the output.
+          const preOutput = def.preExecute
+            ? await def.preExecute(input, ctx)
+            : null
+          if (preOutput != null) {
+            await ctx.onToolEvent?.({
+              toolCallId,
+              toolName: name,
+              status: 'error',
+              input,
+              error: preOutput,
+            })
+            return preOutput
+          }
           const output = await def.execute(input, ctx)
           await ctx.onToolEvent?.({
+            toolCallId,
             toolName: name,
             status: 'completed',
             input,
@@ -38,6 +60,7 @@ export function buildTools(ctx, toolNames) {
           return output
         } catch (err) {
           await ctx.onToolEvent?.({
+            toolCallId,
             toolName: name,
             status: 'error',
             input,

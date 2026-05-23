@@ -73,6 +73,37 @@ async function notifyWebAgentToolCall(projectId, payload) {
   }
 }
 
+async function notifyWebAgentCancelled(projectId, payload) {
+  const response = await fetch(
+    webUrl(`/internal/project/${projectId}/agent/cancelled`),
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: basicAuth(),
+      },
+      body: JSON.stringify(payload),
+    }
+  )
+  if (!response.ok) {
+    throw new Error(
+      `agent cancellation callback failed with HTTP ${response.status}`
+    )
+  }
+}
+
+// In-memory registry of in-flight runs. cancelRun() looks up the run's
+// AbortController and aborts it; the run loop checks the signal between
+// iterations and unwinds with type: 'cancelled'.
+const activeRuns = new Map()
+
+export function cancelRun(runId) {
+  const entry = activeRuns.get(runId)
+  if (!entry) return false
+  entry.controller.abort()
+  return true
+}
+
 /**
  * Entry point for the agent loop. Called without await (fire-and-forget)
  * so the HTTP response can return immediately with the runId.
@@ -83,6 +114,9 @@ async function notifyWebAgentToolCall(projectId, payload) {
  * @param {{ agentName?: string }} [opts]
  */
 export async function run(runId, input, startedAt, opts = {}) {
+  const abortController = new AbortController()
+  activeRuns.set(runId, { controller: abortController })
+  const signal = abortController.signal
   try {
     const agent =
       (opts.agentName ? getAgent(opts.agentName) : null) ?? defaultAgent()
@@ -106,6 +140,7 @@ export async function run(runId, input, startedAt, opts = {}) {
       runId,
       conversationId: input.conversationId,
       context: input.context,
+      autoAcceptTrackChangesOnEdit: (input.chatHistory ?? []).length > 0,
       onToolEvent: async event => {
         try {
           await notifyWebAgentToolCall(input.projectId, {
@@ -128,6 +163,7 @@ export async function run(runId, input, startedAt, opts = {}) {
     let finalText = ''
 
     for (let i = 0; i < maxSteps; i++) {
+      if (signal.aborted) break
       const stepStart = new Date()
       const messages = await cm.render()
 
@@ -135,6 +171,7 @@ export async function run(runId, input, startedAt, opts = {}) {
         model,
         tools,
         messages,
+        abortSignal: signal,
         ...(agent.temperature != null
           ? { temperature: agent.temperature }
           : {}),
@@ -240,40 +277,53 @@ export async function run(runId, input, startedAt, opts = {}) {
         finalText = result.text
       }
 
+      // ask_question terminates the run: the user owes the next message and
+      // the model has no useful work to do until they reply. The tool execute
+      // function sets runCtx.pendingQuestion; we check after the step so the
+      // tool's call/result pair has been persisted into the run trace.
+      if (runCtx.pendingQuestion) break
+
       if (!(result.toolCalls?.length > 0)) break
     }
 
-    // If the loop exited without the model ever producing text (e.g. maxSteps
-    // exhausted by back-to-back tool calls), emit a fallback message — the web
-    // service rejects empty content with 400, which would otherwise leave the
-    // UI stuck in the pending state with no visible response.
-    const stepBudgetExhausted = !finalText
-    const content = stepBudgetExhausted
-      ? `Agent stopped after ${maxSteps} steps without producing a final response. Try a more focused request.`
-      : finalText
-    const output = {
-      type: stepBudgetExhausted ? 'error' : 'text',
-      content,
+    let output
+    if (signal.aborted) {
+      output = { type: 'cancelled', content: 'Generation cancelled by user.' }
+    } else if (runCtx.pendingQuestion) {
+      output = {
+        type: 'question',
+        content: runCtx.pendingQuestion.text,
+        questions: runCtx.pendingQuestion.questions,
+      }
+    } else {
+      // If the loop exited without the model ever producing text (e.g. maxSteps
+      // exhausted by back-to-back tool calls), emit a fallback message — the web
+      // service rejects empty content with 400, which would otherwise leave the
+      // UI stuck in the pending state with no visible response.
+      const stepBudgetExhausted = !finalText
+      const content = stepBudgetExhausted
+        ? `Agent stopped after ${maxSteps} steps without producing a final response. Try a more focused request.`
+        : finalText
+      output = {
+        type: stepBudgetExhausted ? 'error' : 'text',
+        content,
+      }
     }
     await finalizeRun(runId, output, startedAt)
-    try {
-      await notifyWebAgentComplete(input.projectId, {
-        conversationId: input.conversationId,
-        runId,
-        userId: input.userId,
-        content,
-      })
-    } catch (notifyErr) {
-      logger.warn(
-        { err: notifyErr, runId, projectId: input.projectId },
-        'agent completion callback failed'
-      )
-    }
-  } catch (err) {
-    logger.error({ err, runId }, 'agent run failed')
-    try {
-      const output = { type: 'error', content: err.message }
-      await finalizeRun(runId, output, startedAt)
+    if (output.type === 'cancelled') {
+      try {
+        await notifyWebAgentCancelled(input.projectId, {
+          conversationId: input.conversationId,
+          runId,
+          userId: input.userId,
+        })
+      } catch (notifyErr) {
+        logger.warn(
+          { err: notifyErr, runId, projectId: input.projectId },
+          'agent cancellation callback failed'
+        )
+      }
+    } else {
       try {
         await notifyWebAgentComplete(input.projectId, {
           conversationId: input.conversationId,
@@ -284,14 +334,61 @@ export async function run(runId, input, startedAt, opts = {}) {
       } catch (notifyErr) {
         logger.warn(
           { err: notifyErr, runId, projectId: input.projectId },
-          'agent error completion callback failed'
+          'agent completion callback failed'
         )
       }
-    } catch (finalizeErr) {
-      logger.error(
-        { err: finalizeErr, runId },
-        'failed to finalize errored run'
-      )
     }
+  } catch (err) {
+    // generateText throws an AbortError-shaped error when its abortSignal
+    // fires mid-call. Treat that as a clean cancellation rather than a crash.
+    const aborted =
+      signal.aborted ||
+      err?.name === 'AbortError' ||
+      err?.name === 'ResponseAborted'
+    if (aborted) {
+      const output = {
+        type: 'cancelled',
+        content: 'Generation cancelled by user.',
+      }
+      try {
+        await finalizeRun(runId, output, startedAt)
+        await notifyWebAgentCancelled(input.projectId, {
+          conversationId: input.conversationId,
+          runId,
+          userId: input.userId,
+        })
+      } catch (cancelErr) {
+        logger.warn(
+          { err: cancelErr, runId },
+          'failed to finalize cancelled run'
+        )
+      }
+    } else {
+      logger.error({ err, runId }, 'agent run failed')
+      try {
+        const output = { type: 'error', content: err.message }
+        await finalizeRun(runId, output, startedAt)
+        try {
+          await notifyWebAgentComplete(input.projectId, {
+            conversationId: input.conversationId,
+            runId,
+            userId: input.userId,
+            content: output.content,
+          })
+        } catch (notifyErr) {
+          logger.warn(
+            { err: notifyErr, runId, projectId: input.projectId },
+            'agent error completion callback failed'
+          )
+        }
+      } catch (finalizeErr) {
+        logger.error(
+          { err: finalizeErr, runId },
+          'failed to finalize errored run'
+        )
+      }
+    }
+  } finally {
+    activeRuns.delete(runId)
   }
 }

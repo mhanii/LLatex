@@ -16,6 +16,9 @@ import { compileAndCheck } from './compile_and_check.js'
 import { getPdfPage } from './get_pdf_page.js'
 import { listSkills } from './list_skills.js'
 import { readSkill } from './read_skill.js'
+import { grep } from './grep.js'
+import { askQuestion } from './ask_question.js'
+import { autoAcceptTrackChangesBeforeEdit } from './auto_accept_track_changes.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -29,9 +32,11 @@ function loadPrompt(name) {
 
 /**
  * @typedef {Object} ToolDefinition
- * @property {string} description
+ * @property {string} description      - full per-tool spec sent to the LLM as the tool schema description
+ * @property {string} usagePrompt      - one-line "when to use this" hint composed into the agent system prompt for agents that allow this tool
  * @property {z.ZodTypeAny} inputSchema
  * @property {(input: any, ctx: import('../types.js').RunContext) => Promise<unknown>} execute
+ * @property {(input: any, ctx: import('../types.js').RunContext) => Promise<unknown>} [preExecute]  Optional pre-step. If it returns a non-null value, that value becomes the tool output and `execute` is skipped — used e.g. by edit_file to auto-accept pending agent track-changes before editing.
  */
 
 /**
@@ -43,12 +48,15 @@ function loadPrompt(name) {
 export const TOOL_REGISTRY = {
   list_files: {
     description: loadPrompt('list_files'),
+    usagePrompt: 'List every file in the project.',
     inputSchema: z.object({}),
     execute: listFiles,
   },
 
   read_file: {
     description: loadPrompt('read_file'),
+    usagePrompt:
+      'Read the contents of a project file. Optionally limit to a line range.',
     inputSchema: z.object({
       path: z.string().describe('File path relative to project root'),
       fromLine: z
@@ -69,6 +77,7 @@ export const TOOL_REGISTRY = {
 
   create_file: {
     description: loadPrompt('create_file'),
+    usagePrompt: 'Create a new file at the given path with optional initial content.',
     inputSchema: z.object({
       path: z.string().describe('File path relative to project root'),
       content: z.string().optional().describe('Initial file content'),
@@ -78,16 +87,20 @@ export const TOOL_REGISTRY = {
 
   edit_file: {
     description: loadPrompt('edit_file'),
+    usagePrompt:
+      'Replace a verbatim snippet in an existing file. Always read_file first to get the exact text.',
     inputSchema: z.object({
       path: z.string().describe('File path'),
       oldText: z.string().describe('Exact text to replace (must match verbatim)'),
       newText: z.string().describe('Replacement text'),
     }),
+    preExecute: autoAcceptTrackChangesBeforeEdit,
     execute: editFile,
   },
 
   delete_file: {
     description: loadPrompt('delete_file'),
+    usagePrompt: 'Delete a file from the project.',
     inputSchema: z.object({
       path: z.string().describe('File path to delete'),
     }),
@@ -96,6 +109,7 @@ export const TOOL_REGISTRY = {
 
   move_file: {
     description: loadPrompt('move_file'),
+    usagePrompt: 'Rename or move a file within the project.',
     inputSchema: z.object({
       oldPath: z.string().describe('Current file path'),
       newPath: z.string().describe('New file path'),
@@ -105,6 +119,8 @@ export const TOOL_REGISTRY = {
 
   get_outline: {
     description: loadPrompt('get_outline'),
+    usagePrompt:
+      'List section headings, labels, and structural markers in a .tex file.',
     inputSchema: z.object({
       path: z.string().describe('File path'),
     }),
@@ -113,6 +129,8 @@ export const TOOL_REGISTRY = {
 
   check_syntax: {
     description: loadPrompt('check_syntax'),
+    usagePrompt:
+      'Static LaTeX syntax check (undefined refs, duplicate labels, unbalanced environments).',
     inputSchema: z.object({
       path: z
         .string()
@@ -124,6 +142,8 @@ export const TOOL_REGISTRY = {
 
   compile_and_check: {
     description: loadPrompt('compile_and_check'),
+    usagePrompt:
+      'Compile the project (or a given root file) and return any errors.',
     inputSchema: z.object({
       path: z
         .string()
@@ -135,6 +155,7 @@ export const TOOL_REGISTRY = {
 
   get_pdf_page: {
     description: loadPrompt('get_pdf_page'),
+    usagePrompt: 'Render a page from the compiled PDF as an image.',
     inputSchema: z.object({
       page: z.number().int().positive().describe('1-indexed page number'),
     }),
@@ -143,12 +164,16 @@ export const TOOL_REGISTRY = {
 
   list_skills: {
     description: loadPrompt('list_skills'),
+    usagePrompt:
+      'List available expert skills (guides + reusable LaTeX templates).',
     inputSchema: z.object({}),
     execute: listSkills,
   },
 
   read_skill: {
     description: loadPrompt('read_skill'),
+    usagePrompt:
+      'Read a skill guide or one of its templates. Call without `template` first to see the template index.',
     inputSchema: z.object({
       name: z.string().describe('Skill name as returned by list_skills'),
       template: z
@@ -159,6 +184,82 @@ export const TOOL_REGISTRY = {
         ),
     }),
     execute: readSkill,
+  },
+
+  grep: {
+    description: loadPrompt('grep'),
+    usagePrompt:
+      'Regex search across project files. Prefer over read_file when you only need to know where something appears.',
+    inputSchema: z.object({
+      pattern: z
+        .string()
+        .min(1)
+        .describe('JavaScript-flavored regular expression to search for'),
+      pathGlob: z
+        .string()
+        .optional()
+        .describe(
+          'Glob filter for which files to search (e.g. "*.tex", "chapters/*.tex", "**/*.bib"). Omit to search all files.'
+        ),
+      caseSensitive: z
+        .boolean()
+        .optional()
+        .describe('Match case exactly. Defaults to false (case-insensitive).'),
+      maxResults: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe('Maximum number of matches to return (default 100, max 500).'),
+    }),
+    execute: grep,
+  },
+
+  ask_question: {
+    description: loadPrompt('ask_question'),
+    usagePrompt:
+      'Ask the user a multi-choice clarifying question when a request has 2-4 reasonable interpretations and files cannot disambiguate. Calling this ends your turn.',
+    inputSchema: z.object({
+      questions: z
+        .array(
+          z.object({
+            question: z
+              .string()
+              .min(1)
+              .describe('The full question text, ending with a question mark.'),
+            header: z
+              .string()
+              .optional()
+              .describe(
+                'Optional short label (~12 chars) displayed as a chip when multiple questions are shown side by side.'
+              ),
+            multiSelect: z
+              .boolean()
+              .optional()
+              .describe('Allow more than one option to be selected.'),
+            options: z
+              .array(
+                z.object({
+                  label: z
+                    .string()
+                    .min(1)
+                    .describe('Short choice text (1-5 words) shown to the user.'),
+                  description: z
+                    .string()
+                    .optional()
+                    .describe('One-sentence context for this option.'),
+                })
+              )
+              .min(2)
+              .max(4)
+              .describe('2-4 mutually-exclusive choices.'),
+          })
+        )
+        .min(1)
+        .max(4)
+        .describe('1-4 questions to present to the user at once.'),
+    }),
+    execute: askQuestion,
   },
 }
 
