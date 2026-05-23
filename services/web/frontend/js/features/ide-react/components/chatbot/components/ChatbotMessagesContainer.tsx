@@ -120,7 +120,7 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
           {messageGroups.map(group => {
             if (group.type === 'single') {
               const message = group.message
-              const shouldReveal = revealingMessageIds.includes(message.id)
+              const shouldReveal = revealingMessageIds.includes(message.id) && !message.isStreaming
               return (
                 <MessageItem
                   key={message.id}
@@ -132,6 +132,8 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
                   onMouseLeave={() => onMessageLeave(message.id)}
                   onEdit={onEditMessage}
                   onCopy={onCopyMessage}
+                  isStreaming={message.isStreaming}
+                  streamingText={message.streamingText}
                   onAnimationEnd={shouldReveal ? () => handleAnimationEnd(message.id) : undefined}
                 />
               )
