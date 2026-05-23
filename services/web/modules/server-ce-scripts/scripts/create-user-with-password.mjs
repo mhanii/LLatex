@@ -69,9 +69,11 @@ export default async function main() {
   )
 
   const loginUrl = `${Settings.siteUrl ?? 'http://localhost'}/login`
+  // Do NOT print the password. Docker captures script stdout into the
+  // container log (readable indefinitely via `docker logs`), and the
+  // operator already typed it on the command line.
   console.log('')
   console.log(`Created ${admin ? 'admin' : 'user'} ${email}.`)
-  console.log(`  password:           ${password}`)
   console.log(
     `  outputTokensLimit:  ${outputTokensLimit === -1 ? 'unlimited' : outputTokensLimit}`
   )

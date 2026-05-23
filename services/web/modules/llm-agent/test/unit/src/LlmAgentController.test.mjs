@@ -1532,4 +1532,278 @@ describe('LlmAgentController', function () {
       })
     })
   })
+
+  // The reservation tracker lives in module-scope Maps inside
+  // LlmAgentController.mjs. vi.resetModules() in the outer beforeEach
+  // gives each `it` a fresh import, so reservation state is reset between
+  // tests. Within a single `it`, both concurrent calls share the same
+  // module instance (this is what makes the race observable).
+  describe('sendMessage — concurrent quota reservations (TOCTOU)', function () {
+    // ESTIMATE_OUTPUT_TOKENS in the controller — kept in sync here. If
+    // that constant ever changes, this number needs to track it.
+    const ESTIMATE = 4000
+
+    it('two concurrent sendMessages from the same user with headroom for one — exactly one passes, one 402s', async function () {
+      // Limit of exactly one ESTIMATE worth: first reserves it all,
+      // second sees zero headroom and is rejected.
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: ESTIMATE,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+
+      const res1 = makeRes()
+      const res2 = makeRes()
+      await Promise.all([
+        LlmAgentController.sendMessage(makeReq(), res1, vi.fn()),
+        LlmAgentController.sendMessage(makeReq(), res2, vi.fn()),
+      ])
+
+      const statuses = [res1.statusCode, res2.statusCode].sort()
+      expect(statuses).toEqual([202, 402])
+      const rejected = res1.statusCode === 402 ? res1 : res2
+      expect(JSON.parse(rejected.body)).toMatchObject({
+        error: 'agent_quota_exceeded',
+        reason: 'output_tokens',
+      })
+      // Only one startRun fired — the other was blocked before
+      // touching the llm-agent service.
+      expect(LlmAgentApiHandler.promises.startRun).toHaveBeenCalledTimes(1)
+    })
+
+    it('concurrent sendMessages from different users do not interfere with each other', async function () {
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: ESTIMATE,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      // Two distinct sessions: reservations are keyed by userId so
+      // neither blocks the other.
+      SessionManager.getLoggedInUserId
+        .mockReturnValueOnce('user-A')
+        .mockReturnValueOnce('user-B')
+
+      const res1 = makeRes()
+      const res2 = makeRes()
+      await Promise.all([
+        LlmAgentController.sendMessage(makeReq(), res1, vi.fn()),
+        LlmAgentController.sendMessage(makeReq(), res2, vi.fn()),
+      ])
+      expect(res1.statusCode).toBe(202)
+      expect(res2.statusCode).toBe(202)
+      expect(LlmAgentApiHandler.promises.startRun).toHaveBeenCalledTimes(2)
+    })
+
+    it('with headroom for two ESTIMATEs, two concurrent pass and a third 402s', async function () {
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: ESTIMATE * 2,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+
+      const results = await Promise.all([
+        (async () => {
+          const r = makeRes()
+          await LlmAgentController.sendMessage(makeReq(), r, vi.fn())
+          return r.statusCode
+        })(),
+        (async () => {
+          const r = makeRes()
+          await LlmAgentController.sendMessage(makeReq(), r, vi.fn())
+          return r.statusCode
+        })(),
+        (async () => {
+          const r = makeRes()
+          await LlmAgentController.sendMessage(makeReq(), r, vi.fn())
+          return r.statusCode
+        })(),
+      ])
+      const sorted = [...results].sort()
+      expect(sorted).toEqual([202, 202, 402])
+    })
+
+    it('agentComplete releases the reservation so a follow-up send passes', async function () {
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: ESTIMATE,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+
+      const firstRes = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), firstRes, vi.fn())
+      expect(firstRes.statusCode).toBe(202)
+
+      // Without releasing, the next send would be blocked (cap fully
+      // reserved). Confirm that.
+      const blockedRes = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), blockedRes, vi.fn())
+      expect(blockedRes.statusCode).toBe(402)
+
+      // Now fire the agent-complete callback for the first run, which
+      // releases its reservation.
+      await LlmAgentController.agentComplete(
+        {
+          params: { project_id: PROJECT_ID },
+          body: {
+            conversationId: CONVERSATION_ID,
+            userId: USER_ID,
+            content: 'agent reply',
+            runId: RUN_ID,
+            outputTokensDelta: 0,
+            costUsdDelta: 0,
+          },
+        },
+        makeRes(),
+        vi.fn()
+      )
+
+      const afterRes = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), afterRes, vi.fn())
+      expect(afterRes.statusCode).toBe(202)
+    })
+
+    it('agentCancelled releases the reservation so a follow-up send passes', async function () {
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: ESTIMATE,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+
+      const firstRes = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), firstRes, vi.fn())
+      expect(firstRes.statusCode).toBe(202)
+
+      await LlmAgentController.agentCancelled(
+        {
+          params: { project_id: PROJECT_ID },
+          body: {
+            conversationId: CONVERSATION_ID,
+            runId: RUN_ID,
+            userId: USER_ID,
+            outputTokensDelta: 0,
+            costUsdDelta: 0,
+          },
+        },
+        makeRes(),
+        vi.fn()
+      )
+
+      const afterRes = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), afterRes, vi.fn())
+      expect(afterRes.statusCode).toBe(202)
+    })
+
+    it('reservation is released when startRun throws (no leak from a failed send)', async function () {
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: ESTIMATE,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      // First call reserves, then explodes inside startRun. The error
+      // surfaces via Express's `next(err)` (expressify catches the
+      // rejection), so observe it via the mocked next.
+      LlmAgentApiHandler.promises.startRun.mockRejectedValueOnce(
+        new Error('llm-agent unavailable')
+      )
+
+      const next = vi.fn()
+      await LlmAgentController.sendMessage(makeReq(), makeRes(), next)
+      expect(next).toHaveBeenCalledOnce()
+      expect(next.mock.calls[0][0]).toMatchObject({
+        message: 'llm-agent unavailable',
+      })
+
+      // Reservation must have been released — the next send should
+      // pass (it would 402 if the failed send had leaked its 4000-token
+      // reservation).
+      const afterRes = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), afterRes, vi.fn())
+      expect(afterRes.statusCode).toBe(202)
+    })
+
+    it('reservation is released when project is not found (early 404 path)', async function () {
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: ESTIMATE,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      ProjectGetter.promises.getProject.mockResolvedValueOnce(null)
+
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(404)
+
+      // Reservation released — follow-up send still passes.
+      const afterRes = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), afterRes, vi.fn())
+      expect(afterRes.statusCode).toBe(202)
+    })
+
+    it('reservation tracking imposes no per-user concurrency limit when the cap is unlimited', async function () {
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: -1,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+
+      const results = await Promise.all(
+        Array.from({ length: 4 }, () => {
+          const r = makeRes()
+          return LlmAgentController.sendMessage(makeReq(), r, vi.fn()).then(
+            () => r.statusCode
+          )
+        })
+      )
+      expect(results).toEqual([202, 202, 202, 202])
+    })
+
+    it('concurrent race on cost cap — first reserves, second 402s with reason=cost', async function () {
+      // Output unlimited; cost cap headroom for exactly one ESTIMATE
+      // worth (~$0.04 in the controller's ESTIMATE_COST_USD).
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: -1,
+          outputTokensUsed: 0,
+          costUsdLimit: 0.04,
+          costUsdUsed: 0,
+        },
+      })
+
+      const res1 = makeRes()
+      const res2 = makeRes()
+      await Promise.all([
+        LlmAgentController.sendMessage(makeReq(), res1, vi.fn()),
+        LlmAgentController.sendMessage(makeReq(), res2, vi.fn()),
+      ])
+
+      const statuses = [res1.statusCode, res2.statusCode].sort()
+      expect(statuses).toEqual([202, 402])
+      const rejected = res1.statusCode === 402 ? res1 : res2
+      expect(JSON.parse(rejected.body).reason).toBe('cost')
+    })
+  })
 })
