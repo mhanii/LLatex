@@ -85,13 +85,20 @@ function tryReserveQuota(userId, q) {
   // serialize on the JS event loop. Two gates that each pass `await
   // getUser` separately will run their continuations one after another,
   // and the second sees the first's reservation in inflight.
+  //
+  // -1 is the documented sentinel for unlimited; everything else
+  // (including 0 — a deliberate "deny all" value) is an active cap.
+  // Earlier revisions used `> 0` here, which silently collapsed 0 with
+  // -1 and unblocked deny-all users.
   const inflight = inflightByUser.get(userId) ?? { tokens: 0, costUsd: 0 }
   const tokensHeadroom =
-    tokensLimit > 0
+    tokensLimit !== -1
       ? tokensLimit - tokensUsed - inflight.tokens
       : Infinity
   const costHeadroom =
-    costLimit > 0 ? costLimit - costUsed - inflight.costUsd : Infinity
+    costLimit !== -1
+      ? costLimit - costUsed - inflight.costUsd
+      : Infinity
 
   // Cost takes precedence when both caps are crossed (matches the
   // original LimitationsManager-style behaviour).
@@ -102,7 +109,7 @@ function tryReserveQuota(userId, q) {
   const reservedTokens = Math.min(ESTIMATE_OUTPUT_TOKENS, tokensHeadroom)
   const reservedCostUsd = Math.min(ESTIMATE_COST_USD, costHeadroom)
 
-  if (tokensLimit > 0 || costLimit > 0) {
+  if (tokensLimit !== -1 || costLimit !== -1) {
     inflightByUser.set(userId, {
       tokens: inflight.tokens + reservedTokens,
       costUsd: inflight.costUsd + reservedCostUsd,

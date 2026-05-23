@@ -1318,6 +1318,56 @@ describe('LlmAgentController', function () {
       expect(res.statusCode).toBe(402)
     })
 
+    it('denies with reason=output_tokens when outputTokensLimit is exactly 0 (deny-all sentinel)', async function () {
+      // 0 is a valid "deny all" value documented in settings.defaults.js
+      // (Number.isFinite preserves it from the env var). Earlier the gate
+      // used `> 0` for cap detection, which collapsed 0 with the -1
+      // unlimited sentinel and let zero-cap users through.
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: 0,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(402)
+      expect(JSON.parse(res.body).reason).toBe('output_tokens')
+      expect(LlmAgentApiHandler.promises.startRun).not.toHaveBeenCalled()
+    })
+
+    it('denies with reason=cost when costUsdLimit is exactly 0 (deny-all sentinel)', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: -1,
+          outputTokensUsed: 0,
+          costUsdLimit: 0,
+          costUsdUsed: 0,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(402)
+      expect(JSON.parse(res.body).reason).toBe('cost')
+    })
+
+    it('denies (cost takes precedence) when both limits are 0', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: 0,
+          outputTokensUsed: 0,
+          costUsdLimit: 0,
+          costUsdUsed: 0,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(402)
+      expect(JSON.parse(res.body).reason).toBe('cost')
+    })
+
     it('passes through when outputTokensLimit is -1 (unlimited) regardless of used', async function () {
       UserGetter.promises.getUser.mockResolvedValueOnce({
         agentQuota: {
