@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+# Boot the production stack. Same idiom as bin/up / bin/dev but applies the
+# prod overlay. Reads secrets from develop/.env (gitignored).
+#
+# Usage:
+#   develop/bin/prod                       # bring up everything
+#   develop/bin/prod web clsi              # bring up specific services
+#   develop/bin/prod build                 # rebuild all images
+
+cd "$(dirname "$0")/.." || exit 1
+
+if [ ! -f .env ]; then
+  echo "develop/.env not found. Copy prod.env.example to .env and fill in values."
+  exit 1
+fi
+
+if [ "$1" = "build" ]; then
+  shift
+  exec docker compose -f docker-compose.yml -f docker-compose.prod.yml build --pull "$@"
+fi
+
+exec docker compose -f docker-compose.yml -f docker-compose.prod.yml up --detach "$@"

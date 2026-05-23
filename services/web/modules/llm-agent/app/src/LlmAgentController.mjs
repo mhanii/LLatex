@@ -10,6 +10,8 @@ import EditorRealTimeController from '../../../../app/src/Features/Editor/Editor
 import DocumentUpdaterHandler from '../../../../app/src/Features/DocumentUpdater/DocumentUpdaterHandler.mjs'
 import UserInfoManager from '../../../../app/src/Features/User/UserInfoManager.mjs'
 import UserInfoController from '../../../../app/src/Features/User/UserInfoController.mjs'
+import UserUpdater from '../../../../app/src/Features/User/UserUpdater.mjs'
+import UserGetter from '../../../../app/src/Features/User/UserGetter.mjs'
 import AgentCompileCoordinator from './AgentCompileCoordinator.mjs'
 import ProjectLocator from '../../../../app/src/Features/Project/ProjectLocator.mjs'
 import ProjectGetter from '../../../../app/src/Features/Project/ProjectGetter.mjs'
@@ -23,6 +25,126 @@ import { parseCompileLogs } from './parsers/LogParser.mjs'
 
 function normalizeProjectPath(path) {
   return path.startsWith('/') ? path.slice(1) : path
+}
+
+// Bill partial-or-full run usage back to the user's lifetime totals.
+// Called from the llm-agent service's run-complete and run-cancelled
+// callbacks. Both deltas are optional — silently no-op if absent or zero so
+// older callers (or retried no-token runs) don't blow up.
+async function applyUsageDelta(userId, outputTokensDelta, costUsdDelta) {
+  if (!userId) return
+  const outTok = Number(outputTokensDelta) || 0
+  const costUsd = Number(costUsdDelta) || 0
+  if (outTok === 0 && costUsd === 0) return
+  await UserUpdater.promises.updateUser(userId.toString(), {
+    $inc: {
+      'agentQuota.outputTokensUsed': outTok,
+      'agentQuota.costUsdUsed': costUsd,
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Quota gate with in-memory reservations to close the TOCTOU race that a
+// plain "read then write later" check leaves open: N concurrent sendMessage
+// calls for the same user would all read the same pre-run usage, all pass,
+// and all bill afterwards — letting the user consume N× their cap before
+// any delta lands. We pre-reserve a pessimistic per-run allotment between
+// the gate and the run-complete callback. tryReserveQuota runs SYNCHRONOUSLY
+// between awaits so concurrent gates serialize on JS's single-threaded
+// continuation queue.
+//
+// Multi-worker caveat: state is per-process. A web service running with
+// multiple Node workers (e.g. behind a load balancer) needs a shared store
+// (Redis INCR/DECR or an atomic mongo findAndModify) for full correctness.
+// Acceptable for the single-worker MVP deployment.
+// ---------------------------------------------------------------------------
+
+const ESTIMATE_OUTPUT_TOKENS = 4000
+// Pessimistic per-run cost reservation: ESTIMATE_OUTPUT_TOKENS at the
+// most expensive output price currently in services/llm-agent/app/js/
+// cost/priceTable.js ($10/1M for gpt-4o). Bumping a model past this
+// price under-reserves cost briefly; the actual billing on completion
+// catches up.
+const ESTIMATE_COST_USD =
+  (ESTIMATE_OUTPUT_TOKENS / 1_000_000) * 10
+
+// userId -> { tokens, costUsd } summed over the user's in-flight runs.
+const inflightByUser = new Map()
+// runId -> reservation registered against the user. Released on
+// agentComplete / agentCancelled.
+const reservationsByRun = new Map()
+
+function tryReserveQuota(userId, q) {
+  const tokensLimit = q?.outputTokensLimit ?? -1
+  const costLimit = q?.costUsdLimit ?? -1
+  const tokensUsed = q?.outputTokensUsed ?? 0
+  const costUsed = q?.costUsdUsed ?? 0
+
+  // SYNCHRONOUS read-decide-write — no awaits, so concurrent invocations
+  // serialize on the JS event loop. Two gates that each pass `await
+  // getUser` separately will run their continuations one after another,
+  // and the second sees the first's reservation in inflight.
+  //
+  // -1 is the documented sentinel for unlimited; everything else
+  // (including 0 — a deliberate "deny all" value) is an active cap.
+  // Earlier revisions used `> 0` here, which silently collapsed 0 with
+  // -1 and unblocked deny-all users.
+  const inflight = inflightByUser.get(userId) ?? { tokens: 0, costUsd: 0 }
+  const tokensHeadroom =
+    tokensLimit !== -1
+      ? tokensLimit - tokensUsed - inflight.tokens
+      : Infinity
+  const costHeadroom =
+    costLimit !== -1
+      ? costLimit - costUsed - inflight.costUsd
+      : Infinity
+
+  // Cost takes precedence when both caps are crossed (matches the
+  // original LimitationsManager-style behaviour).
+  if (costHeadroom <= 0) return { ok: false, reason: 'cost', quota: q }
+  if (tokensHeadroom <= 0)
+    return { ok: false, reason: 'output_tokens', quota: q }
+
+  const reservedTokens = Math.min(ESTIMATE_OUTPUT_TOKENS, tokensHeadroom)
+  const reservedCostUsd = Math.min(ESTIMATE_COST_USD, costHeadroom)
+
+  if (tokensLimit !== -1 || costLimit !== -1) {
+    inflightByUser.set(userId, {
+      tokens: inflight.tokens + reservedTokens,
+      costUsd: inflight.costUsd + reservedCostUsd,
+    })
+  }
+  return { ok: true, reservedTokens, reservedCostUsd, quota: q }
+}
+
+function registerReservation(runId, userId, reservedTokens, reservedCostUsd) {
+  reservationsByRun.set(runId, { userId, reservedTokens, reservedCostUsd })
+}
+
+function releaseReservationByRunId(runId) {
+  const r = reservationsByRun.get(runId)
+  if (!r) return
+  reservationsByRun.delete(runId)
+  decreaseInflight(r.userId, r.reservedTokens, r.reservedCostUsd)
+}
+
+// Used when we reserved synchronously but startRun threw before we had a
+// runId to register against — releases by amount instead of by id.
+function releaseReservationByAmount(userId, reservedTokens, reservedCostUsd) {
+  decreaseInflight(userId, reservedTokens, reservedCostUsd)
+}
+
+function decreaseInflight(userId, reservedTokens, reservedCostUsd) {
+  const inflight = inflightByUser.get(userId)
+  if (!inflight) return
+  const tokens = inflight.tokens - reservedTokens
+  const costUsd = inflight.costUsd - reservedCostUsd
+  if (tokens <= 0 && costUsd <= 0) {
+    inflightByUser.delete(userId)
+  } else {
+    inflightByUser.set(userId, { tokens, costUsd })
+  }
 }
 
 function buildProjectContext(project) {
@@ -81,69 +203,129 @@ async function sendMessage(req, res) {
     return res.status(403).json({ error: 'not logged in' })
   }
 
-  const conversationId = bodyConversationId ?? new ObjectId().toHexString()
-  const conversation = await AgentConversationManager.promises.ensureConversation(
-    projectId,
-    conversationId,
-    userId,
-    message
-  )
-
-  const project = await ProjectGetter.promises.getProject(projectId, {
-    name: 1,
-    compiler: 1,
-    rootFolder: 1,
+  // Block before any side effects (chat message, conversation creation, etc.)
+  // so a quota-exceeded user doesn't leave an orphan user message in the
+  // thread waiting for a reply that will never come.
+  //
+  // The reservation must register SYNCHRONOUSLY after the getUser await —
+  // any await between read and write here would re-open the TOCTOU race
+  // that tryReserveQuota is designed to close.
+  const userForQuota = await UserGetter.promises.getUser(userId, {
+    agentQuota: 1,
   })
-  if (!project) {
-    return res.status(404).json({ error: 'project not found' })
+  const reservation = tryReserveQuota(userId, userForQuota?.agentQuota)
+  if (!reservation.ok) {
+    return res.status(402).json({
+      error: 'agent_quota_exceeded',
+      reason: reservation.reason,
+      message:
+        reservation.reason === 'cost'
+          ? 'You have reached your agent cost limit. Please contact an administrator to raise it.'
+          : 'You have reached your agent output-token limit. Please contact an administrator to raise it.',
+      quota: reservation.quota,
+    })
   }
-  const context = buildProjectContext(project)
 
-  const chatMessage = await ChatApiHandler.promises.sendComment(
-    projectId,
-    conversationId,
-    userId,
-    message
-  )
+  // From here on, anything that throws must release the reservation —
+  // otherwise the user's in-flight count leaks until process restart.
+  let runRegistered = false
+  try {
+    const conversationId =
+      bodyConversationId ?? new ObjectId().toHexString()
+    const conversation =
+      await AgentConversationManager.promises.ensureConversation(
+        projectId,
+        conversationId,
+        userId,
+        message
+      )
 
-  const user = await UserInfoManager.promises.getPersonalInfo(chatMessage.user_id)
-  chatMessage.user = UserInfoController.formatPersonalInfo(user)
+    const project = await ProjectGetter.promises.getProject(projectId, {
+      name: 1,
+      compiler: 1,
+      rootFolder: 1,
+    })
+    if (!project) {
+      releaseReservationByAmount(
+        userId,
+        reservation.reservedTokens,
+        reservation.reservedCostUsd
+      )
+      return res.status(404).json({ error: 'project not found' })
+    }
+    const context = buildProjectContext(project)
 
-  await AgentConversationManager.promises.recordMessage(
-    projectId,
-    conversationId,
-    chatMessage,
-    'user'
-  )
+    const chatMessage = await ChatApiHandler.promises.sendComment(
+      projectId,
+      conversationId,
+      userId,
+      message
+    )
 
-  EditorRealTimeController.emitToRoom(projectId, 'agent:message', {
-    conversationId,
-    conversation,
-    message: { ...chatMessage, role: 'user' },
-  })
+    const user = await UserInfoManager.promises.getPersonalInfo(
+      chatMessage.user_id
+    )
+    chatMessage.user = UserInfoController.formatPersonalInfo(user)
 
-  // Build chat history for the agent. The chat thread alone does not carry
-  // role information (agent messages are stored with the human user_id), and
-  // tool calls/outputs from prior assistant turns are not in the chat thread
-  // at all. We assemble both here and pass them in the run payload so the
-  // agent sees a coherent multi-turn context.
-  const chatHistory = await buildAgentChatHistory(
-    projectId,
-    conversationId,
-    chatMessage.id
-  )
+    await AgentConversationManager.promises.recordMessage(
+      projectId,
+      conversationId,
+      chatMessage,
+      'user'
+    )
 
-  const { runId } = await LlmAgentApiHandler.promises.startRun(projectId, {
-    userId,
-    conversationId,
-    userMessage: message,
-    selection: selection ?? undefined,
-    context,
-    chatHistory,
-  })
-  await AgentConversationManager.promises.recordRun(projectId, conversationId, runId)
+    EditorRealTimeController.emitToRoom(projectId, 'agent:message', {
+      conversationId,
+      conversation,
+      message: { ...chatMessage, role: 'user' },
+    })
 
-  res.status(202).json({ runId, messageId: chatMessage.id, conversationId })
+    // Build chat history for the agent. The chat thread alone does not carry
+    // role information (agent messages are stored with the human user_id), and
+    // tool calls/outputs from prior assistant turns are not in the chat thread
+    // at all. We assemble both here and pass them in the run payload so the
+    // agent sees a coherent multi-turn context.
+    const chatHistory = await buildAgentChatHistory(
+      projectId,
+      conversationId,
+      chatMessage.id
+    )
+
+    const { runId } = await LlmAgentApiHandler.promises.startRun(projectId, {
+      userId,
+      conversationId,
+      userMessage: message,
+      selection: selection ?? undefined,
+      context,
+      chatHistory,
+    })
+    registerReservation(
+      runId,
+      userId,
+      reservation.reservedTokens,
+      reservation.reservedCostUsd
+    )
+    runRegistered = true
+    await AgentConversationManager.promises.recordRun(
+      projectId,
+      conversationId,
+      runId
+    )
+
+    res.status(202).json({ runId, messageId: chatMessage.id, conversationId })
+  } catch (err) {
+    // If we never made it as far as runId (or even if we did, the
+    // run-complete callback will release once it fires — releasing here
+    // would double-release). Only release if no runId is registered yet.
+    if (!runRegistered) {
+      releaseReservationByAmount(
+        userId,
+        reservation.reservedTokens,
+        reservation.reservedCostUsd
+      )
+    }
+    throw err
+  }
 }
 
 async function createConversation(req, res) {
@@ -211,12 +393,19 @@ async function cancelRun(req, res) {
 
 async function agentCancelled(req, res) {
   const { project_id: projectId } = req.params
-  const { conversationId, runId } = req.body
+  const { conversationId, runId, userId, outputTokensDelta, costUsdDelta } =
+    req.body
   if (!conversationId || !runId) {
     return res
       .status(400)
       .json({ error: 'conversationId and runId required' })
   }
+  // Apply delta FIRST so any concurrent gate that reads dbUsed sees the
+  // billed value, THEN release the reservation. The other order would
+  // briefly under-count the user (delta not yet billed, reservation
+  // already gone) and let a concurrent request slip through.
+  await applyUsageDelta(userId, outputTokensDelta, costUsdDelta)
+  releaseReservationByRunId(runId)
   EditorRealTimeController.emitToRoom(projectId, 'agent:cancelled', {
     conversationId,
     runId,
@@ -362,10 +551,24 @@ async function getConversationMessages(req, res) {
 // - { conversationId, userId, content } to create and emit a new chat message
 async function agentComplete(req, res) {
   const { project_id: projectId } = req.params
-  const { conversationId, messageId, userId, content, runId } = req.body
+  const {
+    conversationId,
+    messageId,
+    userId,
+    content,
+    runId,
+    outputTokensDelta,
+    costUsdDelta,
+  } = req.body
   if (!conversationId) {
     return res.status(400).json({ error: 'conversationId required' })
   }
+
+  // Bill the actual usage first, then release the in-flight reservation
+  // — keeps the per-user projection (dbUsed + inflight) monotonically
+  // consistent for a concurrent gate that fires between these two writes.
+  await applyUsageDelta(userId, outputTokensDelta, costUsdDelta)
+  if (runId) releaseReservationByRunId(runId)
 
   let message
   if (messageId) {
