@@ -208,9 +208,10 @@ export default function ChatbotPanel() {
   )
 
   const isGenerating = useMemo(
-    () => state.isSending || state.isAwaitingAgentResponse || hasPendingQuestion ||
+    () => state.isSending || state.isAwaitingAgentResponse ||
+          // Remove hasPendingQuestion from here - questions are user input, not generation
           state.messages.some(message => message.role === 'status' && message.status === 'running'),
-    [state.isSending, state.isAwaitingAgentResponse, hasPendingQuestion, state.messages]
+    [state.isSending, state.isAwaitingAgentResponse, state.messages]
   )
   const canSend = useMemo(
     () => state.input.trim().length > 0 && !isGenerating,

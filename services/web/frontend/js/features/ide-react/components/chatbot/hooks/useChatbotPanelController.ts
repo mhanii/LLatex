@@ -808,6 +808,14 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   }, [setMessagesWithRef])
 
   const stopGeneration = useCallback(() => {
+    // If we're awaiting a question response (no active run), stopping makes no sense
+    // The Stop button shouldn't be visible in this state after the fix above,
+    // but add a guard anyway.
+    if (!activeRunIdRef.current && !pendingCancelRef.current) {
+      // No active generation to stop - this is likely a question awaiting response
+      return
+    }
+
     // Local debug simulation: halt the simulated stream immediately and clear
     // generating state. This path never talks to the backend.
     if (simulationConversationIdRef.current) {
@@ -822,26 +830,18 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     }
 
     // Real run: send the cancel request but KEEP isSending /
-    // isAwaitingAgentResponse on. The generating button + animation remain
-    // visible until the backend confirms by emitting agent:cancelled — that
-    // socket event is what clears the generating state.
-    //
-    // The button stays clickable on purpose. Backend cancellation is
-    // idempotent (cancelling a finished/cancelled run is a no-op), so a user
-    // whose first POST silently dropped can simply click again. Disabling
-    // the button on first click would risk freezing the UI for the lifetime
-    // of the run if the cancel callback never arrives.
+    // isAwaitingAgentResponse on...
     const runId = activeRunIdRef.current
-    const conversationId =
-      activeRunConversationIdRef.current ?? activeConversationIdRef.current
+    const conversationId = activeRunConversationIdRef.current ?? activeConversationIdRef.current
 
     if (!conversationId) return
 
     if (!runId) {
-      // POST /agent/message hasn't returned yet; we don't know the runId.
-      // Queue the cancellation and let submitMessage fire it when the runId
-      // arrives.
-      pendingCancelRef.current = { conversationId }
+      // Only queue pending cancel if we're actually waiting for a runId
+      // from a submitted message, not just awaiting a question.
+      if (isAwaitingAgentResponse) {
+        pendingCancelRef.current = { conversationId }
+      }
       return
     }
 
@@ -852,9 +852,12 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     ).catch(debugConsole.error)
   }, [
     activeConversationIdRef,
+    activeRunConversationIdRef,
+    activeRunIdRef,
     apiPath,
     cancelActiveStreaming,
     cleanupPendingToolsForConversation,
+    isAwaitingAgentResponse,
     setIsAwaitingAgentResponse,
     setIsSending,
   ])
