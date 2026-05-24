@@ -1,4 +1,5 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { ChatbotMessage } from '../types/chatbot-types'
 import { renderStatusIcon } from '../utils/tool-utils'
 
@@ -21,6 +22,8 @@ export const StatusGroup: React.FC<StatusGroupProps> = ({
   onToggle,
   renderStatusText,
 }) => {
+  const { t } = useTranslation()
+
   return (
     <div key={id} className="ide-chatbot-status-wrapper">
       {showToggle && (
@@ -29,7 +32,7 @@ export const StatusGroup: React.FC<StatusGroupProps> = ({
           className={`ide-chatbot-status-group-toggle ${!isExpanded ? 'ide-chatbot-status-group-toggle-collapsed' : ''}`}
           onClick={onToggle}
           aria-expanded={isExpanded}
-          aria-label={isExpanded ? 'Collapse status messages' : 'Expand status messages'}
+          aria-label={isExpanded ? t('collapse') : t('expand')}
         >
           <span className="ide-chatbot-status-group-toggle-icon" aria-hidden="true">
             <svg
@@ -47,7 +50,7 @@ export const StatusGroup: React.FC<StatusGroupProps> = ({
           </span>
           <span className="ide-chatbot-status-group-toggle-text">{summary}</span>
           {messages.some(message => message.status === 'running') && (
-            <span className="ide-chatbot-status-group-badge">In progress...</span>
+            <span className="ide-chatbot-status-group-badge">{t('chatbot_in_progress')}</span>
           )}
         </button>
       )}
