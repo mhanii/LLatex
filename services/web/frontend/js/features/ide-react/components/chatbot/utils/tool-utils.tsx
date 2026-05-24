@@ -14,8 +14,10 @@ export const toolSubject = (
     case 'search_files':
     case 'search':
     case 'search_code':
-    case 'find_in_files':
-      return 'searching'
+    case 'find_in_files': {
+      const query = toolInput?.query ?? toolInput?.pattern ?? toolInput?.text
+      return query ? `searching for "${query}"` : 'searching'
+    }
     case 'list_files':
       return 'scanning project files'
     case 'read_file':
