@@ -307,9 +307,6 @@ describe('<ChatbotPanel />', function () {
     expect(screen.getByText('Which option should I use?')).to.exist
 
     fireEvent.click(screen.getByRole('button', { name: /Option B/ }))
-    fireEvent.change(screen.getByLabelText('Answer for question 1'), {
-      target: { value: 'Use the safer option' },
-    })
     fireEvent.click(screen.getByRole('button', { name: 'Send answer' }))
 
     await waitFor(() => {
