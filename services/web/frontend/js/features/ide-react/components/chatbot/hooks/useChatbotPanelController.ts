@@ -361,7 +361,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         return [chatbotMessage]
       }
 
-      return [...toolEvents.map(toolEvent => toolEventToMessage(toolEvent)), chatbotMessage]
+      return [...toolEvents.map(toolEvent => toolEventToMessage({ ...toolEvent, conversationId: toolEvent.conversationId ?? conversationId ?? '' })), chatbotMessage]
     },
     [toChatbotMessage]
   )
