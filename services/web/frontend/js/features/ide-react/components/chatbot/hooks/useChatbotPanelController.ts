@@ -548,7 +548,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     [activeConversationId, handleToolCallEvent, scrollToLatestStatusMessage, shouldAutoScroll]
   )
 
-  const submitMessage = useCallback(async (messageText?: string, options?: { visible?: boolean }) => {
+  const submitMessage = useCallback(async (messageText?: string, options?: { visible?: boolean; questionRunId?: string | null }) => {
     const rawText = messageText ?? input
     const trimmed = rawText.trim()
     const visible = options?.visible ?? true
@@ -628,9 +628,9 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       activeRunIdRef.current = result.runId
       activeRunConversationIdRef.current = result.conversationId
       setIsAwaitingAgentResponse(true)
-      if (!visible) {
+      if (!visible && options?.questionRunId) {
         setResolvedQuestionRunIds(prev =>
-          prev.includes(result.runId) ? prev : [...prev, result.runId]
+          prev.includes(options.questionRunId!) ? prev : [...prev, options.questionRunId!]
         )
       }
 

@@ -176,6 +176,8 @@ export default function ChatbotPanel() {
     autoCompactedGroupIds,
     setAutoCompactedGroupIds,
     messageGroups: state.messageGroups,
+    resolvedQuestionRunIds: state.resolvedQuestionRunIds,
+  setResolvedQuestionRunIds: state.setResolvedQuestionRunIds,
   })
 
   const handleNewChat = controller.handleNewChat
@@ -236,8 +238,8 @@ export default function ChatbotPanel() {
         onMessageLeave={handleMessageLeave}
         onEditMessage={handleEditMessage}
         onCopyMessage={handleCopyMessage}
-        onSubmitQuestionAnswer={(answerText, _questionRunId, options) =>
-          controller.submitMessage(answerText, options)
+        onSubmitQuestionAnswer={(answerText: string, questionRunId: string | null | undefined, options?: { visible?: boolean }) =>
+          controller.submitMessage(answerText, { ...options, questionRunId }).catch((err) => console.error(err))
         }
         activeConversationLastRunId={activeConversationLastRunId}
         resolvedQuestionRunIds={state.resolvedQuestionRunIds}
