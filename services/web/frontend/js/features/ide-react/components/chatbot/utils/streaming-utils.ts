@@ -26,7 +26,7 @@ export function splitStreamingMarkdown(text: string): string[] {
     const lineSuffix = hasTrailingNewline ? '\n' : ''
 
     if (line.length === 0) {
-      chunks.push(lineSuffix || '\n')
+      if (lineSuffix) chunks.push(lineSuffix)
       return
     }
 
