@@ -38,8 +38,8 @@ export const ChatbotComposer: React.FC<ChatbotComposerProps> = ({
 
   const referenceLabel = referenceLines
     ? referenceLines.start === referenceLines.end
-      ? `Line ${referenceLines.start}`
-      : `Lines ${referenceLines.start}-${referenceLines.end}`
+      ? `${t('chatbot_reference_line_prefix')} ${referenceLines.start}`
+      : `${t('chatbot_reference_lines_prefix')} ${referenceLines.start}-${referenceLines.end}`
     : t('chatbot_reference_label')
 
   return (

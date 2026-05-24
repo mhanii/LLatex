@@ -287,6 +287,8 @@
   "chatbot_in_progress": "",
   "chatbot_panel_title": "",
   "chatbot_question_prompt": "",
+  "chatbot_reference_line_prefix": "",
+  "chatbot_reference_lines_prefix": "",
   "chatbot_reference_label": "",
   "chatbot_reference_selected_text": "",
   "chatbot_section_reference": "",

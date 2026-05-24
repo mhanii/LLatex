@@ -16,6 +16,8 @@
   "chatbot_in_progress": "En progreso...",
   "chatbot_panel_title": "Chatbot",
   "chatbot_question_prompt": "Pregunta",
+  "chatbot_reference_line_prefix": "Línea",
+  "chatbot_reference_lines_prefix": "Líneas",
   "chatbot_reference_label": "Referencia:",
   "chatbot_reference_selected_text": "Referenciar texto seleccionado",
   "chatbot_section_reference": "Referencia de la sección",
