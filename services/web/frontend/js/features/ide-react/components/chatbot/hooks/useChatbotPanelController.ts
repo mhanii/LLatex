@@ -954,11 +954,13 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     const pendingStatusEvents = pendingStatusEventsRef.current
     return () => {
       if (activeConversationId) {
+        cancelActiveStreaming()  // ← Add this line
         cleanupPendingToolsForConversation(activeConversationId)
+        delete pendingStatusEventsRef.current[activeConversationId]
         delete pendingStatusEvents[activeConversationId]
       }
     }
-  }, [activeConversationId, cleanupPendingToolsForConversation])
+  }, [activeConversationId, cancelActiveStreaming, cleanupPendingToolsForConversation])
 
   useEffect(() => {
     shouldAutoScrollRef.current = shouldAutoScroll
