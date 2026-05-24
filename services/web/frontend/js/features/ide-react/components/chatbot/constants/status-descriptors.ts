@@ -70,4 +70,18 @@ export const STATUS_SUMMARY_DESCRIPTORS: Record<string, StatusSummaryDescriptor>
     key: 'compile-and-check',
     label: 'Compiled project',
   },
+  grep: {
+    key: 'grep',
+    label: 'Searched',
+    singular: 'occurrence',
+    plural: 'occurrences',
+    countable: true,
+  },
+  search_files: {
+    key: 'search-files',
+    label: 'Searched',
+    singular: 'file',
+    plural: 'files',
+    countable: true,
+  },
 }
