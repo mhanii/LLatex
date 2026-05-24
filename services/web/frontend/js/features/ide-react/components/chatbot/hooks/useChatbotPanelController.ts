@@ -808,14 +808,6 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   }, [setMessagesWithRef])
 
   const stopGeneration = useCallback(() => {
-    // If we're awaiting a question response (no active run), stopping makes no sense
-    // The Stop button shouldn't be visible in this state after the fix above,
-    // but add a guard anyway.
-    if (!activeRunIdRef.current && !pendingCancelRef.current) {
-      // No active generation to stop - this is likely a question awaiting response
-      return
-    }
-
     // Local debug simulation: halt the simulated stream immediately and clear
     // generating state. This path never talks to the backend.
     if (simulationConversationIdRef.current) {
@@ -829,17 +821,16 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       return
     }
 
-    // Real run: send the cancel request but KEEP isSending /
-    // isAwaitingAgentResponse on...
     const runId = activeRunIdRef.current
     const conversationId = activeRunConversationIdRef.current ?? activeConversationIdRef.current
 
     if (!conversationId) return
 
     if (!runId) {
-      // Only queue pending cancel if we're actually waiting for a runId
-      // from a submitted message, not just awaiting a question.
-      if (isAwaitingAgentResponse) {
+      // Queue pending cancel when runId hasn't arrived yet
+      // Only skip if we're not actually expecting a run (i.e., just awaiting question response)
+      // We know we're expecting a run if isSending or isAwaitingAgentResponse is true
+      if (isSending || isAwaitingAgentResponse) {
         pendingCancelRef.current = { conversationId }
       }
       return
@@ -858,6 +849,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     cancelActiveStreaming,
     cleanupPendingToolsForConversation,
     isAwaitingAgentResponse,
+    isSending,
     setIsAwaitingAgentResponse,
     setIsSending,
   ])
