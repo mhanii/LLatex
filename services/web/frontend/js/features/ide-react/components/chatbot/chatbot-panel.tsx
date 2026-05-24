@@ -236,7 +236,9 @@ export default function ChatbotPanel() {
         onMessageLeave={handleMessageLeave}
         onEditMessage={handleEditMessage}
         onCopyMessage={handleCopyMessage}
-        onSubmitQuestionAnswer={controller.submitMessage}
+        onSubmitQuestionAnswer={(answerText, _questionRunId, options) =>
+          controller.submitMessage(answerText, options)
+        }
         activeConversationLastRunId={activeConversationLastRunId}
         resolvedQuestionRunIds={state.resolvedQuestionRunIds}
         onToggleStatusGroup={handleToggleStatusGroup}
