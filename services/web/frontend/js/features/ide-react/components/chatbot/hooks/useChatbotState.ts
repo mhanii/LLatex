@@ -20,6 +20,7 @@ export const useChatbotState = () => {
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true)
   const [expandedStatusGroupIds, setExpandedStatusGroupIds] = useState<string[]>([])
   const [collapsedStatusGroupIds, setCollapsedStatusGroupIds] = useState<string[]>([])
+  const [resolvedQuestionRunIds, setResolvedQuestionRunIds] = useState<string[]>([])
 
   const counterRef = useRef(0)
   const activeConversationIdRef = useRef<string | null>(null)
@@ -59,6 +60,8 @@ export const useChatbotState = () => {
     setExpandedStatusGroupIds,
     collapsedStatusGroupIds,
     setCollapsedStatusGroupIds,
+    resolvedQuestionRunIds,
+    setResolvedQuestionRunIds,
     counterRef,
     activeConversationIdRef,
     inputRef,

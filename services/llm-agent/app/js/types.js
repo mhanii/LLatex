@@ -93,7 +93,7 @@
  * Final result of a completed run.
  *
  * @typedef {Object} AgentOutput
- * @property {'text'|'edits'|'error'|'question'} type
+ * @property {'text'|'edits'|'error'|'question'|'cancelled'} type
  * @property {string} content                   - text response, error message, or rendered question text fallback
  * @property {Array<EditProposal>} [edits]      - populated when type === 'edits'
  * @property {Array<AgentQuestion>} [questions] - populated when type === 'question'

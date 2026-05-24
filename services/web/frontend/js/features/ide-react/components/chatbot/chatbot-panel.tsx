@@ -176,6 +176,8 @@ export default function ChatbotPanel() {
     autoCompactedGroupIds,
     setAutoCompactedGroupIds,
     messageGroups: state.messageGroups,
+    resolvedQuestionRunIds: state.resolvedQuestionRunIds,
+  setResolvedQuestionRunIds: state.setResolvedQuestionRunIds,
   })
 
   const handleNewChat = controller.handleNewChat
@@ -192,11 +194,19 @@ export default function ChatbotPanel() {
   const handleCancelEdit = controller.cancelEditing
   const handleSimulateToolCall = controller.simulateToolCall
   const handleStopGeneration = controller.stopGeneration
+  const activeConversationLastRunId = useMemo(
+    () => state.conversations.find(conversation => conversation.id === state.activeConversationId)?.lastRunId ?? null,
+    [state.activeConversationId, state.conversations]
+  )
+  const hasPendingQuestion = useMemo(
+    () => state.messages.length > 0 && Boolean(state.messages[state.messages.length - 1]?.questions?.length),
+    [state.messages]
+  )
 
   const isGenerating = useMemo(
-    () => state.isSending || state.isAwaitingAgentResponse || 
+    () => state.isSending || state.isAwaitingAgentResponse || hasPendingQuestion ||
           state.messages.some(message => message.role === 'status' && message.status === 'running'),
-    [state.isSending, state.isAwaitingAgentResponse, state.messages]
+    [state.isSending, state.isAwaitingAgentResponse, hasPendingQuestion, state.messages]
   )
   const canSend = useMemo(
     () => state.input.trim().length > 0 && !isGenerating,
@@ -228,6 +238,11 @@ export default function ChatbotPanel() {
         onMessageLeave={handleMessageLeave}
         onEditMessage={handleEditMessage}
         onCopyMessage={handleCopyMessage}
+        onSubmitQuestionAnswer={(answerText: string, questionRunId: string | null | undefined, options?: { visible?: boolean }) =>
+          controller.submitMessage(answerText, { ...options, questionRunId }).catch((err) => console.error(err))
+        }
+        activeConversationLastRunId={activeConversationLastRunId}
+        resolvedQuestionRunIds={state.resolvedQuestionRunIds}
         onToggleStatusGroup={handleToggleStatusGroup}
         isStatusGroupExpanded={controller.isStatusGroupExpanded}
         shouldShowToggleForGroup={controller.shouldShowToggleForGroup}

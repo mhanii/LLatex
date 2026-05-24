@@ -260,6 +260,182 @@ describe('<ChatbotPanel />', function () {
     expect(screen.getByText('Compiled and fixed it.')).to.exist
   })
 
+  it('renders assistant question cards and submits the selected answer', async function () {
+    const socket = new SocketIOMock()
+    renderChatbot({ socket: socket as any })
+
+    await screen.findByRole('combobox', { name: 'Agent conversation' })
+    await waitFor(() => {
+      expect(screen.queryByText('Loading...')).to.not.exist
+    })
+
+    act(() => {
+      socket.emitToClient('agent:message', {
+        conversationId: 'conv-1',
+        conversation: {
+          id: 'conv-1',
+          createdBy: user.id,
+          title: 'Draft help',
+          createdAt: 1,
+          updatedAt: 3,
+          lastMessageAt: 3,
+          lastRunId: 'run-question-1',
+        },
+        message: {
+          id: 'agent-question-1',
+          user_id: user.id,
+          content: '',
+          timestamp: 3,
+          role: 'assistant',
+          runId: 'run-question-1',
+          questions: [
+            {
+              header: 'Review',
+              question: 'Which option should I use?',
+              multiSelect: false,
+              options: [
+                { label: 'Option A', description: 'Fastest path' },
+                { label: 'Option B', description: 'Safer path' },
+              ],
+            },
+          ],
+        },
+      })
+    })
+
+    expect(screen.getByRole('group', { name: 'Question prompt' })).to.exist
+    expect(screen.getByText('Which option should I use?')).to.exist
+
+    fireEvent.click(screen.getByRole('button', { name: /Option B/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send answer' }))
+
+
+    const questionSubmitCall = fetchStub
+      .getCalls()
+      .find(call => call.args[0].toString().endsWith('/agent/message'))
+
+    expect(questionSubmitCall).to.exist
+    const requestBody = JSON.parse(questionSubmitCall?.args[1]?.body ?? '{}')
+    expect(requestBody.content).to.contain('Selected: Option B')
+    expect(requestBody.content).to.not.contain('Answer:')
+  })
+
+  it('renders question answers with a compact title and alternate bubble', async function () {
+    const socket = new SocketIOMock()
+    renderChatbot({ socket: socket as any })
+
+    await screen.findByRole('combobox', { name: 'Agent conversation' })
+    await waitFor(() => {
+      expect(screen.queryByText('Loading...')).to.not.exist
+    })
+
+    act(() => {
+      socket.emitToClient('agent:message', {
+        conversationId: 'conv-1',
+        conversation: {
+          id: 'conv-1',
+          createdBy: user.id,
+          title: 'Draft help',
+          createdAt: 1,
+          updatedAt: 5,
+          lastMessageAt: 5,
+          lastRunId: 'run-question-3',
+        },
+        message: {
+          id: 'agent-question-answer-1',
+          user_id: user.id,
+          content: [
+            'Review:',
+            'Which option should I use?',
+            'Selected: Option B',
+            'Answer: Use the safer option',
+          ].join('\n'),
+          timestamp: 5,
+          role: 'user',
+          runId: 'run-question-3',
+        },
+      })
+    })
+
+    const title = await screen.findByText('Which option should I use?')
+    expect(title.closest('.ide-chatbot-message-user-question-answer')).to.exist
+    expect(screen.getByText('Review')).to.exist
+    expect(screen.getByText('Selected: Option B')).to.exist
+    expect(screen.getByText('Answer: Use the safer option')).to.exist
+  })
+
+  it('reveals a textbox when answer another thing is selected', async function () {
+    const socket = new SocketIOMock()
+    renderChatbot({ socket: socket as any })
+
+    await screen.findByRole('combobox', { name: 'Agent conversation' })
+    await waitFor(() => {
+      expect(screen.queryByText('Loading...')).to.not.exist
+    })
+
+    act(() => {
+      socket.emitToClient('agent:message', {
+        conversationId: 'conv-1',
+        conversation: {
+          id: 'conv-1',
+          createdBy: user.id,
+          title: 'Draft help',
+          createdAt: 1,
+          updatedAt: 4,
+          lastMessageAt: 4,
+          lastRunId: 'run-question-2',
+        },
+        message: {
+          id: 'agent-question-2',
+          user_id: user.id,
+          content: '',
+          timestamp: 4,
+          role: 'assistant',
+          runId: 'run-question-2',
+          questions: [
+            {
+              question: 'What should I do next?',
+              options: [
+                { label: 'Keep going' },
+                { label: 'Change approach' },
+              ],
+            },
+          ],
+        },
+      })
+    })
+
+    expect(screen.queryByLabelText('Answer for question 1')).to.not.exist
+
+    fireEvent.click(screen.getByRole('button', { name: /Answer another thing/ }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Answer for question 1')).to.exist
+    })
+
+    fireEvent.change(screen.getByLabelText('Answer for question 1'), {
+      target: { value: 'Please summarize the current state first' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send answer' }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('Please summarize the current state first')).to.not.exist
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('What should I do next?')).to.not.exist
+    })
+
+    const questionSubmitCall = fetchStub
+      .getCalls()
+      .find(call => call.args[0].toString().endsWith('/agent/message'))
+
+    expect(questionSubmitCall).to.exist
+    const requestBody = JSON.parse(questionSubmitCall?.args[1]?.body ?? '{}')
+    expect(requestBody.content).to.contain(
+      'Answer: Please summarize the current state first'
+    )
+  })
+
   it('restores persisted tool progress from the conversation transcript', async function () {
     renderChatbot()
 
