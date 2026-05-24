@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ChatbotMessage } from '../types/chatbot-types'
 
 interface QuestionMessageProps {
@@ -12,7 +13,6 @@ interface QuestionMessageProps {
 
 type SelectionState = Record<number, Set<number>>
 type TextState = Record<number, string>
-const CUSTOM_ANSWER_LABEL = 'Answer another thing'
 
 function formatAnswer(
   message: ChatbotMessage,
@@ -43,10 +43,12 @@ export const QuestionMessage: React.FC<QuestionMessageProps> = ({
   message,
   onSubmitAnswer,
 }) => {
+  const { t } = useTranslation()
   const questions = message.questions ?? []
   const [selections, setSelections] = useState<SelectionState>({})
   const [freeText, setFreeText] = useState<TextState>({})
   const [customAnswerOpen, setCustomAnswerOpen] = useState<Record<number, boolean>>({})
+  const customAnswerLabel = t('chatbot_answer_another_thing')
 
   const formattedAnswer = useMemo(
     () => formatAnswer(message, selections, freeText),
@@ -119,7 +121,7 @@ export const QuestionMessage: React.FC<QuestionMessageProps> = ({
   }
 
   return (
-    <div className="ide-chatbot-question-card" role="group" aria-label="Question prompt">
+    <div className="ide-chatbot-question-card" role="group" aria-label={t('chatbot_question_prompt')}>
       {questions.map((question, questionIndex) => {
         const selectedOptions = selections[questionIndex] ?? new Set<number>()
 
@@ -156,9 +158,9 @@ export const QuestionMessage: React.FC<QuestionMessageProps> = ({
                 onClick={() => openCustomAnswer(questionIndex)}
                 aria-pressed={customAnswerOpen[questionIndex] ?? false}
               >
-                <span className="ide-chatbot-question-option-label">{CUSTOM_ANSWER_LABEL}</span>
+                <span className="ide-chatbot-question-option-label">{customAnswerLabel}</span>
                 <span className="ide-chatbot-question-option-description">
-                  Type a custom response below
+                  {t('chatbot_type_custom_response_below')}
                 </span>
               </button>
             </div>
@@ -173,8 +175,8 @@ export const QuestionMessage: React.FC<QuestionMessageProps> = ({
                     [questionIndex]: event.target.value,
                   }))
                 }
-                placeholder="Type your answer"
-                aria-label={`Answer for question ${questionIndex + 1}`}
+                placeholder={t('chatbot_type_your_answer')}
+                aria-label={t('chatbot_answer_for_question', { questionNumber: questionIndex + 1 })}
                 rows={3}
               />
             )}
@@ -189,7 +191,7 @@ export const QuestionMessage: React.FC<QuestionMessageProps> = ({
           onClick={handleSubmit}
           disabled={!formattedAnswer.trim()}
         >
-          Send answer
+          {t('chatbot_send_answer')}
         </button>
       </div>
     </div>

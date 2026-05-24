@@ -1,6 +1,7 @@
 // services/web/frontend/js/features/ide-react/components/chatbot/components/ChatbotMessagesContainer.tsx
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { MessageItem } from './MessageItem'
 import { StatusGroup } from './StatusGroup'
 import { ChatbotMessageGroup } from '../types/chatbot-types'
@@ -48,6 +49,7 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
   activeConversationId,
   isLoadingMessages = false,
 }) => {
+  const { t } = useTranslation()
   const seenAssistantMessageIdsRef = useRef(new Set<string>())
   const previousConversationIdRef = useRef<string | null>(null)
   const hasInitializedSeenMessagesRef = useRef(false)
@@ -179,7 +181,7 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
           type="button"
           className="ide-chatbot-scroll-to-bottom"
           onClick={onJumpToLatestMessage}
-          aria-label="Go to latest message"
+          aria-label={t('chatbot_go_to_latest_message')}
         >
           <svg
             width="18"

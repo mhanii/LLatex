@@ -1,4 +1,5 @@
 import React, { FormEvent, KeyboardEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import OLTooltip from '@/shared/components/ol/ol-tooltip'
 import OLIconButton from '@/shared/components/ol/ol-icon-button'
 
@@ -33,23 +34,25 @@ export const ChatbotComposer: React.FC<ChatbotComposerProps> = ({
   isEditing,
   onCancelEdit,
 }) => {
+  const { t } = useTranslation()
+
   const referenceLabel = referenceLines
     ? referenceLines.start === referenceLines.end
-      ? `Line ${referenceLines.start}`
-      : `Lines ${referenceLines.start}-${referenceLines.end}`
-    : null
+      ? `${t('chatbot_reference_line_prefix')} ${referenceLines.start}`
+      : `${t('chatbot_reference_lines_prefix')} ${referenceLines.start}-${referenceLines.end}`
+    : t('chatbot_reference_label')
 
   return (
     <>
       {isEditing && (
         <div className="ide-chatbot-panel-editing-banner" role="status">
-          <span>Editing message</span>
+          <span>{t('chatbot_editing_message')}</span>
           <button
             type="button"
             className="btn btn-secondary btn-sm ide-chatbot-panel-cancel-edit"
             onClick={onCancelEdit}
           >
-            Cancel
+            {t('cancel')}
           </button>
         </div>
       )}
@@ -58,22 +61,22 @@ export const ChatbotComposer: React.FC<ChatbotComposerProps> = ({
         {referenceText && (
           <div
             className="ide-chatbot-panel-reference"
-            aria-label="Section reference"
+            aria-label={t('chatbot_section_reference')}
           >
             <div className="ide-chatbot-panel-reference-header">
               <div className="ide-chatbot-panel-reference-title">
-                {referenceLabel ?? 'Reference:'}
+                {referenceLabel}
               </div>
               <OLTooltip
                 id="clear-chatbot-reference"
-                description="Stop referencing this text"
+                description={t('chatbot_stop_referencing_this_text')}
                 overlayProps={{ placement: 'bottom' }}
               >
                 <OLIconButton
                   onClick={onClearReference}
                   className="ide-chatbot-panel-reference-clear-button"
                   icon="close"
-                  accessibilityLabel="Stop referencing this text"
+                  accessibilityLabel={t('chatbot_stop_referencing_this_text')}
                   size="sm"
                 />
               </OLTooltip>
@@ -95,8 +98,8 @@ export const ChatbotComposer: React.FC<ChatbotComposerProps> = ({
             value={inputValue}
             onChange={event => onInputChange(event.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={isGenerating ? "Agent is thinking..." : "Ask anything..."}
-            aria-label="Chat input"
+            placeholder={isGenerating ? t('chatbot_agent_is_thinking') : t('chatbot_ask_anything')}
+            aria-label={t('chatbot_chat_input')}
             rows={1}
             autoComplete="off"
             autoCorrect="off"
@@ -110,7 +113,7 @@ export const ChatbotComposer: React.FC<ChatbotComposerProps> = ({
                 type="button"
                 className="btn btn-primary ide-chatbot-panel-send is-generating"
                 onClick={onStopGeneration}
-                aria-label="Stop generating response"
+                aria-label={t('chatbot_stop_generating_response')}
               >
                 <span className="material-symbols ide-chatbot-panel-send-icon" aria-hidden="true">
                   stop_circle
@@ -121,7 +124,7 @@ export const ChatbotComposer: React.FC<ChatbotComposerProps> = ({
                 type="submit"
                 className="btn btn-primary ide-chatbot-panel-send"
                 disabled={!canSend}
-                aria-label={isEditing ? 'Update message' : 'Send message'}
+                aria-label={isEditing ? t('chatbot_update_message') : t('send_message')}
               >
                 <span className="material-symbols ide-chatbot-panel-send-icon" aria-hidden="true">
                   arrow_upward

@@ -1,4 +1,5 @@
 import React, { useLayoutEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import OLTooltip from '@/shared/components/ol/ol-tooltip'
 import OLIconButton from '@/shared/components/ol/ol-icon-button'
 import { ChatbotMarkdown } from '../chatbot-markdown'
@@ -80,6 +81,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   isStreaming = false,
   streamingText,
 }) => {
+  const { t } = useTranslation()
   const messageContentRef = useRef<HTMLDivElement | null>(null)
   const hasCalculatedDurationRef = useRef(false)
   const [revealDurationMs, setRevealDurationMs] = React.useState<number | null>(null)
@@ -206,18 +208,18 @@ export const MessageItem: React.FC<MessageItemProps> = ({
         )}
         {message.role === 'user' && !message.pending && !hasQuestionAnswerLayout && (
           <div className="ide-chatbot-message-footer">
-            <OLTooltip id={`edit-chatbot-message-${message.id}`} description="Edit message" overlayProps={{ placement: 'bottom' }}>
-              <OLIconButton onClick={() => onEdit(message.id)} className="ide-chatbot-message-footer-button" icon="edit" accessibilityLabel="Edit message" size="sm" />
+            <OLTooltip id={`edit-chatbot-message-${message.id}`} description={t('edit')} overlayProps={{ placement: 'bottom' }}>
+              <OLIconButton onClick={() => onEdit(message.id)} className="ide-chatbot-message-footer-button" icon="edit" accessibilityLabel={t('edit')} size="sm" />
             </OLTooltip>
-            <OLTooltip id={`copy-chatbot-message-${message.id}`} description="Copy message" overlayProps={{ placement: 'bottom' }}>
-              <OLIconButton onClick={() => onCopy(message.text)} className="ide-chatbot-message-footer-button" icon="content_copy" accessibilityLabel="Copy message" size="sm" />
+            <OLTooltip id={`copy-chatbot-message-${message.id}`} description={t('copy')} overlayProps={{ placement: 'bottom' }}>
+              <OLIconButton onClick={() => onCopy(message.text)} className="ide-chatbot-message-footer-button" icon="content_copy" accessibilityLabel={t('copy')} size="sm" />
             </OLTooltip>
           </div>
         )}
         {message.role !== 'user' && isHovered && message.role !== 'status' && !message.questions?.length && (
           <div className="ide-chatbot-message-actions">
-            <OLTooltip id={`copy-chatbot-message-${message.id}`} description="Copy message" overlayProps={{ placement: 'bottom' }}>
-              <OLIconButton onClick={() => onCopy(message.text)} className="ide-chatbot-message-copy-button" icon="content_copy" accessibilityLabel="Copy message" size="sm" />
+            <OLTooltip id={`copy-chatbot-message-${message.id}`} description={t('copy')} overlayProps={{ placement: 'bottom' }}>
+              <OLIconButton onClick={() => onCopy(message.text)} className="ide-chatbot-message-copy-button" icon="content_copy" accessibilityLabel={t('copy')} size="sm" />
             </OLTooltip>
           </div>
         )}
