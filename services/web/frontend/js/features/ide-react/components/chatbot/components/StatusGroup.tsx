@@ -32,7 +32,7 @@ export const StatusGroup: React.FC<StatusGroupProps> = ({
           className={`ide-chatbot-status-group-toggle ${!isExpanded ? 'ide-chatbot-status-group-toggle-collapsed' : ''}`}
           onClick={onToggle}
           aria-expanded={isExpanded}
-          aria-label={isExpanded ? t('collapse') : t('expand')}
+          aria-label={isExpanded ? t('chatbot_collapse_status_messages') : t('chatbot_expand_status_messages')}
         >
           <span className="ide-chatbot-status-group-toggle-icon" aria-hidden="true">
             <svg
