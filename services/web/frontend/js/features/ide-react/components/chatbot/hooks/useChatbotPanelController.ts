@@ -385,6 +385,19 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     fullText: string
   ) => {
     const streamToken = ++activeStreamingTokenRef.current
+    const cleanupOnCancel = () => {
+      setMessagesWithRef(prev => prev.map(message => {
+        if (message.id !== messageId || message.conversationId !== conversationId) {
+          return message
+        }
+        return {
+          ...message,
+          isStreaming: false,
+          streamingText: undefined,
+          text: fullText,  // Show the full text that was received so far
+        }
+      }))
+    }
     const chunks = splitStreamingMarkdown(fullText)
     let bufferedText = ''
     let renderedText = ''
@@ -412,6 +425,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
 
     for (const chunk of chunks) {
       if (streamToken !== activeStreamingTokenRef.current) {
+        cleanupOnCancel()
         return false
       }
 
@@ -1146,6 +1160,19 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       cancelActiveStreaming()
       canceledRunIdsRef.current.add(payload.runId)
       cleanupPendingToolsForConversation(payload.conversationId)
+      
+      // Reset any assistant messages that might be stuck streaming for this conversation
+      setMessagesWithRef(prev => prev.map(message => {
+        if (message.conversationId === payload.conversationId && message.isStreaming) {
+          return {
+            ...message,
+            isStreaming: false,
+            streamingText: undefined,
+          }
+        }
+        return message
+      }))
+      
       if (activeRunIdRef.current === payload.runId) {
         activeRunIdRef.current = null
         activeRunConversationIdRef.current = null
