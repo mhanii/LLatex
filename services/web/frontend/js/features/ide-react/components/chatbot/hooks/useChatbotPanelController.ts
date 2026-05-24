@@ -385,6 +385,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     fullText: string
   ) => {
     const streamToken = ++activeStreamingTokenRef.current
+    
     const cleanupOnCancel = () => {
       setMessagesWithRef(prev => prev.map(message => {
         if (message.id !== messageId || message.conversationId !== conversationId) {
@@ -394,10 +395,11 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
           ...message,
           isStreaming: false,
           streamingText: undefined,
-          text: fullText,  // Show the full text that was received so far
+          text: fullText,
         }
       }))
     }
+
     const chunks = splitStreamingMarkdown(fullText)
     let bufferedText = ''
     let renderedText = ''
@@ -453,14 +455,16 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       await new Promise(resolve => setTimeout(resolve, chunkDelayMs))
     }
 
+    // Check again after the loop completes (cancellation could have happened during final delay)
     if (streamToken !== activeStreamingTokenRef.current) {
+      cleanupOnCancel()
       return false
     }
 
     renderedText += bufferedText
     updateStreamingMessage(renderedText, false)
     return true
-  }, [messagesContainerRef, setMessagesWithRef, shouldAutoScrollRef])
+  }, [setMessagesWithRef, shouldAutoScrollRef, messagesContainerRef])
 
   const clearReference = useCallback(() => {
     setReferenceText(null)
