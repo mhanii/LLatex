@@ -404,7 +404,7 @@
   width: 95%;
   border-radius: 12px;
   background: linear-gradient(135deg, var(--green-60) 0%, var(--green-70) 100%);
-  color: #ffffff;
+  color: var(--white);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
@@ -479,7 +479,7 @@
   justify-content: flex-end;
   gap: var(--spacing-02);
   padding: var(--spacing-02) var(--spacing-02);
-  border-top: 1px solid rgb(255 255 255 / 20%);
+  border-top: 1px solid color-mix(in srgb, var(--white) 20%, transparent);
   width: 100%;
 }
 
@@ -492,14 +492,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background-color: rgb(255 255 255 / 15%);
-  border: 1px solid rgb(255 255 255 / 25%);
-  color: #ffffff;
+  background-color: color-mix(in srgb, var(--white) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--white) 25%, transparent);
+  color: var(--white);
   transition: background-color 120ms ease, border-color 120ms ease;
 
   &:hover {
-    background-color: rgb(255 255 255 / 30%);
-    border-color: rgb(255 255 255 / 45%);
+    background-color: color-mix(in srgb, var(--white) 30%, transparent);
+    border-color: color-mix(in srgb, var(--white) 45%, transparent);
   }
 
   .material-symbols {
@@ -698,7 +698,7 @@
   font-size: var(--font-size-00);
   padding: 2px 6px;
   background: var(--green-60);
-  color: white;
+  color: var(--white);
   border-radius: 12px;
   font-weight: normal;
 }
@@ -880,7 +880,7 @@
 
   &:hover {
     background-color: var(--green-60);
-    color: #ffffff;
+    color: var(--white);
     border-color: var(--green-50);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   }
@@ -1097,7 +1097,7 @@
   padding: 0;
   border: 0;
   background: linear-gradient(135deg, var(--green-60) 0%, var(--green-70) 100%);
-  color: #ffffff;
+  color: var(--white);
   cursor: pointer;
   transition: transform 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
