@@ -370,6 +370,83 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     navigator.clipboard?.writeText(content).catch(() => {})
   }, [])
 
+  // Roll the project back to the version captured when this user message
+  // was sent, and prune the message + everything after from the local
+  // conversation. Backend handles the heavy lifting (RestoreManager and
+  // chat-service cleanup); we just mirror the truncation in state.
+  // Re-throws on failure so the caller (the confirmation modal) can show
+  // the error to the user — silently swallowing errors here makes the
+  // modal appear to close successfully even when the rollback failed.
+  const rollbackToMessage = useCallback(
+    async (messageId: string) => {
+      const conversationId = activeConversationIdRef.current
+      if (!conversationId) {
+        throw new Error('No active conversation.')
+      }
+      const targetIndex = messagesRef.current.findIndex(
+        message => message.id === messageId
+      )
+      if (targetIndex < 0) {
+        throw new Error('Message not found.')
+      }
+      const target = messagesRef.current[targetIndex]
+      if (target.role !== 'user' || typeof target.projectVersionBefore !== 'number') {
+        throw new Error('Rollback is unavailable for this message.')
+      }
+      try {
+        await postJSON(
+          apiPath(
+            `/conversations/${conversationId}/messages/${messageId}/rollback`
+          ),
+          { body: {} }
+        )
+      } catch (error: any) {
+        debugConsole.error(error)
+        const data = error?.data ?? error?.body ?? {}
+        const code = data.error
+        if (code === 'history_not_supported') {
+          throw new Error(
+            "This project doesn't have ranges-aware history enabled, so rollback isn't available."
+          )
+        }
+        if (code === 'no_recorded_version') {
+          throw new Error(
+            data.message ?? 'No recorded version for this message.'
+          )
+        }
+        throw new Error(
+          data.message ?? error?.message ?? 'Rollback failed.'
+        )
+      }
+      // Truncate locally. The realtime `agent:conversation-rolled-back`
+      // event also triggers truncation for other tabs / collaborators; the
+      // duplicate is harmless because filtering by index is idempotent.
+      // Slice-by-index also drops the status messages between the user
+      // message and the assistant reply — they have client-side ids the
+      // backend doesn't know about, so filter-by-id can't reach them.
+      if (activeRunIdRef.current) {
+        canceledRunIdsRef.current.add(activeRunIdRef.current)
+        activeRunIdRef.current = null
+        activeRunConversationIdRef.current = null
+      }
+      delete pendingStatusEventsRef.current[conversationId]
+      setIsAwaitingAgentResponse(false)
+      setIsSending(false)
+      setMessagesWithRef(prev => {
+        const idx = prev.findIndex(message => message.id === messageId)
+        if (idx < 0) return prev
+        return prev.slice(0, idx)
+      })
+    },
+    [
+      apiPath,
+      activeConversationIdRef,
+      setMessagesWithRef,
+      setIsAwaitingAgentResponse,
+      setIsSending,
+    ]
+  )
+
   const clearReference = useCallback(() => {
     setReferenceText(null)
     setReferenceLines(null)
@@ -1087,16 +1164,70 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       setIsSending(false)
     }
 
+    function receivedConversationRolledBack(payload: {
+      conversationId: string
+      rolledBackToMessageId: string
+      rolledBackToVersion: number
+      removedMessageIds?: string[]
+    }) {
+      if (payload.conversationId !== activeConversationIdRef.current) return
+      // Cancel any in-flight cancel/run state and clear pending status
+      // events so flushPendingStatusMessages can't resurrect rolled-back
+      // tool events. Treat rollback like a run cancellation for state
+      // bookkeeping — the agent run for this turn is effectively gone.
+      if (activeRunIdRef.current) {
+        canceledRunIdsRef.current.add(activeRunIdRef.current)
+        activeRunIdRef.current = null
+        activeRunConversationIdRef.current = null
+      }
+      delete pendingStatusEventsRef.current[payload.conversationId]
+      setIsAwaitingAgentResponse(false)
+      setIsSending(false)
+
+      const removed = new Set([
+        payload.rolledBackToMessageId,
+        ...(payload.removedMessageIds ?? []),
+      ])
+      setMessagesWithRef(prev => {
+        // Slice-by-index removes status messages too. Filter-by-id misses
+        // them because status messages have client-side ids that the
+        // backend doesn't know about.
+        const idx = prev.findIndex(
+          message => message.id === payload.rolledBackToMessageId
+        )
+        if (idx >= 0) return prev.slice(0, idx)
+        // Already pruned locally (POST handler beat us to it). Fall back
+        // to filter-by-id to clear any remaining removed messages, and
+        // drop status messages from this conversation that no longer have
+        // a sibling user/assistant message after them.
+        const filtered = prev.filter(message => !removed.has(message.id))
+        // Drop trailing status messages that belong to the cancelled run.
+        const lastNonStatus = [...filtered]
+          .reverse()
+          .findIndex(message => message.role !== 'status')
+        if (lastNonStatus === -1) {
+          return filtered.filter(m => m.role !== 'status')
+        }
+        const cutoff = filtered.length - lastNonStatus
+        return filtered.slice(0, cutoff)
+      })
+    }
+
     socket.on('agent:message', receivedAgentMessage)
     socket.on('agent:tool-call', receivedToolCall)
     socket.on('agent:cancelled', receivedAgentCancelled)
+    socket.on('agent:conversation-rolled-back', receivedConversationRolledBack)
 
     return () => {
       socket.removeListener('agent:message', receivedAgentMessage)
       socket.removeListener('agent:tool-call', receivedToolCall)
       socket.removeListener('agent:cancelled', receivedAgentCancelled)
+      socket.removeListener(
+        'agent:conversation-rolled-back',
+        receivedConversationRolledBack
+      )
     }
-  }, [activeConversationIdRef, cleanupPendingToolsForConversation, completePendingToolsForConversation, flushPendingStatusMessages, handleToolCallEvent, setIsAwaitingAgentResponse, setIsSending, socket, toChatbotMessage, userId, setConversations])
+  }, [activeConversationIdRef, cleanupPendingToolsForConversation, completePendingToolsForConversation, flushPendingStatusMessages, handleToolCallEvent, setIsAwaitingAgentResponse, setIsSending, setMessagesWithRef, socket, toChatbotMessage, userId, setConversations])
 
   useEffect(() => {
     const pendingText = consumePendingChatbotPrefill()
@@ -1241,6 +1372,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     cancelEditing,
     clearHoveredMessage,
     copyMessage,
+    rollbackToMessage,
     clearReference,
     closeChatbot,
     handleNewChat,

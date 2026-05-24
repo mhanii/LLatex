@@ -128,7 +128,14 @@ async function ensureConversation(projectId, conversationId, userId, message) {
   return formatConversation(doc)
 }
 
-async function recordMessage(projectId, conversationId, message, role, runId) {
+async function recordMessage(
+  projectId,
+  conversationId,
+  message,
+  role,
+  runId,
+  projectVersionBefore
+) {
   const now = new Date()
   const messageId = message.id ?? message._id?.toString()
   if (!messageId) return
@@ -155,6 +162,10 @@ async function recordMessage(projectId, conversationId, message, role, runId) {
           role,
           runId: runId ?? null,
           createdAt: now,
+          projectVersionBefore:
+            typeof projectVersionBefore === 'number'
+              ? projectVersionBefore
+              : null,
         },
       },
     },
@@ -188,9 +199,86 @@ async function getMessageMetadata(projectId, conversationId) {
     meta.set(message.messageId, {
       role: message.role,
       runId: message.runId ?? null,
+      projectVersionBefore:
+        typeof message.projectVersionBefore === 'number'
+          ? message.projectVersionBefore
+          : null,
+      createdAt: message.createdAt ?? null,
     })
   }
   return meta
+}
+
+// Returns the single message subdoc (or null). Includes the full stored
+// shape, not just metadata — callers need messageId, role, createdAt, and
+// projectVersionBefore on the same record.
+async function findUserMessage(projectId, conversationId, messageId, userId) {
+  const conversation = await db.agentConversations.findOne(
+    {
+      _id: normalizeObjectId(conversationId, 'conversationId'),
+      projectId: normalizeObjectId(projectId, 'projectId'),
+      ...(userId != null
+        ? { createdBy: normalizeObjectId(userId, 'userId') }
+        : {}),
+    },
+    { projection: { messages: 1, createdBy: 1 } }
+  )
+  if (!conversation) return null
+  const message = conversation.messages?.find(m => m.messageId === messageId)
+  return message ?? null
+}
+
+// Truncates the conversation by removing all messages at or after the given
+// createdAt timestamp. Returns the list of removed messageIds so the caller
+// can also clean up corresponding chat-service messages.
+async function truncateFromMessage(
+  projectId,
+  conversationId,
+  fromCreatedAt
+) {
+  const cutoff = fromCreatedAt instanceof Date
+    ? fromCreatedAt
+    : new Date(fromCreatedAt)
+  const conversation = await db.agentConversations.findOne(
+    {
+      _id: normalizeObjectId(conversationId, 'conversationId'),
+      projectId: normalizeObjectId(projectId, 'projectId'),
+    },
+    { projection: { messages: 1 } }
+  )
+  if (!conversation) return []
+  const kept = []
+  const removed = []
+  for (const m of conversation.messages ?? []) {
+    const ts = m.createdAt instanceof Date ? m.createdAt : new Date(m.createdAt)
+    if (ts.getTime() >= cutoff.getTime()) {
+      removed.push(m.messageId)
+    } else {
+      kept.push(m)
+    }
+  }
+  await db.agentConversations.updateOne(
+    {
+      _id: normalizeObjectId(conversationId, 'conversationId'),
+      projectId: normalizeObjectId(projectId, 'projectId'),
+    },
+    {
+      $set: {
+        messages: kept,
+        updatedAt: new Date(),
+        lastMessageAt:
+          kept.length > 0 ? kept[kept.length - 1].createdAt ?? null : null,
+        lastRunId:
+          kept.length > 0
+            ? kept
+                .filter(m => m.runId)
+                .map(m => m.runId)
+                .pop() ?? null
+            : null,
+      },
+    }
+  )
+  return removed
 }
 
 async function recordRun(projectId, conversationId, runId) {
@@ -216,6 +304,8 @@ export default {
   ensureConversation: callbackify(ensureConversation),
   recordMessage: callbackify(recordMessage),
   getMessageMetadata: callbackify(getMessageMetadata),
+  findUserMessage: callbackify(findUserMessage),
+  truncateFromMessage: callbackify(truncateFromMessage),
   recordRun: callbackify(recordRun),
   promises: {
     createConversation,
@@ -225,6 +315,8 @@ export default {
     ensureConversation,
     recordMessage,
     getMessageMetadata,
+    findUserMessage,
+    truncateFromMessage,
     recordRun,
   },
 }

@@ -43,6 +43,12 @@ export default {
       AuthorizationMiddleware.ensureUserCanReadProject,
       LlmAgentController.cancelRun
     )
+    webRouter.post(
+      '/project/:project_id/agent/conversations/:conversation_id/messages/:message_id/rollback',
+      AuthenticationController.requireLogin(),
+      AuthorizationMiddleware.ensureUserCanWriteProjectContent,
+      LlmAgentController.rollbackToMessage
+    )
   },
 
   // Internal service-to-service routes must be registered before CSRF middleware

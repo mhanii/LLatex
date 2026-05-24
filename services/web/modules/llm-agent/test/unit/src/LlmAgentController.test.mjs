@@ -58,6 +58,7 @@ describe('LlmAgentController', function () {
           user_id: USER_ID,
           content: 'hello from agent',
         }),
+        deleteMessage: vi.fn().mockResolvedValue(undefined),
       },
     }
     vi.doMock('../../../../../app/src/Features/Chat/ChatApiHandler.mjs', () => ({
@@ -193,6 +194,7 @@ describe('LlmAgentController', function () {
         acceptChanges: vi.fn().mockResolvedValue({
           acceptedChangeIds: ['change-1'],
         }),
+        flushProjectToMongo: vi.fn().mockResolvedValue(undefined),
       },
     }
     vi.doMock(
@@ -201,6 +203,49 @@ describe('LlmAgentController', function () {
         default: DocumentUpdaterHandler,
       })
     )
+
+    vi.doMock(
+      '../../../../../app/src/Features/History/HistoryManager.mjs',
+      () => ({
+        default: {
+          promises: {
+            flushProject: vi.fn().mockResolvedValue(undefined),
+            // History-v1 shape: { chunk: { history: { changes }, startVersion } };
+            // endVersion is derived as startVersion + changes.length.
+            getLatestHistory: vi.fn().mockResolvedValue({
+              chunk: {
+                history: { changes: new Array(100) },
+                startVersion: 0,
+              },
+            }),
+          },
+        },
+      })
+    )
+
+    vi.doMock(
+      '../../../../../app/src/Features/History/RestoreManager.mjs',
+      () => ({
+        default: {
+          promises: {
+            revertProject: vi.fn().mockResolvedValue([]),
+          },
+        },
+      })
+    )
+
+    vi.doMock(
+      '../../../../../app/src/Features/Project/ProjectAuditLogHandler.mjs',
+      () => ({
+        default: {
+          addEntryIfManagedInBackground: vi.fn(),
+        },
+      })
+    )
+
+    vi.doMock('@overleaf/logger', () => ({
+      default: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
+    }))
 
     LlmAgentApiHandler = {
       promises: {
@@ -237,6 +282,8 @@ describe('LlmAgentController', function () {
           .fn()
           .mockResolvedValue(new Map([[MESSAGE_ID, { role: 'user', runId: null }]])),
         recordRun: vi.fn().mockResolvedValue(undefined),
+        findUserMessage: vi.fn().mockResolvedValue(null),
+        truncateFromMessage: vi.fn().mockResolvedValue([]),
       },
     }
     vi.doMock('../../../app/src/AgentConversationManager.mjs', () => ({
@@ -386,7 +433,9 @@ describe('LlmAgentController', function () {
         PROJECT_ID,
         CONVERSATION_ID,
         expect.objectContaining({ id: MESSAGE_ID }),
-        'user'
+        'user',
+        null,
+        expect.anything()
       )
     })
   })
@@ -1854,6 +1903,184 @@ describe('LlmAgentController', function () {
       expect(statuses).toEqual([202, 402])
       const rejected = res1.statusCode === 402 ? res1 : res2
       expect(JSON.parse(rejected.body).reason).toBe('cost')
+    })
+  })
+
+  describe('rollbackToMessage', function () {
+    function makeRollbackReq() {
+      return {
+        params: {
+          project_id: PROJECT_ID,
+          conversation_id: CONVERSATION_ID,
+          message_id: MESSAGE_ID,
+        },
+        body: {},
+        session: {},
+      }
+    }
+
+    let RestoreManager
+    let HistoryManager
+
+    beforeEach(async function () {
+      ;({ default: RestoreManager } = await import(
+        '../../../../../app/src/Features/History/RestoreManager.mjs'
+      ))
+      ;({ default: HistoryManager } = await import(
+        '../../../../../app/src/Features/History/HistoryManager.mjs'
+      ))
+    })
+
+    it('returns 403 when the user is not logged in', async function () {
+      SessionManager.getLoggedInUserId.mockReturnValueOnce(null)
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(403)
+      expect(RestoreManager.promises.revertProject).not.toHaveBeenCalled()
+    })
+
+    it('returns 404 when the message is not found / not owned by user', async function () {
+      AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce(
+        null
+      )
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(404)
+      expect(RestoreManager.promises.revertProject).not.toHaveBeenCalled()
+    })
+
+    it('returns 400 when target is not a user message', async function () {
+      AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce({
+        messageId: MESSAGE_ID,
+        role: 'assistant',
+        runId: RUN_ID,
+        createdAt: new Date(),
+        projectVersionBefore: 5,
+      })
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(400)
+      expect(RestoreManager.promises.revertProject).not.toHaveBeenCalled()
+    })
+
+    it('returns 400 when projectVersionBefore was not recorded', async function () {
+      AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce({
+        messageId: MESSAGE_ID,
+        role: 'user',
+        runId: null,
+        createdAt: new Date(),
+        projectVersionBefore: null,
+      })
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error).toBe('no_recorded_version')
+    })
+
+    it('reverts the project, truncates the conversation, and emits the realtime event', async function () {
+      const createdAt = new Date('2026-05-24T00:00:00Z')
+      AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce({
+        messageId: MESSAGE_ID,
+        role: 'user',
+        runId: null,
+        createdAt,
+        projectVersionBefore: 42,
+      })
+      AgentConversationManager.promises.truncateFromMessage.mockResolvedValueOnce(
+        [MESSAGE_ID, 'reply-1']
+      )
+
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+
+      expect(RestoreManager.promises.revertProject).toHaveBeenCalledWith(
+        USER_ID,
+        PROJECT_ID,
+        42
+      )
+      expect(
+        AgentConversationManager.promises.truncateFromMessage
+      ).toHaveBeenCalledWith(PROJECT_ID, CONVERSATION_ID, createdAt)
+      expect(ChatApiHandler.promises.deleteMessage).toHaveBeenCalledTimes(2)
+      expect(EditorRealTimeController.emitToRoom).toHaveBeenCalledWith(
+        PROJECT_ID,
+        'agent:conversation-rolled-back',
+        expect.objectContaining({
+          conversationId: CONVERSATION_ID,
+          rolledBackToMessageId: MESSAGE_ID,
+          rolledBackToVersion: 42,
+          removedMessageIds: [MESSAGE_ID, 'reply-1'],
+        })
+      )
+      expect(res.statusCode).toBe(200)
+    })
+
+    it('returns 400 history_not_supported when revertProject rejects ranges support', async function () {
+      AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce({
+        messageId: MESSAGE_ID,
+        role: 'user',
+        runId: null,
+        createdAt: new Date(),
+        projectVersionBefore: 9,
+      })
+      RestoreManager.promises.revertProject.mockRejectedValueOnce(
+        new Error('project does not have ranges support')
+      )
+
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error).toBe('history_not_supported')
+      expect(
+        AgentConversationManager.promises.truncateFromMessage
+      ).not.toHaveBeenCalled()
+    })
+
+    it('uses the latest endVersion for projectVersionBefore in sendMessage', async function () {
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(HistoryManager.promises.flushProject).toHaveBeenCalledWith(
+        PROJECT_ID
+      )
+      // 100 is the default mocked endVersion above.
+      const recordArgs =
+        AgentConversationManager.promises.recordMessage.mock.calls[0]
+      expect(recordArgs[5]).toBe(100)
+    })
+
+    it('records null when history is unavailable', async function () {
+      HistoryManager.promises.getLatestHistory.mockRejectedValueOnce(
+        new Error('history down')
+      )
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      const recordArgs =
+        AgentConversationManager.promises.recordMessage.mock.calls[0]
+      expect(recordArgs[5]).toBeNull()
     })
   })
 })
