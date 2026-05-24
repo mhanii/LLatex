@@ -11,6 +11,7 @@ export type ChatbotMessage = {
   toolName?: string
   toolInput?: Record<string, unknown>
   questions?: AgentQuestion[]
+  error?: string
 }
 
 export type ChatbotMessageGroup =

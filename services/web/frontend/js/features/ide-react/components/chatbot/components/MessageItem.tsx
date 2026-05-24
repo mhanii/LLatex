@@ -223,6 +223,20 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             </OLTooltip>
           </div>
         )}
+        {message.error && (
+          <div className="ide-chatbot-message-error">
+            <span className="ide-chatbot-message-error-icon">⚠️</span>
+            {message.error}
+            {message.role === 'user' && (
+              <button 
+                onClick={() => onEdit(message.id)}
+                className="ide-chatbot-message-error-retry"
+              >
+                {t('retry')}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </article>
   )

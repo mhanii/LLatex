@@ -666,20 +666,31 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         })
       }
     } catch (error) {
-      if (abortController.signal.aborted) {
-        return
-      }
-      debugConsole.error(error)
-      if (visible) {
-        setMessagesWithRef(prev =>
-          prev.map(message =>
-            (message.id === pendingId || message.id === editingMessageId) && message.conversationId === conversationId
-              ? { ...message, pending: false, text: `${message.text}\n\nFailed to send.` }
-              : message
+        if (abortController.signal.aborted) return
+        debugConsole.error(error)
+        if (visible) {
+          // Capture the ID that was being edited BEFORE it gets cleared
+          const editingId = editingMessageId
+          
+          setMessagesWithRef(prev =>
+            prev.map(message => {
+              const isTargetMessage = (message.id === pendingId) || 
+                (editingId !== null && message.id === editingId)
+              
+              if (isTargetMessage && message.conversationId === conversationId) {
+                // Don't modify the original text - show error separately
+                return { 
+                  ...message, 
+                  pending: false,
+                  // Keep original text intact, add error indicator
+                  error: 'Failed to send message'
+                }
+              }
+              return message
+            })
           )
-        )
-      }
-    } finally {
+        }
+      } finally {
       if (submitAbortControllerRef.current === abortController) {
         submitAbortControllerRef.current = null
       }
@@ -1123,7 +1134,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       })
 
     return () => controller.abort()
-  }, [activeConversationId, apiPath, setIsLoadingMessages, setMessagesWithRef, toChatbotMessage])
+  }, [activeConversationId, apiPath, setIsLoadingMessages, setMessagesWithRef, toChatbotMessage, toLoadedChatbotMessages])
 
   useEffect(() => {
     if (!socket) return
