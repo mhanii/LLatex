@@ -39,6 +39,8 @@ export type ChatbotPanelControllerArgs = {
   setExpandedStatusGroupIds: React.Dispatch<React.SetStateAction<string[]>>
   collapsedStatusGroupIds: string[]
   setCollapsedStatusGroupIds: React.Dispatch<React.SetStateAction<string[]>>
+  resolvedQuestionRunIds: string[]
+  setResolvedQuestionRunIds: React.Dispatch<React.SetStateAction<string[]>>
   shouldAutoScrollRef: React.MutableRefObject<boolean>
   activeConversationIdRef: React.MutableRefObject<string | null>
   inputRef: React.RefObject<HTMLTextAreaElement>
@@ -101,6 +103,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     setExpandedStatusGroupIds,
     collapsedStatusGroupIds,
     setCollapsedStatusGroupIds,
+    setResolvedQuestionRunIds,
     shouldAutoScrollRef,
     activeConversationIdRef,
     inputRef,
@@ -545,8 +548,10 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     [activeConversationId, handleToolCallEvent, scrollToLatestStatusMessage, shouldAutoScroll]
   )
 
-  const submitMessage = useCallback(async () => {
-    const trimmed = input.trim()
+  const submitMessage = useCallback(async (messageText?: string, options?: { visible?: boolean }) => {
+    const rawText = messageText ?? input
+    const trimmed = rawText.trim()
+    const visible = options?.visible ?? true
     const isGenerating = isSending || isAwaitingAgentResponse
     if (!trimmed || isGenerating) return
 
@@ -566,7 +571,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       conversationId,
     }
 
-    if (editingMessageId) {
+    if (visible && editingMessageId) {
       setMessagesWithRef(prev => {
         const messageIndex = prev.findIndex(message => message.id === editingMessageId)
         if (messageIndex < 0) return prev
@@ -580,11 +585,13 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         ]
       })
       setEditingMessageId(null)
-    } else {
+    } else if (visible) {
       appendMessage(pendingMessage)
     }
 
-    setInput('')
+    if (messageText == null) {
+      setInput('')
+    }
     setReferenceText(null)
     setReferenceLines(null)
     setIsSending(true)
@@ -621,6 +628,11 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       activeRunIdRef.current = result.runId
       activeRunConversationIdRef.current = result.conversationId
       setIsAwaitingAgentResponse(true)
+      if (!visible) {
+        setResolvedQuestionRunIds(prev =>
+          prev.includes(result.runId) ? prev : [...prev, result.runId]
+        )
+      }
 
       // The user clicked Stop before we knew the runId. Fire the cancel now.
       // The generating-state stays on; the agent:cancelled socket event will
@@ -635,34 +647,38 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
           { body: {} }
         ).catch(debugConsole.error)
       }
-      setMessagesWithRef(prev => {
-        if (
-          prev.some(
-            message => message.id === result.messageId && message.conversationId === result.conversationId
+      if (visible) {
+        setMessagesWithRef(prev => {
+          if (
+            prev.some(
+              message => message.id === result.messageId && message.conversationId === result.conversationId
+            )
+          ) {
+            return prev.filter(
+              message => !(message.id === pendingId && message.conversationId === result.conversationId)
+            )
+          }
+          return prev.map(message =>
+            (message.id === pendingId || message.id === editingMessageId) && message.conversationId === result.conversationId
+              ? { ...message, id: result.messageId, pending: false }
+              : message
           )
-        ) {
-          return prev.filter(
-            message => !(message.id === pendingId && message.conversationId === result.conversationId)
-          )
-        }
-        return prev.map(message =>
-          (message.id === pendingId || message.id === editingMessageId) && message.conversationId === result.conversationId
-            ? { ...message, id: result.messageId, pending: false }
-            : message
-        )
-      })
+        })
+      }
     } catch (error) {
       if (abortController.signal.aborted) {
         return
       }
       debugConsole.error(error)
-      setMessagesWithRef(prev =>
-        prev.map(message =>
-          (message.id === pendingId || message.id === editingMessageId) && message.conversationId === conversationId
-            ? { ...message, pending: false, text: `${message.text}\n\nFailed to send.` }
-            : message
+      if (visible) {
+        setMessagesWithRef(prev =>
+          prev.map(message =>
+            (message.id === pendingId || message.id === editingMessageId) && message.conversationId === conversationId
+              ? { ...message, pending: false, text: `${message.text}\n\nFailed to send.` }
+              : message
+          )
         )
-      )
+      }
     } finally {
       if (submitAbortControllerRef.current === abortController) {
         submitAbortControllerRef.current = null
@@ -690,6 +706,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     setReferenceLines,
     setReferenceText,
     setEditingMessageId,
+    setResolvedQuestionRunIds,
   ])
 
   const handleSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
@@ -1182,6 +1199,11 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       cancelActiveStreaming()
       canceledRunIdsRef.current.add(payload.runId)
       cleanupPendingToolsForConversation(payload.conversationId)
+
+      setMessagesWithRef(prev => prev.filter(message => {
+        if (message.conversationId !== payload.conversationId) return true
+        return !message.questions?.length
+      }))
       
       // Reset any assistant messages that might be stuck streaming for this conversation
       setMessagesWithRef(prev => prev.map(message => {

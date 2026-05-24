@@ -13,6 +13,9 @@ interface ChatbotMessagesContainerProps {
   onMessageLeave: (id: string) => void
   onEditMessage: (id: string) => void
   onCopyMessage: (text: string) => void
+  onSubmitQuestionAnswer: (answerText: string, questionRunId?: string | null) => void
+  activeConversationLastRunId: string | null
+  resolvedQuestionRunIds: string[]
   onToggleStatusGroup: (id: string, isExpanded: boolean) => void
   isStatusGroupExpanded: (groupId: string) => boolean
   shouldShowToggleForGroup: (groupId: string) => boolean
@@ -32,6 +35,9 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
   onMessageLeave,
   onEditMessage,
   onCopyMessage,
+  onSubmitQuestionAnswer,
+  activeConversationLastRunId,
+  resolvedQuestionRunIds,
   onToggleStatusGroup,
   isStatusGroupExpanded,
   shouldShowToggleForGroup,
@@ -120,6 +126,15 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
           {messageGroups.map(group => {
             if (group.type === 'single') {
               const message = group.message
+              const isCurrentQuestion = Boolean(
+                message.questions?.length &&
+                message.runId &&
+                message.runId === activeConversationLastRunId &&
+                !resolvedQuestionRunIds.includes(message.runId)
+              )
+              if (message.questions?.length && !isCurrentQuestion) {
+                return null
+              }
               const shouldReveal = revealingMessageIds.includes(message.id) && !message.isStreaming
               return (
                 <MessageItem
@@ -132,6 +147,7 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
                   onMouseLeave={() => onMessageLeave(message.id)}
                   onEdit={onEditMessage}
                   onCopy={onCopyMessage}
+                  onSubmitQuestionAnswer={onSubmitQuestionAnswer}
                   isStreaming={message.isStreaming}
                   streamingText={message.streamingText}
                   onAnimationEnd={shouldReveal ? () => handleAnimationEnd(message.id) : undefined}

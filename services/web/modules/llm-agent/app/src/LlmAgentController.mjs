@@ -336,11 +336,16 @@ async function getConversationMessages(req, res) {
         return { ...message, role: info.role }
       }
       let toolEvents = []
+      let questions = null
       try {
-        const { steps } = await LlmAgentApiHandler.promises.getRunSteps(
+        const run = await LlmAgentApiHandler.promises.getRunSteps(
           projectId,
           info.runId
         )
+        const { steps } = run
+        if (run.output?.type === 'question' && Array.isArray(run.output.questions)) {
+          questions = run.output.questions
+        }
         toolEvents = buildToolEvents(steps)
       } catch {
         // Non-fatal: run steps may not exist if the run was pruned or the
@@ -349,6 +354,8 @@ async function getConversationMessages(req, res) {
       return {
         ...message,
         role: info.role,
+        runId: info.runId,
+        ...(questions ? { questions } : {}),
         ...(toolEvents.length > 0 ? { toolEvents } : {}),
       }
     })
@@ -362,7 +369,7 @@ async function getConversationMessages(req, res) {
 // - { conversationId, userId, content } to create and emit a new chat message
 async function agentComplete(req, res) {
   const { project_id: projectId } = req.params
-  const { conversationId, messageId, userId, content, runId } = req.body
+  const { conversationId, messageId, userId, content, runId, questions } = req.body
   if (!conversationId) {
     return res.status(400).json({ error: 'conversationId required' })
   }
@@ -410,7 +417,12 @@ async function agentComplete(req, res) {
   EditorRealTimeController.emitToRoom(projectId, 'agent:message', {
     conversationId,
     conversation: updatedConversation,
-    message: { ...message, role: 'assistant' },
+    message: {
+      ...message,
+      role: 'assistant',
+      runId,
+      ...(Array.isArray(questions) && questions.length > 0 ? { questions } : {}),
+    },
   })
   res.sendStatus(204)
 }
