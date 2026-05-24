@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState } from 'react'
+import React, { useLayoutEffect, useRef } from 'react'
 import OLTooltip from '@/shared/components/ol/ol-tooltip'
 import OLIconButton from '@/shared/components/ol/ol-icon-button'
 import { ChatbotMarkdown } from '../chatbot-markdown'
@@ -18,6 +18,8 @@ interface MessageItemProps {
   onEdit: (id: string) => void
   onCopy: (text: string) => void
   onAnimationEnd?: () => void
+  isStreaming?: boolean
+  streamingText?: string
 }
 
 export const MessageItem: React.FC<MessageItemProps> = ({
@@ -30,12 +32,17 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   onEdit,
   onCopy,
   onAnimationEnd,
+  isStreaming = false,
+  streamingText,
 }) => {
   const messageContentRef = useRef<HTMLDivElement | null>(null)
-  const [revealDurationMs, setRevealDurationMs] = useState<number | null>(null)
   const hasCalculatedDurationRef = useRef(false)
+  const [revealDurationMs, setRevealDurationMs] = React.useState<number | null>(null)
 
-  const isAssistantReveal = message.role === 'assistant' && !message.pending && shouldReveal
+  const isMessageStreaming = isStreaming || Boolean(message.isStreaming)
+  const currentStreamingText = streamingText ?? message.streamingText ?? ''
+
+  const isAssistantReveal = message.role === 'assistant' && !message.pending && shouldReveal && !isMessageStreaming
 
   useLayoutEffect(() => {
     if (!isAssistantReveal || hasCalculatedDurationRef.current) {
@@ -54,11 +61,10 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     setRevealDurationMs(nextDurationMs)
     hasCalculatedDurationRef.current = true
     
-    void contentElement.offsetHeight
+    contentElement.getBoundingClientRect()
   }, [isAssistantReveal])
 
   const handleLocalAnimationEnd = () => {
-    // Only call onAnimationEnd when the actual animation finishes
     onAnimationEnd?.()
   }
 
@@ -68,6 +74,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     if (message.role === 'assistant') classes.push('ide-chatbot-message-bot')
     if (message.id === isEditing) classes.push('ide-chatbot-message-editing')
     if (message.pending) classes.push('ide-chatbot-message-pending')
+    if (isMessageStreaming) classes.push('ide-chatbot-message-streaming')
     return classes.join(' ')
   }
 
@@ -92,13 +99,21 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             }
             onAnimationEnd={isAssistantReveal ? handleLocalAnimationEnd : undefined}
           >
-            <ChatbotMarkdown text={message.text} />
+            <ChatbotMarkdown text={isMessageStreaming ? currentStreamingText : message.text} />
+            {isMessageStreaming && (
+              <span className="ide-chatbot-streaming-cursor" aria-hidden="true">
+                ▍
+              </span>
+            )}
           </div>
         ) : (
           <p className="ide-chatbot-message-content">{message.text}</p>
         )}
         {message.role === 'user' && !message.pending && (
           <div className="ide-chatbot-message-footer">
+            <OLTooltip id={`edit-chatbot-message-${message.id}`} description="Edit message" overlayProps={{ placement: 'bottom' }}>
+              <OLIconButton onClick={() => onEdit(message.id)} className="ide-chatbot-message-footer-button" icon="edit" accessibilityLabel="Edit message" size="sm" />
+            </OLTooltip>
             <OLTooltip id={`copy-chatbot-message-${message.id}`} description="Copy message" overlayProps={{ placement: 'bottom' }}>
               <OLIconButton onClick={() => onCopy(message.text)} className="ide-chatbot-message-footer-button" icon="content_copy" accessibilityLabel="Copy message" size="sm" />
             </OLTooltip>

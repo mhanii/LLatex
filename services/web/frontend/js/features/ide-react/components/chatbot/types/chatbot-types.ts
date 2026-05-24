@@ -4,6 +4,8 @@ export type ChatbotMessage = {
   text: string
   pending?: boolean
   conversationId?: string
+  streamingText?: string
+  isStreaming?: boolean
   status?: AgentToolCallEvent['status']
   toolName?: string
   toolInput?: Record<string, unknown>
