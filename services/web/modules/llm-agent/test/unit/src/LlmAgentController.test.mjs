@@ -284,6 +284,7 @@ describe('LlmAgentController', function () {
         recordRun: vi.fn().mockResolvedValue(undefined),
         findUserMessage: vi.fn().mockResolvedValue(null),
         truncateFromMessage: vi.fn().mockResolvedValue([]),
+        getActiveRunId: vi.fn().mockResolvedValue(null),
       },
     }
     vi.doMock('../../../app/src/AgentConversationManager.mjs', () => ({
@@ -1929,6 +1930,19 @@ describe('LlmAgentController', function () {
       ;({ default: HistoryManager } = await import(
         '../../../../../app/src/Features/History/HistoryManager.mjs'
       ))
+      // Default the project to ranges-support-enabled so the pre-check
+      // passes and rollback tests can exercise the full path. Tests that
+      // need the disabled-state override this with mockResolvedValueOnce.
+      // Include name/compiler so the same mock is fine for any sendMessage
+      // path exercised inside this describe (buildProjectContext reads
+      // those with optional-chaining, but tracking them keeps the mock
+      // shape stable across test paths).
+      ProjectGetter.promises.getProject.mockResolvedValue({
+        _id: PROJECT_ID,
+        name: 'Sample Project',
+        compiler: 'pdflatex',
+        overleaf: { history: { rangesSupportEnabled: true } },
+      })
     })
 
     it('returns 403 when the user is not logged in', async function () {
@@ -2035,7 +2049,7 @@ describe('LlmAgentController', function () {
       expect(res.statusCode).toBe(200)
     })
 
-    it('returns 400 history_not_supported when revertProject rejects ranges support', async function () {
+    it('returns 400 history_not_supported via the pre-check when rangesSupportEnabled is false', async function () {
       AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce({
         messageId: MESSAGE_ID,
         role: 'user',
@@ -2043,6 +2057,39 @@ describe('LlmAgentController', function () {
         createdAt: new Date(),
         projectVersionBefore: 9,
       })
+      ProjectGetter.promises.getProject.mockResolvedValueOnce({
+        _id: PROJECT_ID,
+        overleaf: { history: { rangesSupportEnabled: false } },
+      })
+
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error).toBe('history_not_supported')
+      // Pre-check short-circuits — we never call revertProject.
+      expect(RestoreManager.promises.revertProject).not.toHaveBeenCalled()
+      expect(
+        AgentConversationManager.promises.truncateFromMessage
+      ).not.toHaveBeenCalled()
+    })
+
+    it('falls back to mapping history_not_supported from the OError message (rangesSupport flipped off mid-request)', async function () {
+      AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce({
+        messageId: MESSAGE_ID,
+        role: 'user',
+        runId: null,
+        createdAt: new Date(),
+        projectVersionBefore: 9,
+      })
+      // Pre-check passes (rangesSupportEnabled=true from the describe-level
+      // default), but revertProject still rejects with the same OError —
+      // simulating an admin toggling the flag off between our pre-check
+      // and the revertProject call. The string-match fallback must still
+      // map back to the typed error code.
       RestoreManager.promises.revertProject.mockRejectedValueOnce(
         new Error('project does not have ranges support')
       )
@@ -2055,6 +2102,32 @@ describe('LlmAgentController', function () {
       )
       expect(res.statusCode).toBe(400)
       expect(JSON.parse(res.body).error).toBe('history_not_supported')
+      expect(
+        AgentConversationManager.promises.truncateFromMessage
+      ).not.toHaveBeenCalled()
+    })
+
+    it('returns 409 run_in_flight when an agent run is still active', async function () {
+      AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce({
+        messageId: MESSAGE_ID,
+        role: 'user',
+        runId: null,
+        createdAt: new Date(),
+        projectVersionBefore: 9,
+      })
+      AgentConversationManager.promises.getActiveRunId.mockResolvedValueOnce(
+        RUN_ID
+      )
+
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(409)
+      expect(JSON.parse(res.body).error).toBe('run_in_flight')
+      expect(RestoreManager.promises.revertProject).not.toHaveBeenCalled()
       expect(
         AgentConversationManager.promises.truncateFromMessage
       ).not.toHaveBeenCalled()

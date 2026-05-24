@@ -231,6 +231,14 @@ async function findUserMessage(projectId, conversationId, messageId, userId) {
 // Truncates the conversation by removing all messages at or after the given
 // createdAt timestamp. Returns the list of removed messageIds so the caller
 // can also clean up corresponding chat-service messages.
+//
+// Uses an atomic `$pull` with a createdAt filter rather than a
+// read-then-overwrite. A read-modify-write (`$set: { messages: kept }`)
+// would clobber any concurrent `recordMessage` $push that landed between
+// the read and the write — e.g. an agent reply being recorded in tab B
+// while rollback runs in tab A. A concurrent push has
+// createdAt = new Date() (= post-cutoff), so the $pull catches it too —
+// the truncation stays consistent without dropping unrelated writes.
 async function truncateFromMessage(
   projectId,
   conversationId,
@@ -239,6 +247,11 @@ async function truncateFromMessage(
   const cutoff = fromCreatedAt instanceof Date
     ? fromCreatedAt
     : new Date(fromCreatedAt)
+  // Snapshot messages first so we can return the removed messageIds and
+  // compute the post-truncate lastMessageAt/lastRunId. The actual mutation
+  // below is atomic; a concurrent $push between snapshot and update would
+  // also be pulled by the $pull (its createdAt > cutoff), so the kept
+  // tail we computed here remains correct.
   const conversation = await db.agentConversations.findOne(
     {
       _id: normalizeObjectId(conversationId, 'conversationId'),
@@ -263,8 +276,10 @@ async function truncateFromMessage(
       projectId: normalizeObjectId(projectId, 'projectId'),
     },
     {
+      $pull: {
+        messages: { createdAt: { $gte: cutoff } },
+      },
       $set: {
-        messages: kept,
         updatedAt: new Date(),
         lastMessageAt:
           kept.length > 0 ? kept[kept.length - 1].createdAt ?? null : null,
@@ -279,6 +294,26 @@ async function truncateFromMessage(
     }
   )
   return removed
+}
+
+// Returns the conversation's lastRunId if it appears to still be in
+// flight — i.e. no assistant message with that runId has been recorded
+// yet. Returns null if no run is active or the run already completed.
+// Used to reject rollback while the agent is mid-turn (server-side guard
+// against direct API hits or stale frontend state).
+async function getActiveRunId(projectId, conversationId) {
+  const conversation = await db.agentConversations.findOne(
+    {
+      _id: normalizeObjectId(conversationId, 'conversationId'),
+      projectId: normalizeObjectId(projectId, 'projectId'),
+    },
+    { projection: { messages: 1, lastRunId: 1 } }
+  )
+  if (!conversation?.lastRunId) return null
+  const completed = (conversation.messages ?? []).some(
+    m => m.role === 'assistant' && m.runId === conversation.lastRunId
+  )
+  return completed ? null : conversation.lastRunId
 }
 
 async function recordRun(projectId, conversationId, runId) {
@@ -306,6 +341,7 @@ export default {
   getMessageMetadata: callbackify(getMessageMetadata),
   findUserMessage: callbackify(findUserMessage),
   truncateFromMessage: callbackify(truncateFromMessage),
+  getActiveRunId: callbackify(getActiveRunId),
   recordRun: callbackify(recordRun),
   promises: {
     createConversation,
@@ -317,6 +353,7 @@ export default {
     getMessageMetadata,
     findUserMessage,
     truncateFromMessage,
+    getActiveRunId,
     recordRun,
   },
 }

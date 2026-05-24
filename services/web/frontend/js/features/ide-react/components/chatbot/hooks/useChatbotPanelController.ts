@@ -414,6 +414,12 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
             data.message ?? 'No recorded version for this message.'
           )
         }
+        if (code === 'run_in_flight') {
+          throw new Error(
+            data.message ??
+              'The agent is still working on this conversation. Cancel the current run before rolling back.'
+          )
+        }
         throw new Error(
           data.message ?? error?.message ?? 'Rollback failed.'
         )

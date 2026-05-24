@@ -645,6 +645,42 @@ async function rollbackToMessage(req, res) {
     })
   }
 
+  // Server-side guard against rolling back mid-run. The frontend disables
+  // the button while `isGenerating`, but a direct API hit (or stale frontend
+  // state) could otherwise revert files the agent is actively writing.
+  // A run is "in flight" when the conversation's lastRunId hasn't yet been
+  // matched by a recorded assistant message.
+  const activeRunId = await AgentConversationManager.promises.getActiveRunId(
+    projectId,
+    conversationId
+  )
+  if (activeRunId) {
+    return res.status(409).json({
+      error: 'run_in_flight',
+      message:
+        'The agent is still working on this conversation. Cancel the ' +
+        'current run before rolling back.',
+    })
+  }
+
+  // Pre-check `rangesSupportEnabled` ourselves rather than relying on
+  // string-matching `RestoreManager.revertProject`'s OError message.
+  // The upstream throws `new OError('project does not have ranges
+  // support', ...)` today; if that wording changes we'd silently fall
+  // through to the generic 500 path. A typed pre-check + a kept-as-fallback
+  // string match makes the error mapping resilient.
+  const project = await ProjectGetter.promises.getProject(projectId, {
+    'overleaf.history.rangesSupportEnabled': 1,
+  })
+  if (!project?.overleaf?.history?.rangesSupportEnabled) {
+    return res.status(400).json({
+      error: 'history_not_supported',
+      message:
+        'This project does not have ranges-aware history enabled, so ' +
+        'rollback is unavailable.',
+    })
+  }
+
   const version = targetMessage.projectVersionBefore
 
   // Revert the project first — this is the expensive, risky step. If it
@@ -656,6 +692,10 @@ async function rollbackToMessage(req, res) {
       { err, projectId, conversationId, messageId, version },
       'agent rollback: revertProject failed'
     )
+    // Belt-and-suspenders: if the project's rangesSupport state changed
+    // between our pre-check and revertProject (very unlikely but possible
+    // — e.g. an admin toggling it off mid-request), still map the error
+    // back to the typed code.
     if (err?.message?.includes('ranges support')) {
       return res.status(400).json({
         error: 'history_not_supported',

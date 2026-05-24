@@ -190,7 +190,7 @@ describe('AgentConversationManager', function () {
   })
 
   describe('truncateFromMessage', function () {
-    it('drops messages at or after the cutoff and reports their ids', async function () {
+    it('atomically pulls messages at or after the cutoff and reports their ids', async function () {
       const t0 = new Date('2024-01-01T00:00:00Z')
       const t1 = new Date('2024-01-01T00:00:01Z')
       const t2 = new Date('2024-01-01T00:00:02Z')
@@ -211,13 +211,16 @@ describe('AgentConversationManager', function () {
         )
 
       expect(removed).toEqual(['b', 'c'])
-      const setUpdate = updateOne.mock.calls[0][1].$set
-      expect(setUpdate.messages).toHaveLength(1)
-      expect(setUpdate.messages[0].messageId).toBe('a')
-      expect(setUpdate.lastMessageAt).toEqual(t0)
+      const update = updateOne.mock.calls[0][1]
+      // Atomic $pull, NOT a read-modify-write `$set: { messages: kept }`.
+      expect(update.$pull).toEqual({
+        messages: { createdAt: { $gte: t1 } },
+      })
+      expect(update.$set.messages).toBeUndefined()
+      expect(update.$set.lastMessageAt).toEqual(t0)
       // lastRunId is recomputed from the remaining messages — none have a
       // runId so it falls back to null.
-      expect(setUpdate.lastRunId).toBeNull()
+      expect(update.$set.lastRunId).toBeNull()
     })
 
     it('returns an empty list and does not update when the conversation is missing', async function () {
@@ -230,6 +233,59 @@ describe('AgentConversationManager', function () {
         )
       expect(removed).toEqual([])
       expect(updateOne).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('getActiveRunId', function () {
+    it('returns the runId when the conversation has lastRunId but no matching assistant message', async function () {
+      findOne.mockResolvedValueOnce({
+        lastRunId: 'run-active',
+        messages: [
+          { messageId: 'a', role: 'user', runId: null },
+        ],
+      })
+      const result =
+        await AgentConversationManager.promises.getActiveRunId(
+          PROJECT_ID,
+          CONVERSATION_ID
+        )
+      expect(result).toBe('run-active')
+    })
+
+    it('returns null when an assistant message matches lastRunId (run completed)', async function () {
+      findOne.mockResolvedValueOnce({
+        lastRunId: 'run-done',
+        messages: [
+          { messageId: 'a', role: 'user', runId: null },
+          { messageId: 'b', role: 'assistant', runId: 'run-done' },
+        ],
+      })
+      const result =
+        await AgentConversationManager.promises.getActiveRunId(
+          PROJECT_ID,
+          CONVERSATION_ID
+        )
+      expect(result).toBeNull()
+    })
+
+    it('returns null when there is no lastRunId at all', async function () {
+      findOne.mockResolvedValueOnce({ lastRunId: null, messages: [] })
+      const result =
+        await AgentConversationManager.promises.getActiveRunId(
+          PROJECT_ID,
+          CONVERSATION_ID
+        )
+      expect(result).toBeNull()
+    })
+
+    it('returns null when the conversation does not exist', async function () {
+      findOne.mockResolvedValueOnce(null)
+      const result =
+        await AgentConversationManager.promises.getActiveRunId(
+          PROJECT_ID,
+          CONVERSATION_ID
+        )
+      expect(result).toBeNull()
     })
   })
 })
