@@ -298,22 +298,53 @@ async function truncateFromMessage(
 
 // Returns the conversation's lastRunId if it appears to still be in
 // flight — i.e. no assistant message with that runId has been recorded
-// yet. Returns null if no run is active or the run already completed.
-// Used to reject rollback while the agent is mid-turn (server-side guard
-// against direct API hits or stale frontend state).
+// yet AND it has not been marked cancelled. Returns null if no run is
+// active, the run completed, or the run was cancelled. Used to reject
+// rollback while the agent is mid-turn (server-side guard against direct
+// API hits or stale frontend state).
+//
+// "completed" is derived from the presence of an assistant message;
+// "cancelled" is derived from the `cancelledRunIds` set (populated by
+// `markRunCancelled` from the agentCancelled callback). Without the
+// cancelled-check, a user who cancels their turn and then tries to roll
+// back stays permanently blocked by the in-flight guard: `lastRunId`
+// is still set, no assistant message ever lands, so the run would look
+// in-flight forever.
 async function getActiveRunId(projectId, conversationId) {
   const conversation = await db.agentConversations.findOne(
     {
       _id: normalizeObjectId(conversationId, 'conversationId'),
       projectId: normalizeObjectId(projectId, 'projectId'),
     },
-    { projection: { messages: 1, lastRunId: 1 } }
+    {
+      projection: { messages: 1, lastRunId: 1, cancelledRunIds: 1 },
+    }
   )
   if (!conversation?.lastRunId) return null
+  const cancelledRunIds = conversation.cancelledRunIds ?? []
+  if (cancelledRunIds.includes(conversation.lastRunId)) return null
   const completed = (conversation.messages ?? []).some(
     m => m.role === 'assistant' && m.runId === conversation.lastRunId
   )
   return completed ? null : conversation.lastRunId
+}
+
+// Records a run as cancelled. Called from the agentCancelled callback so
+// getActiveRunId can distinguish cancelled-but-never-completed runs from
+// genuinely in-flight ones. Uses $addToSet for idempotency — the agent
+// service can retry cancel callbacks without polluting the set.
+async function markRunCancelled(projectId, conversationId, runId) {
+  if (!runId) return
+  await db.agentConversations.updateOne(
+    {
+      _id: normalizeObjectId(conversationId, 'conversationId'),
+      projectId: normalizeObjectId(projectId, 'projectId'),
+    },
+    {
+      $addToSet: { cancelledRunIds: runId },
+      $set: { updatedAt: new Date() },
+    }
+  )
 }
 
 async function recordRun(projectId, conversationId, runId) {
@@ -342,6 +373,7 @@ export default {
   findUserMessage: callbackify(findUserMessage),
   truncateFromMessage: callbackify(truncateFromMessage),
   getActiveRunId: callbackify(getActiveRunId),
+  markRunCancelled: callbackify(markRunCancelled),
   recordRun: callbackify(recordRun),
   promises: {
     createConversation,
@@ -354,6 +386,7 @@ export default {
     findUserMessage,
     truncateFromMessage,
     getActiveRunId,
+    markRunCancelled,
     recordRun,
   },
 }

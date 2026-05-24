@@ -458,6 +458,23 @@ async function agentCancelled(req, res) {
   // already gone) and let a concurrent request slip through.
   await applyUsageDelta(userId, outputTokensDelta, costUsdDelta)
   releaseReservationByRunId(runId)
+  // Mark the run as cancelled on the conversation so getActiveRunId
+  // doesn't classify it as in-flight. Without this, the rollback
+  // endpoint's in-flight guard would permanently 409 after cancel
+  // (no assistant message ever lands for a cancelled run, so the
+  // "completed" check stays false forever).
+  try {
+    await AgentConversationManager.promises.markRunCancelled(
+      projectId,
+      conversationId,
+      runId
+    )
+  } catch (err) {
+    logger.warn(
+      { err, projectId, conversationId, runId },
+      'agentCancelled: failed to mark run cancelled on the conversation'
+    )
+  }
   EditorRealTimeController.emitToRoom(projectId, 'agent:cancelled', {
     conversationId,
     runId,

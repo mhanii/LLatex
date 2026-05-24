@@ -268,6 +268,24 @@ describe('AgentConversationManager', function () {
       expect(result).toBeNull()
     })
 
+    it('returns null when lastRunId is in cancelledRunIds (cancel-then-rollback flow)', async function () {
+      // Greptile PR #39 round-3: agentCancelled records no assistant
+      // message, so the old "completed" check kept returning the run id
+      // forever and blocked rollback after cancel. cancelledRunIds is the
+      // authoritative cancel signal.
+      findOne.mockResolvedValueOnce({
+        lastRunId: 'run-cancelled',
+        cancelledRunIds: ['run-cancelled'],
+        messages: [{ messageId: 'a', role: 'user', runId: null }],
+      })
+      const result =
+        await AgentConversationManager.promises.getActiveRunId(
+          PROJECT_ID,
+          CONVERSATION_ID
+        )
+      expect(result).toBeNull()
+    })
+
     it('returns null when there is no lastRunId at all', async function () {
       findOne.mockResolvedValueOnce({ lastRunId: null, messages: [] })
       const result =
@@ -286,6 +304,29 @@ describe('AgentConversationManager', function () {
           CONVERSATION_ID
         )
       expect(result).toBeNull()
+    })
+  })
+
+  describe('markRunCancelled', function () {
+    it('adds the runId to cancelledRunIds via $addToSet (idempotent on retry)', async function () {
+      updateOne.mockResolvedValue({ acknowledged: true, modifiedCount: 1 })
+      await AgentConversationManager.promises.markRunCancelled(
+        PROJECT_ID,
+        CONVERSATION_ID,
+        'run-x'
+      )
+      const update = updateOne.mock.calls[0][1]
+      expect(update.$addToSet).toEqual({ cancelledRunIds: 'run-x' })
+      expect(update.$set.updatedAt).toBeInstanceOf(Date)
+    })
+
+    it('is a no-op when runId is missing', async function () {
+      await AgentConversationManager.promises.markRunCancelled(
+        PROJECT_ID,
+        CONVERSATION_ID,
+        null
+      )
+      expect(updateOne).not.toHaveBeenCalled()
     })
   })
 })

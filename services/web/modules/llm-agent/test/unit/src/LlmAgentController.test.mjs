@@ -285,6 +285,7 @@ describe('LlmAgentController', function () {
         findUserMessage: vi.fn().mockResolvedValue(null),
         truncateFromMessage: vi.fn().mockResolvedValue([]),
         getActiveRunId: vi.fn().mockResolvedValue(null),
+        markRunCancelled: vi.fn().mockResolvedValue(undefined),
       },
     }
     vi.doMock('../../../app/src/AgentConversationManager.mjs', () => ({
@@ -1598,6 +1599,44 @@ describe('LlmAgentController', function () {
 
       expect(res.statusCode).toBe(204)
       expect(UserUpdater.promises.updateUser).not.toHaveBeenCalled()
+      expect(EditorRealTimeController.emitToRoom).toHaveBeenCalled()
+    })
+
+    it('agentCancelled marks the run as cancelled so getActiveRunId stops blocking rollback', async function () {
+      // Greptile PR #39 round-3: without this, the rollback in-flight
+      // guard would 409 forever after a cancel.
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          runId: RUN_ID,
+          userId: USER_ID,
+        },
+      }
+      const res = makeRes()
+      await LlmAgentController.agentCancelled(req, res, vi.fn())
+
+      expect(
+        AgentConversationManager.promises.markRunCancelled
+      ).toHaveBeenCalledWith(PROJECT_ID, CONVERSATION_ID, RUN_ID)
+      expect(res.statusCode).toBe(204)
+    })
+
+    it('agentCancelled still 204s when markRunCancelled throws (best-effort)', async function () {
+      AgentConversationManager.promises.markRunCancelled.mockRejectedValueOnce(
+        new Error('mongo flaky')
+      )
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          runId: RUN_ID,
+          userId: USER_ID,
+        },
+      }
+      const res = makeRes()
+      await LlmAgentController.agentCancelled(req, res, vi.fn())
+      expect(res.statusCode).toBe(204)
       expect(EditorRealTimeController.emitToRoom).toHaveBeenCalled()
     })
 
