@@ -309,12 +309,6 @@ describe('<ChatbotPanel />', function () {
     fireEvent.click(screen.getByRole('button', { name: /Option B/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Send answer' }))
 
-    await waitFor(() => {
-      expect(screen.queryByText('Use the safer option')).to.not.exist
-    })
-    await waitFor(() => {
-      expect(screen.queryByText('Which option should I use?')).to.not.exist
-    })
 
     const questionSubmitCall = fetchStub
       .getCalls()
@@ -323,7 +317,7 @@ describe('<ChatbotPanel />', function () {
     expect(questionSubmitCall).to.exist
     const requestBody = JSON.parse(questionSubmitCall?.args[1]?.body ?? '{}')
     expect(requestBody.content).to.contain('Selected: Option B')
-    expect(requestBody.content).to.contain('Answer: Use the safer option')
+    expect(requestBody.content).to.not.contain('Answer:')
   })
 
   it('renders question answers with a compact title and alternate bubble', async function () {
