@@ -712,12 +712,48 @@ async function rollbackToMessage(req, res) {
   // Truncate the agent-conversation metadata. After this, getMessageMetadata
   // will no longer return the rolled-back messages, so subsequent agent
   // turns won't replay them.
-  const removedMessageIds =
-    await AgentConversationManager.promises.truncateFromMessage(
-      projectId,
-      conversationId,
-      targetMessage.createdAt
+  //
+  // We're in a partial-success window here: revertProject already
+  // committed the project files. If truncate throws (e.g. mongo
+  // unavailable), the convo would silently retain the rolled-back
+  // messages — the next turn would then replay tool calls referencing
+  // files that no longer exist in the project state. Surface this as a
+  // distinct `rollback_partial` so the frontend can warn the user to
+  // refresh instead of leaving them with mismatched client + server
+  // state. The realtime event is also emitted in `partial: true` form
+  // so other tabs at least know the project changed.
+  let removedMessageIds
+  try {
+    removedMessageIds =
+      await AgentConversationManager.promises.truncateFromMessage(
+        projectId,
+        conversationId,
+        targetMessage.createdAt
+      )
+  } catch (err) {
+    logger.error(
+      { err, projectId, conversationId, messageId, version },
+      'agent rollback: truncateFromMessage failed AFTER successful revertProject — partial state'
     )
+    EditorRealTimeController.emitToRoom(
+      projectId,
+      'agent:conversation-rolled-back',
+      {
+        conversationId,
+        rolledBackToMessageId: messageId,
+        rolledBackToVersion: version,
+        removedMessageIds: [],
+        partial: true,
+      }
+    )
+    return res.status(500).json({
+      error: 'rollback_partial',
+      message:
+        'Project files were restored, but cleaning up the conversation ' +
+        'failed. Refresh the page to sync your view.',
+      rolledBackToVersion: version,
+    })
+  }
 
   // Best-effort cleanup of the chat-service thread. A failure here leaves
   // dangling chat messages, but the agent-side conversation is already

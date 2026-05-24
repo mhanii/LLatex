@@ -393,6 +393,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       if (target.role !== 'user' || typeof target.projectVersionBefore !== 'number') {
         throw new Error('Rollback is unavailable for this message.')
       }
+      let partial = false
       try {
         await postJSON(
           apiPath(
@@ -420,9 +421,17 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
               'The agent is still working on this conversation. Cancel the current run before rolling back.'
           )
         }
-        throw new Error(
-          data.message ?? error?.message ?? 'Rollback failed.'
-        )
+        if (code === 'rollback_partial') {
+          // Project files WERE reverted; conversation cleanup failed.
+          // Truncate locally so the visible state at least matches the
+          // project, then surface the warning so the user knows to
+          // refresh for an authoritative view on the chat thread.
+          partial = true
+        } else {
+          throw new Error(
+            data.message ?? error?.message ?? 'Rollback failed.'
+          )
+        }
       }
       // Truncate locally. The realtime `agent:conversation-rolled-back`
       // event also triggers truncation for other tabs / collaborators; the
@@ -443,6 +452,12 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         if (idx < 0) return prev
         return prev.slice(0, idx)
       })
+      if (partial) {
+        throw new Error(
+          'Project files were restored, but cleaning up the conversation ' +
+            'failed. Refresh the page to sync the chat thread.'
+        )
+      }
     },
     [
       apiPath,

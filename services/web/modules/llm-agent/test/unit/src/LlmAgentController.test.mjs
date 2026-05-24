@@ -2107,6 +2107,50 @@ describe('LlmAgentController', function () {
       ).not.toHaveBeenCalled()
     })
 
+    it('returns 500 rollback_partial when truncateFromMessage throws after revertProject succeeds', async function () {
+      const createdAt = new Date('2026-05-24T00:00:00Z')
+      AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce({
+        messageId: MESSAGE_ID,
+        role: 'user',
+        runId: null,
+        createdAt,
+        projectVersionBefore: 42,
+      })
+      AgentConversationManager.promises.truncateFromMessage.mockRejectedValueOnce(
+        new Error('mongo unavailable')
+      )
+
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+
+      // Project files WERE reverted before truncate failed.
+      expect(RestoreManager.promises.revertProject).toHaveBeenCalledWith(
+        USER_ID,
+        PROJECT_ID,
+        42
+      )
+      // Realtime event still emits so other tabs know the project changed,
+      // marked partial: true with no removed ids.
+      expect(EditorRealTimeController.emitToRoom).toHaveBeenCalledWith(
+        PROJECT_ID,
+        'agent:conversation-rolled-back',
+        expect.objectContaining({
+          partial: true,
+          removedMessageIds: [],
+          rolledBackToVersion: 42,
+        })
+      )
+      // Chat-service cleanup is skipped on the partial path since we don't
+      // know which ids would have been pulled.
+      expect(ChatApiHandler.promises.deleteMessage).not.toHaveBeenCalled()
+      expect(res.statusCode).toBe(500)
+      expect(JSON.parse(res.body).error).toBe('rollback_partial')
+    })
+
     it('returns 409 run_in_flight when an agent run is still active', async function () {
       AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce({
         messageId: MESSAGE_ID,
