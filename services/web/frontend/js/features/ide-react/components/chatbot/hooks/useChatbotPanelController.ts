@@ -352,6 +352,20 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     [getFullFilePathForTooltipLocal, openEntityByPath]
   )
 
+  const toLoadedChatbotMessages = useCallback(
+    (message: AgentServerMessage, conversationId?: string): ChatbotMessage[] => {
+      const chatbotMessage = toChatbotMessage(message, conversationId)
+      const toolEvents = message.toolEvents ?? []
+
+      if (toolEvents.length === 0) {
+        return [chatbotMessage]
+      }
+
+      return [...toolEvents.map(toolEvent => toolEventToMessage({ ...toolEvent, conversationId: toolEvent.conversationId ?? conversationId ?? '' })), chatbotMessage]
+    },
+    [toChatbotMessage]
+  )
+
   const startEditingMessage = useCallback(
     (messageId: string) => {
       const message = messages.find(
@@ -1068,7 +1082,9 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     })
       .then(serverMessages => {
         if (controller.signal.aborted) return
-        const loadedMessages = serverMessages.map(message => toChatbotMessage(message, activeConversationId))
+        const loadedMessages = serverMessages.flatMap(message =>
+          toLoadedChatbotMessages(message, activeConversationId)
+        )
         setMessagesWithRef(prev => {
           const loadedIds = new Set(loadedMessages.map(message => message.id))
           const localMessages = prev.filter(

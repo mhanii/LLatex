@@ -61,10 +61,27 @@ describe('<ChatbotPanel />', function () {
       }
 
       if (
-        url.endsWith('/agent/conversations/conv-1/messages') &&
+        url.endsWith('/agent/conversations/conv-2/messages') &&
         method === 'GET'
       ) {
-        return jsonResponse([])
+        return jsonResponse([
+          {
+            id: 'agent-message-1',
+            user_id: user.id,
+            content: 'Compiled and fixed it.',
+            timestamp: 2,
+            role: 'assistant',
+            toolEvents: [
+              {
+                toolCallId: 'tool-call-1',
+                toolName: 'read_file',
+                status: 'completed',
+                input: { path: 'src/config.py' },
+                timestamp: 1,
+              },
+            ],
+          },
+        ])
       }
 
       if (url.endsWith('/agent/conversations') && method === 'POST') {
@@ -241,6 +258,25 @@ describe('<ChatbotPanel />', function () {
 
     expect(screen.getByText('Agent is compiling...')).to.exist
     expect(screen.getByText('Compiled and fixed it.')).to.exist
+  })
+
+  it('restores persisted tool progress from the conversation transcript', async function () {
+    renderChatbot()
+
+    await screen.findByRole('combobox', { name: 'Agent conversation' })
+    await waitFor(() => {
+      expect(screen.queryByText('Loading...')).to.not.exist
+    })
+
+    const statusSummary = await screen.findByText('Read 1 file')
+    fireEvent.click(statusSummary.closest('button') as HTMLButtonElement)
+
+    await waitFor(() => {
+      expect(screen.getByTitle('src/config.py')).to.exist
+    })
+    await waitFor(() => {
+      expect(screen.getByText('Compiled and fixed it.')).to.exist
+    })
   })
 
   it('renders a non-editable reference box for rewrite selections', async function () {

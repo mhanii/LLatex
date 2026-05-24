@@ -36,6 +36,7 @@ export type AgentServerMessage = {
   timestamp: number
   user_id: string
   role?: 'user' | 'assistant'
+  toolEvents?: AgentToolCallEvent[]
 }
 
 export type AgentToolCallEvent = {
