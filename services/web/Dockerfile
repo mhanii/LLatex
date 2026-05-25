@@ -118,8 +118,10 @@ COPY libraries/validation-tools/ /overleaf/libraries/validation-tools/
 COPY services/web/ /overleaf/services/web/
 COPY tools/migrations/ /overleaf/tools/migrations/
 
-# Omit Server Pro/CE specific scripts from SaaS image
-RUN rm /overleaf/services/web/modules/server-ce-scripts -rf
+# Keep server-ce-scripts in the image: this fork uses settings.defaults.js
+# at runtime, which lists 'server-ce-scripts' in moduleImportSequence.
+# Upstream Overleaf removes it here because their SaaS build swaps in
+# settings.overrides.saas.js (not present in this fork).
 RUN OVERLEAF_CONFIG=/overleaf/services/web/config/settings.overrides.saas.js nice npm run precompile-pug
 
 
