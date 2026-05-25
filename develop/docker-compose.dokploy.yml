@@ -164,6 +164,8 @@ services:
     env_file:
       - path: ./dev.env
         required: true
+      - path: ./.env
+        required: true
     environment:
       - OVERLEAF_EDITOR_ANALYTICS_BUCKET=/buckets/analytics
       - OVERLEAF_EDITOR_BLOBS_BUCKET=/buckets/blobs
@@ -271,7 +273,9 @@ services:
       - path: ./dev.env
         required: true
     environment:
-      NODE_ENV: production
+      - NODE_ENV=production
+      - V1_HISTORY_USER=staging
+      - V1_HISTORY_PASSWORD=${V1_HISTORY_PASS}
     networks:
       default: null
     restart: unless-stopped

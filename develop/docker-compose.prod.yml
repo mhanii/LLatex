@@ -137,6 +137,8 @@ services:
         condition: service_completed_successfully
 
   history-v1:
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
     restart: unless-stopped
@@ -153,7 +155,12 @@ services:
     restart: unless-stopped
 
   project-history:
-    environment: { NODE_ENV: production }
+    environment:
+      - NODE_ENV=production
+      # history-v1 reads STAGING_PASSWORD; project-history reads V1_HISTORY_PASSWORD.
+      # Keep the Dokploy env panel's single V1_HISTORY_PASS as the source.
+      - V1_HISTORY_USER=staging
+      - V1_HISTORY_PASSWORD=${V1_HISTORY_PASS}
     restart: unless-stopped
 
   real-time:
