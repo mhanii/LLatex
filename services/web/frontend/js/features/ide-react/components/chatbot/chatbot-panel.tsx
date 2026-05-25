@@ -254,6 +254,30 @@ export default function ChatbotPanel() {
         onPointerDown={handleHeaderPointerDown}
       />
 
+      {controller.rollbackPartialNotice && (
+        <div
+          className="alert alert-warning"
+          role="alert"
+          style={{
+            margin: '8px 12px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '8px',
+          }}
+        >
+          <span style={{ flex: 1 }}>{controller.rollbackPartialNotice}</span>
+          <button
+            type="button"
+            className="btn btn-link btn-sm"
+            onClick={controller.dismissRollbackPartialNotice}
+            style={{ padding: 0, lineHeight: 1 }}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       <ChatbotMessagesContainer
         messageGroups={state.messageGroups}
         editingMessageId={state.editingMessageId}

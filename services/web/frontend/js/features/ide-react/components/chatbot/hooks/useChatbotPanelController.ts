@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef } from 'react'
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getJSON, postJSON } from '@/infrastructure/fetch-json'
 import { debugConsole } from '@/utils/debugging'
 import { resolveChatDockSide } from '../../../util/chat-dock'
@@ -147,6 +147,21 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   const simulationConversationIdRef = useRef<string | null>(null)
   const initialScrollConversationIdRef = useRef<string | null>(null)
   const prevIsAwaitingRef = useRef(isAwaitingAgentResponse);
+
+  // Persistent banner for the rare partial-rollback case. The initiating
+  // tab also sees this surfaced via the confirmation modal (controller's
+  // rollbackToMessage throws), but secondary tabs only know about the
+  // partial state through the `partial: true` field on the realtime
+  // event. Without this banner they'd silently end up with stale chat
+  // state on next reload.
+  const [rollbackPartialNotice, setRollbackPartialNotice] = useState<string | null>(null)
+  const dismissRollbackPartialNotice = useCallback(() => {
+    setRollbackPartialNotice(null)
+  }, [])
+  // Tracks the messageId that THIS tab is rolling back. Used to suppress
+  // the WS-driven banner on the initiating tab — the modal already shows
+  // the partial-state warning there, so the banner would be redundant.
+  const initiatedRollbackMessageIdRef = useRef<string | null>(null)
 
   const setMessagesWithRef = useCallback((newMessages: ChatbotMessage[] | ((prev: ChatbotMessage[]) => ChatbotMessage[])) => {
     setMessages(prev => {
@@ -394,6 +409,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         throw new Error('Rollback is unavailable for this message.')
       }
       let partial = false
+      initiatedRollbackMessageIdRef.current = messageId
       try {
         await postJSON(
           apiPath(
@@ -1190,6 +1206,13 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       rolledBackToMessageId: string
       rolledBackToVersion: number
       removedMessageIds?: string[]
+      // Set true by the backend when truncateFromMessage threw after
+      // revertProject succeeded — project files are restored but the
+      // server-side conversation metadata could not be cleaned up. The
+      // initiating tab already sees this via the modal (the controller's
+      // rollbackToMessage rejects with the partial code); secondary tabs
+      // surface the same warning via the persistent banner exposed below.
+      partial?: boolean
     }) {
       if (payload.conversationId !== activeConversationIdRef.current) return
       // Cancel any in-flight cancel/run state and clear pending status
@@ -1204,6 +1227,21 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       delete pendingStatusEventsRef.current[payload.conversationId]
       setIsAwaitingAgentResponse(false)
       setIsSending(false)
+
+      if (
+        payload.partial &&
+        initiatedRollbackMessageIdRef.current !== payload.rolledBackToMessageId
+      ) {
+        // Secondary tab (we didn't initiate this rollback). The DB is in
+        // a partial state — surface a banner so the user knows their
+        // chat view may drift on reload until they refresh. The
+        // initiating tab gets the same warning via its modal, so we
+        // suppress the banner there to avoid double-notification.
+        setRollbackPartialNotice(
+          'A rollback in another tab partially completed — project files were restored ' +
+            'but the conversation could not be cleaned up. Refresh to sync your view.'
+        )
+      }
 
       const removed = new Set([
         payload.rolledBackToMessageId,
@@ -1248,7 +1286,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         receivedConversationRolledBack
       )
     }
-  }, [activeConversationIdRef, cleanupPendingToolsForConversation, completePendingToolsForConversation, flushPendingStatusMessages, handleToolCallEvent, setIsAwaitingAgentResponse, setIsSending, setMessagesWithRef, socket, toChatbotMessage, userId, setConversations])
+  }, [activeConversationIdRef, cleanupPendingToolsForConversation, completePendingToolsForConversation, flushPendingStatusMessages, handleToolCallEvent, setIsAwaitingAgentResponse, setIsSending, setMessagesWithRef, setRollbackPartialNotice, socket, toChatbotMessage, userId, setConversations])
 
   useEffect(() => {
     const pendingText = consumePendingChatbotPrefill()
@@ -1394,6 +1432,8 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     clearHoveredMessage,
     copyMessage,
     rollbackToMessage,
+    rollbackPartialNotice,
+    dismissRollbackPartialNotice,
     clearReference,
     closeChatbot,
     handleNewChat,
