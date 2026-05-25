@@ -290,6 +290,7 @@ services:
       NODE_ENV: production
     networks:
       default: null
+      dokploy-network: null
     restart: unless-stopped
   redis:
     image: redis:7
