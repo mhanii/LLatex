@@ -66,13 +66,6 @@ services:
         volume: {}
   clsi-nginx:
     image: nginx:1.28
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=${DOKPLOY_NETWORK:-dokploy-network}
-      - traefik.http.routers.overleaf-output.rule=Host(`${OVERLEAF_OUTPUT_DOMAIN}`)
-      - traefik.http.routers.overleaf-output.entrypoints=websecure
-      - traefik.http.routers.overleaf-output.tls.certresolver=letsencrypt
-      - traefik.http.services.overleaf-output.loadbalancer.server.port=8080
     networks:
       default: null
       dokploy-network: null
@@ -429,13 +422,6 @@ services:
       - WEB_API_PASSWORD=${WEB_API_PASSWORD}
       - V1_HISTORY_USER=staging
       - V1_HISTORY_PASS=${V1_HISTORY_PASS}
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=${DOKPLOY_NETWORK:-dokploy-network}
-      - traefik.http.routers.overleaf-web.rule=Host(`${OVERLEAF_DOMAIN}`)
-      - traefik.http.routers.overleaf-web.entrypoints=websecure
-      - traefik.http.routers.overleaf-web.tls.certresolver=letsencrypt
-      - traefik.http.services.overleaf-web.loadbalancer.server.port=3000
     networks:
       default: null
       dokploy-network: null
