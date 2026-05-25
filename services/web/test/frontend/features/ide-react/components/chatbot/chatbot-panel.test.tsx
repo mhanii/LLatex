@@ -67,6 +67,30 @@ describe('<ChatbotPanel />', function () {
         return jsonResponse([])
       }
 
+      if (
+        url.endsWith('/agent/conversations/conv-2/messages') &&
+        method === 'GET'
+      ) {
+        return jsonResponse([
+          {
+            id: 'agent-message-1',
+            user_id: user.id,
+            content: 'Compiled and fixed it.',
+            timestamp: 2,
+            role: 'assistant',
+            toolEvents: [
+              {
+                toolCallId: 'tool-call-1',
+                toolName: 'read_file',
+                status: 'completed',
+                input: { path: 'src/config.py' },
+                timestamp: 1,
+              },
+            ],
+          },
+        ])
+      }
+
       if (url.endsWith('/agent/conversations') && method === 'POST') {
         return jsonResponse(
           {
