@@ -1,0 +1,504 @@
+# AUTO-GENERATED for Dokploy. Do not hand-edit.
+#
+# Dokploy only accepts a single compose file. This is the flattened merge of:
+#   docker-compose.yml  +  docker-compose.prod.yml
+#
+# Regenerate after editing either of those files:
+#   cd develop
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#     config --no-interpolate --no-env-resolution \
+#     | sed -e 's|'$(pwd)'/|./|g' -e 's|'$(dirname $(pwd))'|..|g' \
+#     > docker-compose.dokploy.yml
+#
+# Then commit and push to the `production` branch.
+
+name: develop
+networks:
+  default:
+    name: develop_default
+  dokploy-network:
+    external: true
+    name: ${DOKPLOY_NETWORK:-dokploy-network}
+services:
+  chat:
+    build:
+      context: ..
+      dockerfile: services/chat/Dockerfile
+    env_file:
+      - path: ./dev.env
+        required: true
+    environment:
+      NODE_ENV: production
+    networks:
+      default: null
+    restart: unless-stopped
+  clsi:
+    build:
+      context: ..
+      dockerfile: services/clsi/Dockerfile
+      target: with-texlive
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+        required: true
+    env_file:
+      - path: ./dev.env
+        required: true
+    environment:
+      - SANDBOXED_COMPILES=false
+      - NODE_ENV=production
+    networks:
+      default: null
+    restart: unless-stopped
+    user: root
+    volumes:
+      - source: clsi-compiles
+        target: /overleaf/services/clsi/compiles
+        type: volume
+        volume: {}
+      - source: clsi-output
+        target: /overleaf/services/clsi/output
+        type: volume
+        volume: {}
+      - source: clsi-cache
+        target: /overleaf/services/clsi/cache
+        type: volume
+        volume: {}
+  clsi-nginx:
+    image: nginx:1.28
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${DOKPLOY_NETWORK:-dokploy-network}
+      - traefik.http.routers.overleaf-output.rule=Host(`${OVERLEAF_OUTPUT_DOMAIN}`)
+      - traefik.http.routers.overleaf-output.entrypoints=websecure
+      - traefik.http.routers.overleaf-output.tls.certresolver=letsencrypt
+      - traefik.http.services.overleaf-output.loadbalancer.server.port=8080
+    networks:
+      default: null
+      dokploy-network: null
+    read_only: true
+    restart: unless-stopped
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /run
+    volumes:
+      - read_only: true
+        source: clsi-output
+        target: /output
+        type: volume
+        volume: {}
+      - bind:
+          create_host_path: true
+          selinux: z
+        read_only: true
+        source: ../services/clsi/nginx.conf
+        target: /etc/nginx/conf.d/nginx.conf
+        type: bind
+  contacts:
+    build:
+      context: ..
+      dockerfile: services/contacts/Dockerfile
+    env_file:
+      - path: ./dev.env
+        required: true
+    environment:
+      NODE_ENV: production
+    networks:
+      default: null
+    restart: unless-stopped
+  docstore:
+    build:
+      context: ..
+      dockerfile: services/docstore/Dockerfile
+    env_file:
+      - path: ./dev.env
+        required: true
+    environment:
+      NODE_ENV: production
+    networks:
+      default: null
+    restart: unless-stopped
+  document-updater:
+    build:
+      context: ..
+      dockerfile: services/document-updater/Dockerfile
+    env_file:
+      - path: ./dev.env
+        required: true
+    environment:
+      NODE_ENV: production
+    networks:
+      default: null
+    restart: unless-stopped
+  filestore:
+    build:
+      context: ..
+      dockerfile: services/filestore/Dockerfile
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+        required: true
+    env_file:
+      - path: ./dev.env
+        required: true
+    environment:
+      - NODE_ENV=production
+    networks:
+      default: null
+    restart: unless-stopped
+    volumes:
+      - source: filestore-public-files
+        target: /overleaf/services/filestore/public_files
+        type: volume
+        volume: {}
+      - source: filestore-template-files
+        target: /overleaf/services/filestore/template_files
+        type: volume
+        volume: {}
+      - source: filestore-uploads
+        target: /overleaf/services/filestore/uploads
+        type: volume
+        volume: {}
+  history-v1:
+    build:
+      context: ..
+      dockerfile: services/history-v1/Dockerfile
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+        required: true
+    env_file:
+      - path: ./dev.env
+        required: true
+    environment:
+      - OVERLEAF_EDITOR_ANALYTICS_BUCKET=/buckets/analytics
+      - OVERLEAF_EDITOR_BLOBS_BUCKET=/buckets/blobs
+      - OVERLEAF_EDITOR_CHUNKS_BUCKET=/buckets/chunks
+      - OVERLEAF_EDITOR_PROJECT_BLOBS_BUCKET=/buckets/project_blobs
+      - OVERLEAF_EDITOR_ZIPS_BUCKET=/buckets/zips
+      - PERSISTOR_BACKEND=fs
+      - NODE_ENV=production
+    networks:
+      default: null
+    restart: unless-stopped
+    volumes:
+      - source: history-v1-buckets
+        target: /buckets
+        type: volume
+        volume: {}
+  llm-agent:
+    build:
+      context: ..
+      dockerfile: services/llm-agent/Dockerfile
+    env_file:
+      - path: ./dev.env
+        required: true
+      - path: ./.env
+        required: true
+    environment:
+      - PORTKEY_API_KEY=${PORTKEY_API_KEY}
+      - PORTKEY_VIRTUAL_KEY=${PORTKEY_VIRTUAL_KEY}
+      - PORTKEY_CONFIG=${PORTKEY_CONFIG}
+      - PORTKEY_BASE_URL=${PORTKEY_BASE_URL}
+      - LLM_MODEL=${LLM_MODEL}
+      - LLM_JUDGE_MODEL=${LLM_JUDGE_MODEL}
+      - NODE_ENV=production
+    networks:
+      default: null
+    restart: unless-stopped
+  migrate:
+    build:
+      context: ..
+      dockerfile: services/web/Dockerfile
+      target: app
+    depends_on:
+      mongo:
+        condition: service_started
+        required: true
+      volume-init:
+        condition: service_completed_successfully
+        required: true
+    entrypoint:
+      - sh
+      - -c
+      - |
+        echo "Running mongo migrations..."
+        npm run migrations -- migrate -t server-ce
+        echo "Migrations complete."
+    env_file:
+      - path: ./dev.env
+        required: true
+      - path: ./.env
+        required: true
+    environment:
+      - NODE_ENV=production
+    networks:
+      default: null
+    restart: "no"
+    working_dir: /overleaf/tools/migrations
+  mongo:
+    command: --replSet overleaf
+    environment:
+      MONGO_INITDB_DATABASE: sharelatex
+    extra_hosts:
+      - mongo:127.0.0.1
+    image: mongo:8
+    networks:
+      default: null
+    restart: unless-stopped
+    volumes:
+      - source: mongo-data
+        target: /data/db
+        type: volume
+        volume: {}
+      - bind:
+          create_host_path: true
+          selinux: z
+        source: ../bin/shared/mongodb-init-replica-set.js
+        target: /docker-entrypoint-initdb.d/mongodb-init-replica-set.js
+        type: bind
+  notifications:
+    build:
+      context: ..
+      dockerfile: services/notifications/Dockerfile
+    env_file:
+      - path: ./dev.env
+        required: true
+    environment:
+      NODE_ENV: production
+    networks:
+      default: null
+    restart: unless-stopped
+  project-history:
+    build:
+      context: ..
+      dockerfile: services/project-history/Dockerfile
+    env_file:
+      - path: ./dev.env
+        required: true
+    environment:
+      NODE_ENV: production
+    networks:
+      default: null
+    restart: unless-stopped
+  real-time:
+    build:
+      context: ..
+      dockerfile: services/real-time/Dockerfile
+    env_file:
+      - path: ./dev.env
+        required: true
+    environment:
+      NODE_ENV: production
+    networks:
+      default: null
+    restart: unless-stopped
+  redis:
+    image: redis:7
+    networks:
+      default: null
+    restart: unless-stopped
+    volumes:
+      - source: redis-data
+        target: /data
+        type: volume
+        volume: {}
+  volume-init:
+    command:
+      - sh
+      - -c
+      - |
+        chown -R 1000:1000 \
+          /web-data \
+          /sharelatex-data \
+          /clsi-compiles /clsi-output \
+          /filestore-uploads /filestore-templates \
+          /filestore-public /filestore-user \
+          /history-v1-buckets
+    image: alpine:3
+    networks:
+      default: null
+    restart: "no"
+    volumes:
+      - source: web-data
+        target: /web-data
+        type: volume
+        volume: {}
+      - source: sharelatex-data
+        target: /sharelatex-data
+        type: volume
+        volume: {}
+      - source: clsi-compiles
+        target: /clsi-compiles
+        type: volume
+        volume: {}
+      - source: clsi-output
+        target: /clsi-output
+        type: volume
+        volume: {}
+      - source: filestore-uploads
+        target: /filestore-uploads
+        type: volume
+        volume: {}
+      - source: filestore-template-files
+        target: /filestore-templates
+        type: volume
+        volume: {}
+      - source: filestore-public-files
+        target: /filestore-public
+        type: volume
+        volume: {}
+      - source: filestore-user-files
+        target: /filestore-user
+        type: volume
+        volume: {}
+      - source: history-v1-buckets
+        target: /history-v1-buckets
+        type: volume
+        volume: {}
+  web:
+    build:
+      context: ..
+      dockerfile: services/web/Dockerfile
+      target: app
+    command:
+      - node
+      - app.mjs
+    depends_on:
+      chat:
+        condition: service_started
+        required: true
+      clsi:
+        condition: service_started
+        required: true
+      contacts:
+        condition: service_started
+        required: true
+      docstore:
+        condition: service_started
+        required: true
+      document-updater:
+        condition: service_started
+        required: true
+      filestore:
+        condition: service_started
+        required: true
+      history-v1:
+        condition: service_started
+        required: true
+      llm-agent:
+        condition: service_started
+        required: true
+      migrate:
+        condition: service_completed_successfully
+        required: true
+      mongo:
+        condition: service_started
+        required: true
+      notifications:
+        condition: service_started
+        required: true
+      project-history:
+        condition: service_started
+        required: true
+      real-time:
+        condition: service_started
+        required: true
+      redis:
+        condition: service_started
+        required: true
+      volume-init:
+        condition: service_completed_successfully
+        required: true
+    env_file:
+      - path: ./dev.env
+        required: true
+      - path: ./.env
+        required: true
+    environment:
+      - APP_NAME=Overleaf Community Edition
+      - ENABLED_LINKED_FILE_TYPES=project_file,project_output_file
+      - EMAIL_CONFIRMATION_DISABLED=true
+      - NODE_ENV=production
+      - OVERLEAF_ALLOW_PUBLIC_ACCESS=false
+      - COMPILES_USER_CONTENT_DOMAIN=${COMPILES_USER_CONTENT_DOMAIN}
+      - OVERLEAF_SITE_URL=${OVERLEAF_SITE_URL}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - WEB_API_USER=${WEB_API_USER:-overleaf}
+      - WEB_API_PASSWORD=${WEB_API_PASSWORD}
+      - V1_HISTORY_USER=staging
+      - V1_HISTORY_PASS=${V1_HISTORY_PASS}
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${DOKPLOY_NETWORK:-dokploy-network}
+      - traefik.http.routers.overleaf-web.rule=Host(`${OVERLEAF_DOMAIN}`)
+      - traefik.http.routers.overleaf-web.entrypoints=websecure
+      - traefik.http.routers.overleaf-web.tls.certresolver=letsencrypt
+      - traefik.http.services.overleaf-web.loadbalancer.server.port=3000
+    networks:
+      default: null
+      dokploy-network: null
+    restart: unless-stopped
+    volumes:
+      - source: sharelatex-data
+        target: /var/lib/overleaf
+        type: volume
+        volume: {}
+      - source: web-data
+        target: /overleaf/services/web/data
+        type: volume
+        volume: {}
+  webpack:
+    build:
+      context: ..
+      dockerfile: services/web/Dockerfile
+      target: webpack
+    command:
+      - npx
+      - webpack
+      - serve
+      - --config
+      - webpack.config.dev-env.js
+    networks:
+      default: null
+    ports:
+      - host_ip: 127.0.0.1
+        mode: ingress
+        protocol: tcp
+        published: "80"
+        target: 3808
+    profiles:
+      - never-in-prod
+    volumes:
+      - bind:
+          create_host_path: true
+          selinux: z
+        source: ./webpack.config.dev-env.js
+        target: /overleaf/services/web/webpack.config.dev-env.js
+        type: bind
+volumes:
+  clsi-cache:
+    name: develop_clsi-cache
+  clsi-compiles:
+    name: develop_clsi-compiles
+  clsi-output:
+    name: develop_clsi-output
+  filestore-public-files:
+    name: develop_filestore-public-files
+  filestore-template-files:
+    name: develop_filestore-template-files
+  filestore-uploads:
+    name: develop_filestore-uploads
+  filestore-user-files:
+    name: develop_filestore-user-files
+  history-v1-buckets:
+    name: develop_history-v1-buckets
+  mongo-data:
+    name: develop_mongo-data
+  redis-data:
+    name: develop_redis-data
+  sharelatex-data:
+    name: develop_sharelatex-data
+  web-data:
+    name: develop_web-data
