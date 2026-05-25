@@ -25,7 +25,7 @@ async function startRun(projectId, payload) {
 /**
  * @param {string} projectId
  * @param {string} runId
- * @returns {Promise<{ steps: Array<{ name: string, output?: { toolCalls?: Array<{ toolCallId: string, toolName: string, input: unknown }>, toolResults?: Array<{ toolCallId: string, toolName: string, input: unknown, output: unknown }> } }> }>}
+ * @returns {Promise<{ steps: Array<{ name: string, output?: { toolCalls?: Array<{ toolCallId: string, toolName: string, input: unknown }>, toolResults?: Array<{ toolCallId: string, toolName: string, input: unknown, output: unknown }> } }>, output?: { type: string, content: string, questions?: Array<{ question: string, header?: string, multiSelect?: boolean, options: Array<{ label: string, description?: string }> }> } | null }>}
  */
 async function getRunSteps(projectId, runId) {
   return await fetchJson(agentUrl(`/project/${projectId}/run/${runId}/steps`), {

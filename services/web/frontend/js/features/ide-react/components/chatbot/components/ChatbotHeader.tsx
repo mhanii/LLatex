@@ -1,4 +1,5 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import OLTooltip from '@/shared/components/ol/ol-tooltip'
 import OLIconButton from '@/shared/components/ol/ol-icon-button'
 import { AgentConversation } from '../types/chatbot-types'
@@ -22,18 +23,20 @@ export const ChatbotHeader: React.FC<ChatbotHeaderProps> = ({
   onClose,
   onPointerDown,
 }) => {
+  const { t } = useTranslation()
+
   return (
     <header
       className="ide-chatbot-panel-header"
       onPointerDown={onPointerDown}
     >
       <div className="ide-chatbot-panel-title-row">
-        <h3 className="ide-chatbot-panel-title">Chatbot</h3>
+        <h3 className="ide-chatbot-panel-title">{t('chatbot_panel_title')}</h3>
         <select
           className="ide-chatbot-panel-conversation-select"
           value={activeConversationId ?? ''}
           onChange={event => onConversationChange(event.target.value)}
-          aria-label="Agent conversation"
+          aria-label={t('chatbot_agent_conversation')}
         >
           {conversations.map(conversation => (
             <option key={conversation.id} value={conversation.id}>
@@ -44,20 +47,20 @@ export const ChatbotHeader: React.FC<ChatbotHeaderProps> = ({
       </div>
       <OLTooltip
         id="new-chatbot-conversation"
-        description="New chat"
+        description={t('start_new_chat')}
         overlayProps={{ placement: 'bottom' }}
       >
         <OLIconButton
           onClick={onNewChat}
           className="ide-chatbot-panel-header-button-subdued"
           icon="add"
-          accessibilityLabel="New chat"
+          accessibilityLabel={t('start_new_chat')}
           size="sm"
         />
       </OLTooltip>
       <OLTooltip
         id="delete-chatbot-conversation"
-        description="Delete chat"
+        description={t('delete')}
         overlayProps={{ placement: 'bottom' }}
       >
         <OLIconButton
@@ -68,21 +71,21 @@ export const ChatbotHeader: React.FC<ChatbotHeaderProps> = ({
           }}
           className="ide-chatbot-panel-header-button-subdued"
           icon="delete"
-          accessibilityLabel="Delete chat"
+          accessibilityLabel={t('delete')}
           size="sm"
           disabled={!activeConversationId}
         />
       </OLTooltip>
       <OLTooltip
         id="close-chatbot-panel"
-        description="Close chatbot"
+        description={t('close')}
         overlayProps={{ placement: 'bottom' }}
       >
         <OLIconButton
           onClick={onClose}
           className="ide-chatbot-panel-header-button-subdued"
           icon="close"
-          accessibilityLabel="Close chatbot"
+          accessibilityLabel={t('close')}
           size="sm"
         />
       </OLTooltip>

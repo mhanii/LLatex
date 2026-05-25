@@ -172,6 +172,158 @@
   line-height: normal;
 }
 
+.ide-chatbot-message-content-question {
+  margin-top: var(--spacing-01);
+}
+
+.ide-chatbot-question-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-03);
+  padding: var(--spacing-04);
+  border: 1px solid var(--border-divider-themed);
+  border-radius: var(--border-radius-large);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary-themed) 92%, transparent) 0%, var(--bg-primary-themed) 100%);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 8%);
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: linear-gradient(180deg, var(--green-50) 0%, var(--green-70) 100%);
+  }
+}
+
+.ide-chatbot-question-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-02);
+}
+
+.ide-chatbot-question-header {
+  color: var(--green-60);
+  font-size: var(--font-size-01);
+  line-height: var(--line-height-01);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ide-chatbot-question-text {
+  color: var(--content-primary-themed);
+  font-size: var(--font-size-03);
+  line-height: var(--line-height-03);
+  font-weight: 600;
+}
+
+.ide-chatbot-question-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--spacing-02);
+}
+
+.ide-chatbot-question-option {
+  appearance: none;
+  border: 1px solid var(--border-divider-themed);
+  border-radius: var(--border-radius-base);
+  background-color: var(--bg-primary-themed);
+  color: var(--content-primary-themed);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: var(--spacing-03);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    border-color 120ms ease,
+    background-color 120ms ease,
+    box-shadow 120ms ease;
+
+  &:hover {
+    border-color: var(--border-prominent-themed);
+    background-color: var(--bg-secondary-themed);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgb(0 0 0 / 6%);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-prominent-themed);
+    outline-offset: 2px;
+  }
+
+  &.is-selected {
+    border-color: var(--green-60);
+    background-color: color-mix(in srgb, var(--green-50) 10%, var(--bg-primary-themed));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--green-50) 22%, transparent);
+  }
+}
+
+.ide-chatbot-question-option-label {
+  font-size: var(--font-size-02);
+  line-height: var(--line-height-02);
+  font-weight: 600;
+}
+
+.ide-chatbot-question-option-description {
+  color: var(--content-secondary-themed);
+  font-size: var(--font-size-01);
+  line-height: var(--line-height-01);
+}
+
+.ide-chatbot-question-input {
+  width: 100%;
+  min-height: 92px;
+  border: 1px solid var(--border-divider-themed);
+  border-radius: var(--border-radius-base);
+  background-color: var(--bg-primary-themed);
+  color: var(--content-primary-themed);
+  resize: vertical;
+  padding: var(--spacing-03);
+  font-size: var(--font-size-02);
+  line-height: var(--line-height-02);
+
+  &::placeholder {
+    color: var(--content-secondary-themed);
+  }
+
+  &:focus,
+  &:focus-visible {
+    outline: none;
+    border-color: var(--border-prominent-themed);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--green-50) 10%, transparent);
+  }
+}
+
+.ide-chatbot-question-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--spacing-02);
+}
+
+.ide-chatbot-message-streaming .ide-chatbot-message-content {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.ide-chatbot-message-streaming .ide-chatbot-message-markdown {
+  flex: 1;
+  min-width: 0;
+}
+
+.ide-chatbot-streaming-cursor {
+  display: inline-block;
+  opacity: 0.7;
+  animation: ide-chatbot-streaming-cursor-blink 1s step-end infinite;
+}
+
 .ide-chatbot-message-content-reveal {
   animation: ide-chatbot-message-reveal var(--ide-chatbot-message-reveal-duration, 1ms) ease-out forwards;
 }
@@ -182,6 +334,17 @@
   }
   100% {
     opacity: 1;
+  }
+}
+
+@keyframes ide-chatbot-streaming-cursor-blink {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+
+  50% {
+    opacity: 0;
   }
 }
 
@@ -204,6 +367,10 @@
 @media (prefers-reduced-motion: reduce) {
   .ide-chatbot-message-content-reveal {
     animation: ide-chatbot-message-reveal var(--ide-chatbot-message-reveal-duration, 1ms) ease-out forwards;
+  }
+
+  .ide-chatbot-streaming-cursor {
+    animation: none;
   }
 }
 
@@ -237,7 +404,7 @@
   width: 95%;
   border-radius: 12px;
   background: linear-gradient(135deg, var(--green-60) 0%, var(--green-70) 100%);
-  color: #ffffff;
+  color: var(--white);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
@@ -251,13 +418,68 @@
   padding: var(--spacing-04) var(--spacing-04);
 }
 
+.ide-chatbot-message-user-question-answer {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--bg-secondary-themed) 88%, var(--green-50) 12%) 0%,
+    color-mix(in srgb, var(--bg-primary-themed) 94%, var(--green-50) 6%) 100%
+  );
+  border: 1px solid color-mix(in srgb, var(--green-50) 22%, var(--border-divider-themed));
+  color: var(--content-primary-themed);
+}
+
+.ide-chatbot-message-user-question-answer .ide-chatbot-message-footer {
+  border-top-color: color-mix(in srgb, var(--green-50) 18%, transparent);
+}
+
+.ide-chatbot-message-user-question-answer .ide-chatbot-message-content {
+  padding: var(--spacing-04);
+  font-size: var(--font-size-01);
+}
+
+.ide-chatbot-message-question-answer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-03);
+  padding: var(--spacing-04);
+}
+
+.ide-chatbot-message-question-answer-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-01);
+}
+
+.ide-chatbot-message-question-answer-eyebrow {
+  color: var(--content-secondary-themed);
+  font-size: var(--font-size-01);
+  line-height: var(--line-height-01);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ide-chatbot-message-question-answer-title {
+  color: var(--content-primary-themed);
+  font-size: var(--font-size-01);
+  line-height: var(--line-height-02);
+  font-weight: 600;
+}
+
+.ide-chatbot-message-question-answer-body {
+  color: var(--content-primary-themed);
+  font-size: var(--font-size-01);
+  line-height: var(--line-height-02);
+  white-space: pre-wrap;
+}
+
 .ide-chatbot-message-footer {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: var(--spacing-02);
   padding: var(--spacing-02) var(--spacing-02);
-  border-top: 1px solid rgb(255 255 255 / 20%);
+  border-top: 1px solid color-mix(in srgb, var(--white) 20%, transparent);
   width: 100%;
 }
 
@@ -270,14 +492,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background-color: rgb(255 255 255 / 15%);
-  border: 1px solid rgb(255 255 255 / 25%);
-  color: #ffffff;
+  background-color: color-mix(in srgb, var(--white) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--white) 25%, transparent);
+  color: var(--white);
   transition: background-color 120ms ease, border-color 120ms ease;
 
   &:hover {
-    background-color: rgb(255 255 255 / 30%);
-    border-color: rgb(255 255 255 / 45%);
+    background-color: color-mix(in srgb, var(--white) 30%, transparent);
+    border-color: color-mix(in srgb, var(--white) 45%, transparent);
   }
 
   .material-symbols {
@@ -476,7 +698,7 @@
   font-size: var(--font-size-00);
   padding: 2px 6px;
   background: var(--green-60);
-  color: white;
+  color: var(--white);
   border-radius: 12px;
   font-weight: normal;
 }
@@ -658,7 +880,7 @@
 
   &:hover {
     background-color: var(--green-60);
-    color: #ffffff;
+    color: var(--white);
     border-color: var(--green-50);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   }
@@ -875,7 +1097,7 @@
   padding: 0;
   border: 0;
   background: linear-gradient(135deg, var(--green-60) 0%, var(--green-70) 100%);
-  color: #ffffff;
+  color: var(--white);
   cursor: pointer;
   transition: transform 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);

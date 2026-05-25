@@ -1,14 +1,20 @@
-import { Suspense, lazy, useCallback, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useIdeContext } from '@/shared/context/ide-context'
 import { useLayoutContext } from '@/shared/context/layout-context'
 import { useEditorManagerContext } from '@/features/ide-react/context/editor-manager-context'
 import { useFileTreeData } from '@/shared/context/file-tree-data-context'
 import { useProjectContext } from '@/shared/context/project-context'
 import { useUserContext } from '@/shared/context/user-context'
+import { debugConsole } from '@/utils/debugging'
 import { useChatbotState } from './hooks/useChatbotState'
 import { useMessageUtilities } from './hooks/useMessageUtilities'
 import { useConversationUtilities } from './hooks/useConversationUtilities'
 import { useInputUtilities } from './hooks/useInputUtilities'
+import {
+  consumePendingChatbotPrefill,
+  listenToChatbotPrefill,
+} from './chatbot-prefill-events'
 import { useChatbotPanelController } from './hooks/useChatbotPanelController'
 import { ChatbotHeader } from './components/ChatbotHeader'
 import { ChatbotMessagesContainer } from './components/ChatbotMessagesContainer'
@@ -36,6 +42,7 @@ const DebugPanel =
     : null
 
 export default function ChatbotPanel() {
+  const { t } = useTranslation()
   const { projectId } = useProjectContext()
   const user = useUserContext()
   const { socket } = useIdeContext()
@@ -124,6 +131,18 @@ export default function ChatbotPanel() {
     state.setEditingMessageId,
   )
 
+  useEffect(() => {
+    const pendingText = consumePendingChatbotPrefill()
+    if (pendingText) {
+      applyPrefill(pendingText)
+    }
+    return listenToChatbotPrefill(applyPrefill)
+  }, [applyPrefill])
+
+  useEffect(() => {
+    resizeInput()
+  }, [state.input, resizeInput])
+
   const controller = useChatbotPanelController({
     projectId,
     userId: user.id,
@@ -165,8 +184,6 @@ export default function ChatbotPanel() {
     appendMessage,
     toChatbotMessage,
     createMessageId,
-    resizeInput,
-    applyPrefill,
     handleMessagesScroll,
     setChatIsOpen,
     chatDockSide,
@@ -184,6 +201,8 @@ export default function ChatbotPanel() {
     autoCompactedGroupIds,
     setAutoCompactedGroupIds,
     messageGroups: state.messageGroups,
+    resolvedQuestionRunIds: state.resolvedQuestionRunIds,
+  setResolvedQuestionRunIds: state.setResolvedQuestionRunIds,
   })
 
   const handleNewChat = controller.handleNewChat
@@ -199,7 +218,16 @@ export default function ChatbotPanel() {
   const handleClearReference = controller.clearReference
   const handleCancelEdit = controller.cancelEditing
   const handleSimulateToolCall = controller.simulateToolCall
+  const handleSimulateConversation = controller.simulateFullConversation
   const handleStopGeneration = controller.stopGeneration
+  const activeConversationLastRunId = useMemo(
+    () => state.conversations.find(conversation => conversation.id === state.activeConversationId)?.lastRunId ?? null,
+    [state.activeConversationId, state.conversations]
+  )
+  const hasPendingQuestion = useMemo(
+    () => state.messages.length > 0 && Boolean(state.messages[state.messages.length - 1]?.questions?.length),
+    [state.messages]
+  )
 
   const [pendingRollbackId, setPendingRollbackId] = useState<string | null>(null)
   const [isRollbackInFlight, setIsRollbackInFlight] = useState(false)
@@ -229,6 +257,7 @@ export default function ChatbotPanel() {
 
   const isGenerating = useMemo(
     () => state.isSending || state.isAwaitingAgentResponse ||
+          // hasPendingQuestion intentionally excluded - questions are user input, not generation
           state.messages.some(message => message.role === 'status' && message.status === 'running'),
     [state.isSending, state.isAwaitingAgentResponse, state.messages]
   )
@@ -241,7 +270,7 @@ export default function ChatbotPanel() {
     <section
       ref={state.panelRef}
       className="ide-chatbot-panel"
-      aria-label="Chatbot panel"
+      aria-label={t('chatbot_panel_title')}
       data-chat-dock-side={chatDockSide}
     >
       <ChatbotHeader
@@ -288,6 +317,11 @@ export default function ChatbotPanel() {
         onCopyMessage={handleCopyMessage}
         onRollbackMessage={handleRequestRollback}
         rollbackDisabled={isGenerating}
+        onSubmitQuestionAnswer={(answerText: string, questionRunId: string | null | undefined, options?: { visible?: boolean }) =>
+          controller.submitMessage(answerText, { ...options, questionRunId }).catch(err => debugConsole.error(err))
+        }
+        activeConversationLastRunId={activeConversationLastRunId}
+        resolvedQuestionRunIds={state.resolvedQuestionRunIds}
         onToggleStatusGroup={handleToggleStatusGroup}
         isStatusGroupExpanded={controller.isStatusGroupExpanded}
         shouldShowToggleForGroup={controller.shouldShowToggleForGroup}
@@ -350,7 +384,7 @@ export default function ChatbotPanel() {
         <Suspense fallback={null}>
           <DebugPanel
             onSimulateToolCall={handleSimulateToolCall}
-            onSimulateConversation={controller.simulateFullConversation}
+            onSimulateConversation={handleSimulateConversation}
           />
         </Suspense>
       )}

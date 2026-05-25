@@ -2,9 +2,9 @@ import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useS
 import { getJSON, postJSON } from '@/infrastructure/fetch-json'
 import { debugConsole } from '@/utils/debugging'
 import { resolveChatDockSide } from '../../../util/chat-dock'
-import { consumePendingChatbotPrefill, listenToChatbotPrefill } from '../chatbot-prefill-events'
 import { ChatbotMessage, AgentConversation, AgentServerMessage, AgentToolCallEvent } from '../types/chatbot-types'
 import { toolEventToMessage } from '../utils/tool-utils'
+import { isSafeToStream, splitStreamingMarkdown } from '../utils/streaming-utils'
 import { renderStatusText } from '../utils/render-utils'
 import { getFullFilePathForTooltip, openEntityByPathUtil } from '../utils/file-operations'
 import { useStatusGroupUtilities } from './useStatusGroupUtilities'
@@ -39,6 +39,8 @@ export type ChatbotPanelControllerArgs = {
   setExpandedStatusGroupIds: React.Dispatch<React.SetStateAction<string[]>>
   collapsedStatusGroupIds: string[]
   setCollapsedStatusGroupIds: React.Dispatch<React.SetStateAction<string[]>>
+  resolvedQuestionRunIds: string[]
+  setResolvedQuestionRunIds: React.Dispatch<React.SetStateAction<string[]>>
   shouldAutoScrollRef: React.MutableRefObject<boolean>
   activeConversationIdRef: React.MutableRefObject<string | null>
   inputRef: React.RefObject<HTMLTextAreaElement>
@@ -50,8 +52,6 @@ export type ChatbotPanelControllerArgs = {
   appendMessage: (message: ChatbotMessage) => void
   toChatbotMessage: (message: AgentServerMessage, conversationId?: string) => ChatbotMessage
   createMessageId: (prefix: 'user' | 'assistant' | 'status') => string
-  resizeInput: () => void
-  applyPrefill: (payload: { text?: string; referenceText?: string; referenceLines?: { start: number; end: number } | null }) => void
   handleMessagesScroll: () => void
   setChatIsOpen: (open: boolean) => void
   chatDockSide: string
@@ -101,6 +101,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     setExpandedStatusGroupIds,
     collapsedStatusGroupIds,
     setCollapsedStatusGroupIds,
+    setResolvedQuestionRunIds,
     shouldAutoScrollRef,
     activeConversationIdRef,
     inputRef,
@@ -111,8 +112,6 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     appendMessage,
     toChatbotMessage,
     createMessageId,
-    resizeInput,
-    applyPrefill,
     handleMessagesScroll,
     setChatIsOpen,
     chatDockSide,
@@ -147,6 +146,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
   const simulationConversationIdRef = useRef<string | null>(null)
   const initialScrollConversationIdRef = useRef<string | null>(null)
   const prevIsAwaitingRef = useRef(isAwaitingAgentResponse);
+  const activeStreamingTokenRef = useRef(0)
 
   // Persistent banner for the rare partial-rollback case. The initiating
   // tab also sees this surfaced via the confirmation modal (controller's
@@ -170,6 +170,16 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       return next
     })
   }, [setMessages])
+
+  const cancelActiveStreaming = useCallback(() => {
+    activeStreamingTokenRef.current += 1
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      cancelActiveStreaming()
+    }
+  }, [cancelActiveStreaming])
 
   // Belt-and-suspenders sync for messagesRef. setMessagesWithRef updates the
   // ref synchronously inside its updater, but appendMessage (from
@@ -358,6 +368,20 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     [getFullFilePathForTooltipLocal, openEntityByPath]
   )
 
+  const toLoadedChatbotMessages = useCallback(
+    (message: AgentServerMessage, conversationId?: string): ChatbotMessage[] => {
+      const chatbotMessage = toChatbotMessage(message, conversationId)
+      const toolEvents = message.toolEvents ?? []
+
+      if (toolEvents.length === 0) {
+        return [chatbotMessage]
+      }
+
+      return [...toolEvents.map(toolEvent => toolEventToMessage({ ...toolEvent, conversationId: toolEvent.conversationId ?? conversationId ?? '' })), chatbotMessage]
+    },
+    [toChatbotMessage]
+  )
+
   const startEditingMessage = useCallback(
     (messageId: string) => {
       const message = messages.find(
@@ -484,6 +508,93 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     ]
   )
 
+  const streamAssistantMessage = useCallback(async (
+    messageId: string,
+    conversationId: string,
+    fullText: string
+  ) => {
+    const streamToken = ++activeStreamingTokenRef.current
+    
+    const cleanupOnCancel = () => {
+      setMessagesWithRef(prev => prev.map(message => {
+        if (message.id !== messageId || message.conversationId !== conversationId) {
+          return message
+        }
+        return {
+          ...message,
+          isStreaming: false,
+          streamingText: undefined,
+          text: fullText,
+        }
+      }))
+    }
+
+    const chunks = splitStreamingMarkdown(fullText)
+    let bufferedText = ''
+    let renderedText = ''
+
+    const updateStreamingMessage = (nextText: string, isStreaming: boolean) => {
+      setMessagesWithRef(prev => prev.map(message => {
+        if (message.id !== messageId || message.conversationId !== conversationId) {
+          return message
+        }
+
+        return {
+          ...message,
+          text: fullText,
+          streamingText: nextText,
+          isStreaming,
+        }
+      }))
+
+      if (shouldAutoScrollRef.current && messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+      }
+    }
+
+    updateStreamingMessage('', true)
+
+    for (const chunk of chunks) {
+      if (streamToken !== activeStreamingTokenRef.current) {
+        cleanupOnCancel()
+        return false
+      }
+
+      bufferedText += chunk
+
+      const chunkDelayMs = chunk.includes('\n')
+        ? 72
+        : /[.!?]\s*$/.test(chunk)
+          ? 48
+          : chunk.trim().length < 8
+            ? 18
+            : 24
+
+      const shouldFlushBufferedText =
+        bufferedText.length > 0 &&
+        isSafeToStream(bufferedText) &&
+        (chunk.includes('\n') || /[.!?]\s*$/.test(bufferedText) || bufferedText.length >= 32)
+
+      if (shouldFlushBufferedText) {
+        renderedText += bufferedText
+        bufferedText = ''
+        updateStreamingMessage(renderedText, true)
+      }
+
+      await new Promise(resolve => setTimeout(resolve, chunkDelayMs))
+    }
+
+    // Check again after the loop completes (cancellation could have happened during final delay)
+    if (streamToken !== activeStreamingTokenRef.current) {
+      cleanupOnCancel()
+      return false
+    }
+
+    renderedText += bufferedText
+    updateStreamingMessage(renderedText, false)
+    return true
+  }, [setMessagesWithRef, shouldAutoScrollRef, messagesContainerRef])
+
   const clearReference = useCallback(() => {
     setReferenceText(null)
     setReferenceLines(null)
@@ -549,8 +660,10 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     [activeConversationId, handleToolCallEvent, scrollToLatestStatusMessage, shouldAutoScroll]
   )
 
-  const submitMessage = useCallback(async () => {
-    const trimmed = input.trim()
+  const submitMessage = useCallback(async (messageText?: string, options?: { visible?: boolean; questionRunId?: string | null }) => {
+    const rawText = messageText ?? input
+    const trimmed = rawText.trim()
+    const visible = options?.visible ?? true
     const isGenerating = isSending || isAwaitingAgentResponse
     if (!trimmed || isGenerating) return
 
@@ -570,7 +683,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       conversationId,
     }
 
-    if (editingMessageId) {
+    if (visible && editingMessageId) {
       setMessagesWithRef(prev => {
         const messageIndex = prev.findIndex(message => message.id === editingMessageId)
         if (messageIndex < 0) return prev
@@ -584,11 +697,13 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         ]
       })
       setEditingMessageId(null)
-    } else {
+    } else if (visible) {
       appendMessage(pendingMessage)
     }
 
-    setInput('')
+    if (messageText == null) {
+      setInput('')
+    }
     setReferenceText(null)
     setReferenceLines(null)
     setIsSending(true)
@@ -625,6 +740,11 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       activeRunIdRef.current = result.runId
       activeRunConversationIdRef.current = result.conversationId
       setIsAwaitingAgentResponse(true)
+      if (!visible && options?.questionRunId) {
+        setResolvedQuestionRunIds(prev =>
+          prev.includes(options.questionRunId!) ? prev : [...prev, options.questionRunId!]
+        )
+      }
 
       // The user clicked Stop before we knew the runId. Fire the cancel now.
       // The generating-state stays on; the agent:cancelled socket event will
@@ -639,35 +759,50 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
           { body: {} }
         ).catch(debugConsole.error)
       }
-      setMessagesWithRef(prev => {
-        if (
-          prev.some(
-            message => message.id === result.messageId && message.conversationId === result.conversationId
+      if (visible) {
+        setMessagesWithRef(prev => {
+          if (
+            prev.some(
+              message => message.id === result.messageId && message.conversationId === result.conversationId
+            )
+          ) {
+            return prev.filter(
+              message => !(message.id === pendingId && message.conversationId === result.conversationId)
+            )
+          }
+          return prev.map(message =>
+            (message.id === pendingId || message.id === editingMessageId) && message.conversationId === result.conversationId
+              ? { ...message, id: result.messageId, pending: false }
+              : message
           )
-        ) {
-          return prev.filter(
-            message => !(message.id === pendingId && message.conversationId === result.conversationId)
+        })
+      }
+    } catch (error) {
+        if (abortController.signal.aborted) return
+        debugConsole.error(error)
+        if (visible) {
+          // Capture the ID that was being edited BEFORE it gets cleared
+          const editingId = editingMessageId
+          
+          setMessagesWithRef(prev =>
+            prev.map(message => {
+              const isTargetMessage = (message.id === pendingId) || 
+                (editingId !== null && message.id === editingId)
+              
+              if (isTargetMessage && message.conversationId === conversationId) {
+                // Don't modify the original text - show error separately
+                return { 
+                  ...message, 
+                  pending: false,
+                  // Keep original text intact, add error indicator
+                  error: 'Failed to send message'
+                }
+              }
+              return message
+            })
           )
         }
-        return prev.map(message =>
-          (message.id === pendingId || message.id === editingMessageId) && message.conversationId === result.conversationId
-            ? { ...message, id: result.messageId, pending: false }
-            : message
-        )
-      })
-    } catch (error) {
-      if (abortController.signal.aborted) {
-        return
-      }
-      debugConsole.error(error)
-      setMessagesWithRef(prev =>
-        prev.map(message =>
-          (message.id === pendingId || message.id === editingMessageId) && message.conversationId === conversationId
-            ? { ...message, pending: false, text: `${message.text}\n\nFailed to send.` }
-            : message
-        )
-      )
-    } finally {
+      } finally {
       if (submitAbortControllerRef.current === abortController) {
         submitAbortControllerRef.current = null
       }
@@ -690,10 +825,11 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     setInput,
     setIsSending,
     setIsAwaitingAgentResponse,
-    setMessages,
+    setMessagesWithRef,
     setReferenceLines,
     setReferenceText,
     setEditingMessageId,
+    setResolvedQuestionRunIds,
   ])
 
   const handleSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
@@ -788,6 +924,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     // generating state. This path never talks to the backend.
     if (simulationConversationIdRef.current) {
       simulationStopRef.current = true
+      cancelActiveStreaming()
       const conversationId = simulationConversationIdRef.current
       cleanupPendingToolsForConversation(conversationId)
       simulationConversationIdRef.current = null
@@ -796,27 +933,18 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       return
     }
 
-    // Real run: send the cancel request but KEEP isSending /
-    // isAwaitingAgentResponse on. The generating button + animation remain
-    // visible until the backend confirms by emitting agent:cancelled — that
-    // socket event is what clears the generating state.
-    //
-    // The button stays clickable on purpose. Backend cancellation is
-    // idempotent (cancelling a finished/cancelled run is a no-op), so a user
-    // whose first POST silently dropped can simply click again. Disabling
-    // the button on first click would risk freezing the UI for the lifetime
-    // of the run if the cancel callback never arrives.
     const runId = activeRunIdRef.current
-    const conversationId =
-      activeRunConversationIdRef.current ?? activeConversationIdRef.current
+    const conversationId = activeRunConversationIdRef.current ?? activeConversationIdRef.current
 
     if (!conversationId) return
 
     if (!runId) {
-      // POST /agent/message hasn't returned yet; we don't know the runId.
-      // Queue the cancellation and let submitMessage fire it when the runId
-      // arrives.
-      pendingCancelRef.current = { conversationId }
+      // Queue pending cancel when runId hasn't arrived yet
+      // Only skip if we're not actually expecting a run (i.e., just awaiting question response)
+      // We know we're expecting a run if isSending or isAwaitingAgentResponse is true
+      if (isSending || isAwaitingAgentResponse) {
+        pendingCancelRef.current = { conversationId }
+      }
       return
     }
 
@@ -827,8 +955,13 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     ).catch(debugConsole.error)
   }, [
     activeConversationIdRef,
+    activeRunConversationIdRef,
+    activeRunIdRef,
     apiPath,
+    cancelActiveStreaming,
     cleanupPendingToolsForConversation,
+    isAwaitingAgentResponse,
+    isSending,
     setIsAwaitingAgentResponse,
     setIsSending,
   ])
@@ -856,45 +989,6 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         elapsed += step
       }
       return !simulationStopRef.current
-    }
-
-    // Helper to stream a message character by character with auto-scroll
-    const streamMessage = async (fullText: string, conversationId: string, chunkDelayMs: number = 30) => {
-      const messageId = createMessageId('assistant')
-      let currentText = ''
-      
-      // Create placeholder message
-      appendMessage({
-        id: messageId,
-        role: 'assistant',
-        text: '',
-        conversationId,
-      })
-
-      // Stream characters
-      for (let i = 0; i < fullText.length; i++) {
-        if (simulationStopRef.current) return false
-        currentText += fullText[i]
-        
-        // Update the message
-        setMessagesWithRef(prev => 
-          prev.map(msg => 
-            msg.id === messageId 
-              ? { ...msg, text: currentText }
-              : msg
-          )
-        )
-        
-        // Auto-scroll to bottom during streaming if shouldAutoScroll is true
-        if (shouldAutoScroll && messagesContainerRef.current) {
-          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
-        }
-        
-        // Wait between chunks (smaller delay for smoother animation)
-        await new Promise(resolve => setTimeout(resolve, chunkDelayMs))
-      }
-      
-      return true
     }
 
     try {
@@ -963,8 +1057,18 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       
       // Stream the assistant message
       const assistantMessage = `I've analyzed your project. Found main.py and config.py, and created src/new_config.yaml with appropriate structure. The configuration includes database settings and API endpoints based on your existing setup. Need any adjustments?`
-      
-      await streamMessage(assistantMessage, simConversationId, 2)
+
+      const assistantMessageId = createMessageId('assistant')
+      appendMessage({
+        id: assistantMessageId,
+        role: 'assistant',
+        text: assistantMessage,
+        streamingText: '',
+        isStreaming: true,
+        conversationId: simConversationId,
+      })
+
+      await streamAssistantMessage(assistantMessageId, simConversationId, assistantMessage)
 
       // Final flush
       flushPendingStatusMessages(simConversationId)
@@ -986,10 +1090,10 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     createMessageId,
     flushPendingStatusMessages,
     handleToolCallEvent,
-    isSending,
     isAwaitingAgentResponse,
+    isSending,
     setIsSending,
-    setMessages,
+    streamAssistantMessage,
   ])
 
   useEffect(() => {
@@ -1000,13 +1104,16 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
 
   useEffect(() => {
     // When active conversation changes, clean up the old conversation's pending events
+    const pendingStatusEvents = pendingStatusEventsRef.current
     return () => {
       if (activeConversationId) {
+        cancelActiveStreaming()  // ← Add this line
         cleanupPendingToolsForConversation(activeConversationId)
         delete pendingStatusEventsRef.current[activeConversationId]
+        delete pendingStatusEvents[activeConversationId]
       }
     }
-  }, [activeConversationId, cleanupPendingToolsForConversation])
+  }, [activeConversationId, cancelActiveStreaming, cleanupPendingToolsForConversation])
 
   useEffect(() => {
     shouldAutoScrollRef.current = shouldAutoScroll
@@ -1110,7 +1217,9 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     })
       .then(serverMessages => {
         if (controller.signal.aborted) return
-        const loadedMessages = serverMessages.map(message => toChatbotMessage(message, activeConversationId))
+        const loadedMessages = serverMessages.flatMap(message =>
+          toLoadedChatbotMessages(message, activeConversationId)
+        )
         setMessagesWithRef(prev => {
           const loadedIds = new Set(loadedMessages.map(message => message.id))
           const localMessages = prev.filter(
@@ -1132,7 +1241,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       })
 
     return () => controller.abort()
-  }, [activeConversationId, apiPath, setIsLoadingMessages, setMessages, toChatbotMessage])
+  }, [activeConversationId, apiPath, setIsLoadingMessages, setMessagesWithRef, toChatbotMessage])
 
   useEffect(() => {
     if (!socket) return
@@ -1171,6 +1280,25 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         if (payload.conversation?.lastRunId && payload.conversation.lastRunId === activeRunIdRef.current) {
           activeRunIdRef.current = null
         }
+
+        const chatbotMessage = toChatbotMessage(payload.message, payload.conversationId)
+        const existingMessage = messagesRef.current.find(message => message.id === chatbotMessage.id)
+
+        if (!existingMessage) {
+          appendMessage({
+            ...chatbotMessage,
+            text: chatbotMessage.text,
+            streamingText: '',
+            isStreaming: true,
+          })
+          streamAssistantMessage(chatbotMessage.id, payload.conversationId, chatbotMessage.text).catch(error => {
+            debugConsole.error(error)
+          })
+        } else {
+          appendMessage(chatbotMessage)
+        }
+
+        return
       }
 
       appendMessage(toChatbotMessage(payload.message, payload.conversationId))
@@ -1186,8 +1314,27 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     // actually halting.
     function receivedAgentCancelled(payload: { conversationId: string; runId: string }) {
       if (payload.conversationId !== activeConversationIdRef.current) return
+      cancelActiveStreaming()
       canceledRunIdsRef.current.add(payload.runId)
       cleanupPendingToolsForConversation(payload.conversationId)
+
+      setMessagesWithRef(prev => prev.filter(message => {
+        if (message.conversationId !== payload.conversationId) return true
+        return !message.questions?.length
+      }))
+      
+      // Reset any assistant messages that might be stuck streaming for this conversation
+      setMessagesWithRef(prev => prev.map(message => {
+        if (message.conversationId === payload.conversationId && message.isStreaming) {
+          return {
+            ...message,
+            isStreaming: false,
+            streamingText: undefined,
+          }
+        }
+        return message
+      }))
+      
       if (activeRunIdRef.current === payload.runId) {
         activeRunIdRef.current = null
         activeRunConversationIdRef.current = null
@@ -1286,19 +1433,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
         receivedConversationRolledBack
       )
     }
-  }, [activeConversationIdRef, cleanupPendingToolsForConversation, completePendingToolsForConversation, flushPendingStatusMessages, handleToolCallEvent, setIsAwaitingAgentResponse, setIsSending, setMessagesWithRef, setRollbackPartialNotice, socket, toChatbotMessage, userId, setConversations])
-
-  useEffect(() => {
-    const pendingText = consumePendingChatbotPrefill()
-    if (pendingText) {
-      applyPrefill(pendingText)
-    }
-    return listenToChatbotPrefill(applyPrefill)
-  }, [applyPrefill])
-
-  useEffect(() => {
-    resizeInput()
-  }, [input, resizeInput])
+  }, [activeConversationIdRef, appendMessage, cancelActiveStreaming, cleanupPendingToolsForConversation, completePendingToolsForConversation, flushPendingStatusMessages, handleToolCallEvent, messagesRef, setConversations, setIsAwaitingAgentResponse, setIsSending, setMessagesWithRef, setRollbackPartialNotice, socket, streamAssistantMessage, toChatbotMessage, userId])
 
   useEffect(() => {
     if (!panelRef.current) return
@@ -1372,7 +1507,7 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     if (lastMessage.role !== 'status') {
       container.scrollTop = container.scrollHeight
     }
-  }, [messages, messagesContainerRef, shouldAutoScroll])
+  }, [messages, messagesContainerRef, shouldAutoScroll, shouldAutoScrollRef])
 
   useEffect(() => {
     if (isLoadingMessages) return

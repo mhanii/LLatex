@@ -1,6 +1,7 @@
 // services/web/frontend/js/features/ide-react/components/chatbot/components/ChatbotMessagesContainer.tsx
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { MessageItem } from './MessageItem'
 import { StatusGroup } from './StatusGroup'
 import { ChatbotMessageGroup } from '../types/chatbot-types'
@@ -15,6 +16,9 @@ interface ChatbotMessagesContainerProps {
   onCopyMessage: (text: string) => void
   onRollbackMessage?: (id: string) => void
   rollbackDisabled?: boolean
+  onSubmitQuestionAnswer: (answerText: string, questionRunId?: string | null) => void
+  activeConversationLastRunId: string | null
+  resolvedQuestionRunIds: string[]
   onToggleStatusGroup: (id: string, isExpanded: boolean) => void
   isStatusGroupExpanded: (groupId: string) => boolean
   shouldShowToggleForGroup: (groupId: string) => boolean
@@ -36,6 +40,9 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
   onCopyMessage,
   onRollbackMessage,
   rollbackDisabled = false,
+  onSubmitQuestionAnswer,
+  activeConversationLastRunId,
+  resolvedQuestionRunIds,
   onToggleStatusGroup,
   isStatusGroupExpanded,
   shouldShowToggleForGroup,
@@ -46,6 +53,7 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
   activeConversationId,
   isLoadingMessages = false,
 }) => {
+  const { t } = useTranslation()
   const seenAssistantMessageIdsRef = useRef(new Set<string>())
   const previousConversationIdRef = useRef<string | null>(null)
   const hasInitializedSeenMessagesRef = useRef(false)
@@ -124,7 +132,16 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
           {messageGroups.map(group => {
             if (group.type === 'single') {
               const message = group.message
-              const shouldReveal = revealingMessageIds.includes(message.id)
+              const isCurrentQuestion = Boolean(
+                message.questions?.length &&
+                message.runId &&
+                message.runId === activeConversationLastRunId &&
+                !resolvedQuestionRunIds.includes(message.runId)
+              )
+              if (message.questions?.length && !isCurrentQuestion) {
+                return null
+              }
+              const shouldReveal = revealingMessageIds.includes(message.id) && !message.isStreaming
               return (
                 <MessageItem
                   key={message.id}
@@ -138,6 +155,9 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
                   onCopy={onCopyMessage}
                   onRollback={onRollbackMessage}
                   rollbackDisabled={rollbackDisabled}
+                  onSubmitQuestionAnswer={onSubmitQuestionAnswer}
+                  isStreaming={message.isStreaming}
+                  streamingText={message.streamingText}
                   onAnimationEnd={shouldReveal ? () => handleAnimationEnd(message.id) : undefined}
                 />
               )
@@ -167,7 +187,7 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
           type="button"
           className="ide-chatbot-scroll-to-bottom"
           onClick={onJumpToLatestMessage}
-          aria-label="Go to latest message"
+          aria-label={t('chatbot_go_to_latest_message')}
         >
           <svg
             width="18"

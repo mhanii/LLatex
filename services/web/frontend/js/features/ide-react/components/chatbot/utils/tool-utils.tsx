@@ -10,6 +10,14 @@ export const toolSubject = (
   const page = toolInput?.page
   
   switch (toolName) {
+    case 'grep':
+    case 'search_files':
+    case 'search':
+    case 'search_code':
+    case 'find_in_files': {
+      const query = toolInput?.query ?? toolInput?.pattern ?? toolInput?.text
+      return query ? `searching for "${query}"` : 'searching'
+    }
     case 'list_files':
       return 'scanning project files'
     case 'read_file':
@@ -73,6 +81,17 @@ export const renderStatusIcon = (
 
   const toolIcon = (() => {
     switch (toolName) {
+      case 'grep':
+      case 'search_files':
+      case 'search':
+      case 'search_code':
+      case 'find_in_files':
+        return (
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="10" cy="10" r="6" />
+            <line x1="21" y1="21" x2="15" y2="15" />
+          </svg>
+        )
       case 'read_file':
       case 'read_skill':
       case 'get_outline':
