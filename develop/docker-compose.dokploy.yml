@@ -27,6 +27,8 @@ services:
     env_file:
       - path: ./dev.env
         required: true
+      - path: ./.env
+        required: true
     environment:
       NODE_ENV: production
     networks:
@@ -118,6 +120,8 @@ services:
       dockerfile: services/document-updater/Dockerfile
     env_file:
       - path: ./dev.env
+        required: true
+      - path: ./.env
         required: true
     environment:
       NODE_ENV: production
@@ -272,6 +276,8 @@ services:
     env_file:
       - path: ./dev.env
         required: true
+      - path: ./.env
+        required: true
     environment:
       - NODE_ENV=production
       - V1_HISTORY_USER=staging
@@ -285,6 +291,8 @@ services:
       dockerfile: services/real-time/Dockerfile
     env_file:
       - path: ./dev.env
+        required: true
+      - path: ./.env
         required: true
     environment:
       NODE_ENV: production

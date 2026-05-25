@@ -151,10 +151,14 @@ services:
     restart: unless-stopped
 
   document-updater:
+    env_file:
+      - .env
     environment: { NODE_ENV: production }
     restart: unless-stopped
 
   project-history:
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       # history-v1 reads STAGING_PASSWORD; project-history reads V1_HISTORY_PASSWORD.
@@ -164,6 +168,8 @@ services:
     restart: unless-stopped
 
   real-time:
+    env_file:
+      - .env
     environment: { NODE_ENV: production }
     restart: unless-stopped
     networks:
@@ -171,6 +177,8 @@ services:
       - dokploy-network
 
   chat:
+    env_file:
+      - .env
     environment: { NODE_ENV: production }
     restart: unless-stopped
 
