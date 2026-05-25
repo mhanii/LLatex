@@ -89,6 +89,11 @@ services:
       - WEB_API_PASSWORD=${WEB_API_PASSWORD}
       - V1_HISTORY_USER=staging
       - V1_HISTORY_PASS=${V1_HISTORY_PASS}
+      # Web stores these in editor.buckets and uses them to build filestore
+      # URLs for history-tracked blobs. Must match the values on filestore
+      # (and the storage paths history-v1 writes to).
+      - OVERLEAF_EDITOR_BLOBS_BUCKET=/buckets/blobs
+      - OVERLEAF_EDITOR_PROJECT_BLOBS_BUCKET=/buckets/project_blobs
     restart: unless-stopped
     depends_on:
       volume-init:
@@ -131,6 +136,14 @@ services:
   filestore:
     environment:
       - NODE_ENV=production
+      # Filestore proxies /history/project/.../hash/... reads from the blob
+      # store that history-v1 writes. Without these paths it returns 500
+      # ERR_INVALID_ARG_TYPE and CLSI compilation fails for any project
+      # with binary resources (images, embedded assets).
+      - OVERLEAF_EDITOR_PROJECT_BLOBS_BUCKET=/buckets/project_blobs
+      - OVERLEAF_EDITOR_BLOBS_BUCKET=/buckets/blobs
+    volumes:
+      - history-v1-buckets:/buckets
     restart: unless-stopped
     depends_on:
       volume-init:

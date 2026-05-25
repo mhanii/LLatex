@@ -141,6 +141,8 @@ services:
         required: true
     environment:
       - NODE_ENV=production
+      - OVERLEAF_EDITOR_PROJECT_BLOBS_BUCKET=/buckets/project_blobs
+      - OVERLEAF_EDITOR_BLOBS_BUCKET=/buckets/blobs
     networks:
       default: null
     restart: unless-stopped
@@ -155,6 +157,10 @@ services:
         volume: {}
       - source: filestore-uploads
         target: /overleaf/services/filestore/uploads
+        type: volume
+        volume: {}
+      - source: history-v1-buckets
+        target: /buckets
         type: volume
         volume: {}
   history-v1:
@@ -435,6 +441,8 @@ services:
       - WEB_API_PASSWORD=${WEB_API_PASSWORD}
       - V1_HISTORY_USER=staging
       - V1_HISTORY_PASS=${V1_HISTORY_PASS}
+      - OVERLEAF_EDITOR_BLOBS_BUCKET=/buckets/blobs
+      - OVERLEAF_EDITOR_PROJECT_BLOBS_BUCKET=/buckets/project_blobs
     networks:
       default: null
       dokploy-network: null
