@@ -8,6 +8,10 @@ import ChatManager from '../../../../app/src/Features/Chat/ChatManager.mjs'
 import EditorController from '../../../../app/src/Features/Editor/EditorController.mjs'
 import EditorRealTimeController from '../../../../app/src/Features/Editor/EditorRealTimeController.mjs'
 import DocumentUpdaterHandler from '../../../../app/src/Features/DocumentUpdater/DocumentUpdaterHandler.mjs'
+import HistoryManager from '../../../../app/src/Features/History/HistoryManager.mjs'
+import RestoreManager from '../../../../app/src/Features/History/RestoreManager.mjs'
+import ProjectAuditLogHandler from '../../../../app/src/Features/Project/ProjectAuditLogHandler.mjs'
+import logger from '@overleaf/logger'
 import UserInfoManager from '../../../../app/src/Features/User/UserInfoManager.mjs'
 import UserInfoController from '../../../../app/src/Features/User/UserInfoController.mjs'
 import UserUpdater from '../../../../app/src/Features/User/UserUpdater.mjs'
@@ -163,6 +167,39 @@ function buildProjectContext(project) {
   }
 }
 
+// Force any pending doc-updater / project-history ops to land in history-v1,
+// then read the resulting end version. Returns null on any failure: rollback
+// for this turn just won't be offered, and the user message still records.
+//
+// The history-v1 `/latest/history` endpoint returns
+// `{ chunk: { history: { changes: [...] }, startVersion } }` — no top-level
+// endVersion. The current end version is `startVersion + changes.length`.
+async function captureProjectVersion(projectId) {
+  try {
+    await DocumentUpdaterHandler.promises.flushProjectToMongo(projectId)
+    await HistoryManager.promises.flushProject(projectId)
+    const history = await HistoryManager.promises.getLatestHistory(projectId)
+    const startVersion = history?.chunk?.startVersion
+    const changeCount = history?.chunk?.history?.changes?.length
+    if (typeof startVersion !== 'number' || typeof changeCount !== 'number') {
+      logger.warn(
+        { projectId, historyKeys: Object.keys(history?.chunk ?? {}) },
+        'unexpected getLatestHistory response shape; ' +
+          'cannot derive end version for agent rollback'
+      )
+      return null
+    }
+    return startVersion + changeCount
+  } catch (err) {
+    logger.warn(
+      { err, projectId },
+      'failed to capture project history version for agent rollback; ' +
+        'rollback to this message will be unavailable'
+    )
+    return null
+  }
+}
+
 async function buildAgentChatHistory(projectId, conversationId, excludeMessageId) {
   let thread
   try {
@@ -267,17 +304,32 @@ async function sendMessage(req, res) {
     )
     chatMessage.user = UserInfoController.formatPersonalInfo(user)
 
+    // Capture the project's history version so we can offer rollback to this
+    // point later. The two flushes here make sure any in-flight ops from the
+    // user (or a prior accept-on-edit pass) are in history-v1 before we read
+    // the version. Failures must not block the user message — rollback simply
+    // won't be offered for this message.
+    const projectVersionBefore = await captureProjectVersion(projectId)
+
     await AgentConversationManager.promises.recordMessage(
       projectId,
       conversationId,
       chatMessage,
-      'user'
+      'user',
+      null,
+      projectVersionBefore
     )
 
     EditorRealTimeController.emitToRoom(projectId, 'agent:message', {
       conversationId,
       conversation,
-      message: { ...chatMessage, role: 'user' },
+      message: {
+        ...chatMessage,
+        role: 'user',
+        ...(typeof projectVersionBefore === 'number'
+          ? { projectVersionBefore }
+          : {}),
+      },
     })
 
     // Build chat history for the agent. The chat thread alone does not carry
@@ -406,6 +458,23 @@ async function agentCancelled(req, res) {
   // already gone) and let a concurrent request slip through.
   await applyUsageDelta(userId, outputTokensDelta, costUsdDelta)
   releaseReservationByRunId(runId)
+  // Mark the run as cancelled on the conversation so getActiveRunId
+  // doesn't classify it as in-flight. Without this, the rollback
+  // endpoint's in-flight guard would permanently 409 after cancel
+  // (no assistant message ever lands for a cancelled run, so the
+  // "completed" check stays false forever).
+  try {
+    await AgentConversationManager.promises.markRunCancelled(
+      projectId,
+      conversationId,
+      runId
+    )
+  } catch (err) {
+    logger.warn(
+      { err, projectId, conversationId, runId },
+      'agentCancelled: failed to mark run cancelled on the conversation'
+    )
+  }
   EditorRealTimeController.emitToRoom(projectId, 'agent:cancelled', {
     conversationId,
     runId,
@@ -520,9 +589,15 @@ async function getConversationMessages(req, res) {
       const info = meta.get(message.id) ?? {
         role: message.user_id ? 'user' : 'assistant',
         runId: null,
+        projectVersionBefore: null,
       }
+      const baseExtras =
+        info.role === 'user' &&
+        typeof info.projectVersionBefore === 'number'
+          ? { projectVersionBefore: info.projectVersionBefore }
+          : {}
       if (info.role !== 'assistant' || !info.runId) {
-        return { ...message, role: info.role }
+        return { ...message, role: info.role, ...baseExtras }
       }
       let toolEvents = []
       try {
@@ -538,11 +613,214 @@ async function getConversationMessages(req, res) {
       return {
         ...message,
         role: info.role,
+        ...baseExtras,
         ...(toolEvents.length > 0 ? { toolEvents } : {}),
       }
     })
   )
   res.json(enrichedMessages)
+}
+
+// Restore the project to the version that was recorded against this user
+// message and discard the message (plus everything after it) from the
+// conversation. Reuses the existing `RestoreManager.revertProject` primitive
+// so file create/delete/move *and* accepted tracked changes all unwind in
+// one shot — see the plan in
+// .claude/plans/study-the-track-changes-implementation-swirling-peacock.md
+// for why surgical change-tagging is the wrong primitive here.
+async function rollbackToMessage(req, res) {
+  const {
+    project_id: projectId,
+    conversation_id: conversationId,
+    message_id: messageId,
+  } = req.params
+  const userId = SessionManager.getLoggedInUserId(req.session)
+  if (userId == null) {
+    return res.status(403).json({ error: 'not logged in' })
+  }
+
+  const targetMessage = await AgentConversationManager.promises.findUserMessage(
+    projectId,
+    conversationId,
+    messageId,
+    userId
+  )
+  if (!targetMessage) {
+    return res.status(404).json({ error: 'message not found' })
+  }
+  if (targetMessage.role !== 'user') {
+    return res
+      .status(400)
+      .json({ error: 'rollback target must be a user message' })
+  }
+  if (typeof targetMessage.projectVersionBefore !== 'number') {
+    return res.status(400).json({
+      error: 'no_recorded_version',
+      message:
+        'This message was sent before rollback was supported. Rollback is ' +
+        'unavailable here.',
+    })
+  }
+
+  // Server-side guard against rolling back mid-run. The frontend disables
+  // the button while `isGenerating`, but a direct API hit (or stale frontend
+  // state) could otherwise revert files the agent is actively writing.
+  // A run is "in flight" when the conversation's lastRunId hasn't yet been
+  // matched by a recorded assistant message.
+  const activeRunId = await AgentConversationManager.promises.getActiveRunId(
+    projectId,
+    conversationId
+  )
+  if (activeRunId) {
+    return res.status(409).json({
+      error: 'run_in_flight',
+      message:
+        'The agent is still working on this conversation. Cancel the ' +
+        'current run before rolling back.',
+    })
+  }
+
+  // Pre-check `rangesSupportEnabled` ourselves rather than relying on
+  // string-matching `RestoreManager.revertProject`'s OError message.
+  // The upstream throws `new OError('project does not have ranges
+  // support', ...)` today; if that wording changes we'd silently fall
+  // through to the generic 500 path. A typed pre-check + a kept-as-fallback
+  // string match makes the error mapping resilient.
+  const project = await ProjectGetter.promises.getProject(projectId, {
+    'overleaf.history.rangesSupportEnabled': 1,
+  })
+  if (!project?.overleaf?.history?.rangesSupportEnabled) {
+    return res.status(400).json({
+      error: 'history_not_supported',
+      message:
+        'This project does not have ranges-aware history enabled, so ' +
+        'rollback is unavailable.',
+    })
+  }
+
+  const version = targetMessage.projectVersionBefore
+
+  // Revert the project first — this is the expensive, risky step. If it
+  // fails we leave the conversation intact so the user can retry.
+  try {
+    await RestoreManager.promises.revertProject(userId, projectId, version)
+  } catch (err) {
+    logger.error(
+      { err, projectId, conversationId, messageId, version },
+      'agent rollback: revertProject failed'
+    )
+    // Belt-and-suspenders: if the project's rangesSupport state changed
+    // between our pre-check and revertProject (very unlikely but possible
+    // — e.g. an admin toggling it off mid-request), still map the error
+    // back to the typed code.
+    if (err?.message?.includes('ranges support')) {
+      return res.status(400).json({
+        error: 'history_not_supported',
+        message:
+          'This project does not have ranges-aware history enabled, so ' +
+          'rollback is unavailable.',
+      })
+    }
+    return res
+      .status(500)
+      .json({ error: 'rollback_failed', message: 'Project restore failed.' })
+  }
+
+  // Truncate the agent-conversation metadata. After this, getMessageMetadata
+  // will no longer return the rolled-back messages, so subsequent agent
+  // turns won't replay them.
+  //
+  // We're in a partial-success window here: revertProject already
+  // committed the project files. If truncate throws (e.g. mongo
+  // unavailable), the convo would silently retain the rolled-back
+  // messages — the next turn would then replay tool calls referencing
+  // files that no longer exist in the project state. Surface this as a
+  // distinct `rollback_partial` so the frontend can warn the user to
+  // refresh instead of leaving them with mismatched client + server
+  // state. The realtime event is also emitted in `partial: true` form
+  // so other tabs at least know the project changed.
+  let removedMessageIds
+  try {
+    removedMessageIds =
+      await AgentConversationManager.promises.truncateFromMessage(
+        projectId,
+        conversationId,
+        targetMessage.createdAt
+      )
+  } catch (err) {
+    logger.error(
+      { err, projectId, conversationId, messageId, version },
+      'agent rollback: truncateFromMessage failed AFTER successful revertProject — partial state'
+    )
+    EditorRealTimeController.emitToRoom(
+      projectId,
+      'agent:conversation-rolled-back',
+      {
+        conversationId,
+        rolledBackToMessageId: messageId,
+        rolledBackToVersion: version,
+        removedMessageIds: [],
+        partial: true,
+      }
+    )
+    return res.status(500).json({
+      error: 'rollback_partial',
+      message:
+        'Project files were restored, but cleaning up the conversation ' +
+        'failed. Refresh the page to sync your view.',
+      rolledBackToVersion: version,
+    })
+  }
+
+  // Best-effort cleanup of the chat-service thread. A failure here leaves
+  // dangling chat messages, but the agent-side conversation is already
+  // truncated and the next sendMessage will work — the only visible cost is
+  // stale chat entries. Log and continue.
+  for (const removedId of removedMessageIds) {
+    try {
+      await ChatApiHandler.promises.deleteMessage(
+        projectId,
+        conversationId,
+        removedId
+      )
+    } catch (err) {
+      logger.warn(
+        { err, projectId, conversationId, removedId },
+        'agent rollback: failed to delete chat-service message'
+      )
+    }
+  }
+
+  ProjectAuditLogHandler.addEntryIfManagedInBackground(
+    projectId,
+    'project-history-version-restored',
+    userId,
+    req.ip,
+    {
+      version,
+      scope: 'agent-rollback',
+      conversationId,
+      rolledBackToMessageId: messageId,
+      removedMessageCount: removedMessageIds.length,
+    }
+  )
+
+  EditorRealTimeController.emitToRoom(
+    projectId,
+    'agent:conversation-rolled-back',
+    {
+      conversationId,
+      rolledBackToMessageId: messageId,
+      rolledBackToVersion: version,
+      removedMessageIds,
+    }
+  )
+
+  return res.json({
+    rolledBackToVersion: version,
+    rolledBackToMessageId: messageId,
+    removedMessageIds,
+  })
 }
 
 // Called by llm-agent service after run completes — emits reply over WebSocket.
@@ -949,6 +1227,7 @@ export default {
   listConversations: expressify(listConversations),
   deleteConversation: expressify(deleteConversation),
   getConversationMessages: expressify(getConversationMessages),
+  rollbackToMessage: expressify(rollbackToMessage),
   sendMessage: expressify(sendMessage),
   cancelRun: expressify(cancelRun),
   agentComplete: expressify(agentComplete),

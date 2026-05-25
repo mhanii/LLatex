@@ -24,6 +24,9 @@ export const useMessageUtilities = (
         message.role ?? (message.user_id === user.id ? 'user' : 'assistant'),
       text: message.content,
       ...(conversationId ? { conversationId } : {}),
+      ...(typeof message.projectVersionBefore === 'number'
+        ? { projectVersionBefore: message.projectVersionBefore }
+        : {}),
     }),
     [user.id]
   )

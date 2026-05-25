@@ -13,6 +13,14 @@ import { useChatbotPanelController } from './hooks/useChatbotPanelController'
 import { ChatbotHeader } from './components/ChatbotHeader'
 import { ChatbotMessagesContainer } from './components/ChatbotMessagesContainer'
 import { ChatbotComposer } from './components/ChatbotComposer'
+import {
+  OLModal,
+  OLModalBody,
+  OLModalFooter,
+  OLModalHeader,
+  OLModalTitle,
+} from '@/shared/components/ol/ol-modal'
+import OLButton from '@/shared/components/ol/ol-button'
 
 // Webpack/Terser folds `process.env.NODE_ENV !== 'production'` to a literal
 // boolean in production builds. The dead branch — and the dynamic import()
@@ -193,8 +201,34 @@ export default function ChatbotPanel() {
   const handleSimulateToolCall = controller.simulateToolCall
   const handleStopGeneration = controller.stopGeneration
 
+  const [pendingRollbackId, setPendingRollbackId] = useState<string | null>(null)
+  const [isRollbackInFlight, setIsRollbackInFlight] = useState(false)
+  const [rollbackError, setRollbackError] = useState<string | null>(null)
+  const handleRequestRollback = useCallback((id: string) => {
+    setRollbackError(null)
+    setPendingRollbackId(id)
+  }, [])
+  const handleCancelRollback = useCallback(() => {
+    if (isRollbackInFlight) return
+    setPendingRollbackId(null)
+    setRollbackError(null)
+  }, [isRollbackInFlight])
+  const handleConfirmRollback = useCallback(async () => {
+    if (!pendingRollbackId) return
+    setIsRollbackInFlight(true)
+    setRollbackError(null)
+    try {
+      await controller.rollbackToMessage(pendingRollbackId)
+      setPendingRollbackId(null)
+    } catch (error: any) {
+      setRollbackError(error?.message ?? 'Rollback failed.')
+    } finally {
+      setIsRollbackInFlight(false)
+    }
+  }, [controller, pendingRollbackId])
+
   const isGenerating = useMemo(
-    () => state.isSending || state.isAwaitingAgentResponse || 
+    () => state.isSending || state.isAwaitingAgentResponse ||
           state.messages.some(message => message.role === 'status' && message.status === 'running'),
     [state.isSending, state.isAwaitingAgentResponse, state.messages]
   )
@@ -220,6 +254,30 @@ export default function ChatbotPanel() {
         onPointerDown={handleHeaderPointerDown}
       />
 
+      {controller.rollbackPartialNotice && (
+        <div
+          className="alert alert-warning"
+          role="alert"
+          style={{
+            margin: '8px 12px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '8px',
+          }}
+        >
+          <span style={{ flex: 1 }}>{controller.rollbackPartialNotice}</span>
+          <button
+            type="button"
+            className="btn btn-link btn-sm"
+            onClick={controller.dismissRollbackPartialNotice}
+            style={{ padding: 0, lineHeight: 1 }}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       <ChatbotMessagesContainer
         messageGroups={state.messageGroups}
         editingMessageId={state.editingMessageId}
@@ -228,6 +286,8 @@ export default function ChatbotPanel() {
         onMessageLeave={handleMessageLeave}
         onEditMessage={handleEditMessage}
         onCopyMessage={handleCopyMessage}
+        onRollbackMessage={handleRequestRollback}
+        rollbackDisabled={isGenerating}
         onToggleStatusGroup={handleToggleStatusGroup}
         isStatusGroupExpanded={controller.isStatusGroupExpanded}
         shouldShowToggleForGroup={controller.shouldShowToggleForGroup}
@@ -238,6 +298,53 @@ export default function ChatbotPanel() {
         activeConversationId={state.activeConversationId}
         isLoadingMessages={state._isLoadingMessages}
       />
+
+      <OLModal
+        show={pendingRollbackId !== null}
+        onHide={handleCancelRollback}
+        backdrop={isRollbackInFlight ? 'static' : true}
+      >
+        <OLModalHeader closeButton={!isRollbackInFlight}>
+          <OLModalTitle>Roll back to this message?</OLModalTitle>
+        </OLModalHeader>
+        <OLModalBody>
+          <p>
+            This will restore your project to the state right before this
+            message was sent, and remove this message and everything after
+            it from the conversation.
+          </p>
+          <p>
+            <strong>Any edits</strong> made since this message — including
+            your own manual edits and collaborator changes — will be lost.
+          </p>
+          {rollbackError && (
+            <div
+              className="alert alert-danger"
+              role="alert"
+              style={{ marginTop: '12px' }}
+            >
+              {rollbackError}
+            </div>
+          )}
+        </OLModalBody>
+        <OLModalFooter>
+          <OLButton
+            variant="secondary"
+            onClick={handleCancelRollback}
+            disabled={isRollbackInFlight}
+          >
+            Cancel
+          </OLButton>
+          <OLButton
+            variant="danger"
+            onClick={handleConfirmRollback}
+            disabled={isRollbackInFlight}
+            isLoading={isRollbackInFlight}
+          >
+            Roll back
+          </OLButton>
+        </OLModalFooter>
+      </OLModal>
 
       {DebugPanel && (
         <Suspense fallback={null}>

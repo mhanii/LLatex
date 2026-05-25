@@ -13,6 +13,8 @@ interface ChatbotMessagesContainerProps {
   onMessageLeave: (id: string) => void
   onEditMessage: (id: string) => void
   onCopyMessage: (text: string) => void
+  onRollbackMessage?: (id: string) => void
+  rollbackDisabled?: boolean
   onToggleStatusGroup: (id: string, isExpanded: boolean) => void
   isStatusGroupExpanded: (groupId: string) => boolean
   shouldShowToggleForGroup: (groupId: string) => boolean
@@ -32,6 +34,8 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
   onMessageLeave,
   onEditMessage,
   onCopyMessage,
+  onRollbackMessage,
+  rollbackDisabled = false,
   onToggleStatusGroup,
   isStatusGroupExpanded,
   shouldShowToggleForGroup,
@@ -132,6 +136,8 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
                   onMouseLeave={() => onMessageLeave(message.id)}
                   onEdit={onEditMessage}
                   onCopy={onCopyMessage}
+                  onRollback={onRollbackMessage}
+                  rollbackDisabled={rollbackDisabled}
                   onAnimationEnd={shouldReveal ? () => handleAnimationEnd(message.id) : undefined}
                 />
               )

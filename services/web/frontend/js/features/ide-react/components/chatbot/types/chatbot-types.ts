@@ -7,6 +7,10 @@ export type ChatbotMessage = {
   status?: AgentToolCallEvent['status']
   toolName?: string
   toolInput?: Record<string, unknown>
+  // Set on user messages where the backend captured the project history
+  // version before the agent ran. Required for the "Roll back to here"
+  // action; absent means rollback isn't available for that message.
+  projectVersionBefore?: number
 }
 
 export type ChatbotMessageGroup =
@@ -34,6 +38,7 @@ export type AgentServerMessage = {
   timestamp: number
   user_id: string
   role?: 'user' | 'assistant'
+  projectVersionBefore?: number
 }
 
 export type AgentToolCallEvent = {
