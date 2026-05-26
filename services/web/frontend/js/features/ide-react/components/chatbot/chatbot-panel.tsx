@@ -257,7 +257,6 @@ export default function ChatbotPanel() {
 
   const isGenerating = useMemo(
     () => state.isSending || state.isAwaitingAgentResponse ||
-          // hasPendingQuestion intentionally excluded - questions are user input, not generation
           state.messages.some(message => message.role === 'status' && message.status === 'running'),
     [state.isSending, state.isAwaitingAgentResponse, state.messages]
   )
@@ -315,13 +314,13 @@ export default function ChatbotPanel() {
         onMessageLeave={handleMessageLeave}
         onEditMessage={handleEditMessage}
         onCopyMessage={handleCopyMessage}
-        onRollbackMessage={handleRequestRollback}
-        rollbackDisabled={isGenerating}
         onSubmitQuestionAnswer={(answerText: string, questionRunId: string | null | undefined, options?: { visible?: boolean }) =>
           controller.submitMessage(answerText, { ...options, questionRunId }).catch(err => debugConsole.error(err))
         }
         activeConversationLastRunId={activeConversationLastRunId}
         resolvedQuestionRunIds={state.resolvedQuestionRunIds}
+        onRollbackMessage={handleRequestRollback}
+        rollbackDisabled={isGenerating}
         onToggleStatusGroup={handleToggleStatusGroup}
         isStatusGroupExpanded={controller.isStatusGroupExpanded}
         shouldShowToggleForGroup={controller.shouldShowToggleForGroup}

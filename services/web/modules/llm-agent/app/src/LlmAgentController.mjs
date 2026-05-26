@@ -619,8 +619,8 @@ async function getConversationMessages(req, res) {
         ...message,
         role: info.role,
         runId: info.runId,
-        ...baseExtras,
         ...(questions ? { questions } : {}),
+        ...baseExtras,
         ...(toolEvents.length > 0 ? { toolEvents } : {}),
       }
     })
@@ -842,6 +842,7 @@ async function agentComplete(req, res) {
     userId,
     content,
     runId,
+    questions,
     outputTokensDelta,
     costUsdDelta,
     questions,

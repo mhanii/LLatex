@@ -355,11 +355,11 @@ export async function run(runId, input, startedAt, opts = {}) {
           runId,
           userId: input.userId,
           content: output.content,
-          outputTokensDelta: totalOutputTokens,
-          costUsdDelta: totalCostUsd,
           ...(output.type === 'question' && output.questions
             ? { questions: output.questions }
             : {}),
+          outputTokensDelta: totalOutputTokens,
+          costUsdDelta: totalCostUsd,
         })
       } catch (notifyErr) {
         logger.warn(

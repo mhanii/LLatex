@@ -8,6 +8,7 @@ import { isSafeToStream, splitStreamingMarkdown } from '../utils/streaming-utils
 import { renderStatusText } from '../utils/render-utils'
 import { getFullFilePathForTooltip, openEntityByPathUtil } from '../utils/file-operations'
 import { useStatusGroupUtilities } from './useStatusGroupUtilities'
+import { consumePendingChatbotPrefill, listenToChatbotPrefill } from '../chatbot-prefill-events'
 
 export type ChatbotPanelControllerArgs = {
   projectId: string
@@ -112,6 +113,8 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     appendMessage,
     toChatbotMessage,
     createMessageId,
+    resizeInput,
+    applyPrefill,
     handleMessagesScroll,
     setChatIsOpen,
     chatDockSide,
@@ -409,6 +412,93 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     navigator.clipboard?.writeText(content).catch(() => {})
   }, [])
 
+  const streamAssistantMessage = useCallback(async (
+    messageId: string,
+    conversationId: string,
+    fullText: string
+  ) => {
+    const streamToken = ++activeStreamingTokenRef.current
+    
+    const cleanupOnCancel = () => {
+      setMessagesWithRef(prev => prev.map(message => {
+        if (message.id !== messageId || message.conversationId !== conversationId) {
+          return message
+        }
+        return {
+          ...message,
+          isStreaming: false,
+          streamingText: undefined,
+          text: fullText,
+        }
+      }))
+    }
+
+    const chunks = splitStreamingMarkdown(fullText)
+    let bufferedText = ''
+    let renderedText = ''
+
+    const updateStreamingMessage = (nextText: string, isStreaming: boolean) => {
+      setMessagesWithRef(prev => prev.map(message => {
+        if (message.id !== messageId || message.conversationId !== conversationId) {
+          return message
+        }
+
+        return {
+          ...message,
+          text: fullText,
+          streamingText: nextText,
+          isStreaming,
+        }
+      }))
+
+      if (shouldAutoScrollRef.current && messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+      }
+    }
+
+    updateStreamingMessage('', true)
+
+    for (const chunk of chunks) {
+      if (streamToken !== activeStreamingTokenRef.current) {
+        cleanupOnCancel()
+        return false
+      }
+
+      bufferedText += chunk
+
+      const chunkDelayMs = chunk.includes('\n')
+        ? 72
+        : /[.!?]\s*$/.test(chunk)
+          ? 48
+          : chunk.trim().length < 8
+            ? 18
+            : 24
+
+      const shouldFlushBufferedText =
+        bufferedText.length > 0 &&
+        isSafeToStream(bufferedText) &&
+        (chunk.includes('\n') || /[.!?]\s*$/.test(bufferedText) || bufferedText.length >= 32)
+
+      if (shouldFlushBufferedText) {
+        renderedText += bufferedText
+        bufferedText = ''
+        updateStreamingMessage(renderedText, true)
+      }
+
+      await new Promise(resolve => setTimeout(resolve, chunkDelayMs))
+    }
+
+    // Check again after the loop completes (cancellation could have happened during final delay)
+    if (streamToken !== activeStreamingTokenRef.current) {
+      cleanupOnCancel()
+      return false
+    }
+
+    renderedText += bufferedText
+    updateStreamingMessage(renderedText, false)
+    return true
+  }, [setMessagesWithRef, shouldAutoScrollRef, messagesContainerRef])
+  
   // Roll the project back to the version captured when this user message
   // was sent, and prune the message + everything after from the local
   // conversation. Backend handles the heavy lifting (RestoreManager and
@@ -507,93 +597,6 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       setIsSending,
     ]
   )
-
-  const streamAssistantMessage = useCallback(async (
-    messageId: string,
-    conversationId: string,
-    fullText: string
-  ) => {
-    const streamToken = ++activeStreamingTokenRef.current
-    
-    const cleanupOnCancel = () => {
-      setMessagesWithRef(prev => prev.map(message => {
-        if (message.id !== messageId || message.conversationId !== conversationId) {
-          return message
-        }
-        return {
-          ...message,
-          isStreaming: false,
-          streamingText: undefined,
-          text: fullText,
-        }
-      }))
-    }
-
-    const chunks = splitStreamingMarkdown(fullText)
-    let bufferedText = ''
-    let renderedText = ''
-
-    const updateStreamingMessage = (nextText: string, isStreaming: boolean) => {
-      setMessagesWithRef(prev => prev.map(message => {
-        if (message.id !== messageId || message.conversationId !== conversationId) {
-          return message
-        }
-
-        return {
-          ...message,
-          text: fullText,
-          streamingText: nextText,
-          isStreaming,
-        }
-      }))
-
-      if (shouldAutoScrollRef.current && messagesContainerRef.current) {
-        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
-      }
-    }
-
-    updateStreamingMessage('', true)
-
-    for (const chunk of chunks) {
-      if (streamToken !== activeStreamingTokenRef.current) {
-        cleanupOnCancel()
-        return false
-      }
-
-      bufferedText += chunk
-
-      const chunkDelayMs = chunk.includes('\n')
-        ? 72
-        : /[.!?]\s*$/.test(chunk)
-          ? 48
-          : chunk.trim().length < 8
-            ? 18
-            : 24
-
-      const shouldFlushBufferedText =
-        bufferedText.length > 0 &&
-        isSafeToStream(bufferedText) &&
-        (chunk.includes('\n') || /[.!?]\s*$/.test(bufferedText) || bufferedText.length >= 32)
-
-      if (shouldFlushBufferedText) {
-        renderedText += bufferedText
-        bufferedText = ''
-        updateStreamingMessage(renderedText, true)
-      }
-
-      await new Promise(resolve => setTimeout(resolve, chunkDelayMs))
-    }
-
-    // Check again after the loop completes (cancellation could have happened during final delay)
-    if (streamToken !== activeStreamingTokenRef.current) {
-      cleanupOnCancel()
-      return false
-    }
-
-    renderedText += bufferedText
-    updateStreamingMessage(renderedText, false)
-    return true
-  }, [setMessagesWithRef, shouldAutoScrollRef, messagesContainerRef])
 
   const clearReference = useCallback(() => {
     setReferenceText(null)
@@ -1434,6 +1437,18 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
       )
     }
   }, [activeConversationIdRef, appendMessage, cancelActiveStreaming, cleanupPendingToolsForConversation, completePendingToolsForConversation, flushPendingStatusMessages, handleToolCallEvent, messagesRef, setConversations, setIsAwaitingAgentResponse, setIsSending, setMessagesWithRef, setRollbackPartialNotice, socket, streamAssistantMessage, toChatbotMessage, userId])
+  
+  useEffect(() => {
+    const pendingText = consumePendingChatbotPrefill()
+    if (pendingText) {
+      applyPrefill(pendingText)
+    }
+    return listenToChatbotPrefill(applyPrefill)
+  }, [applyPrefill])
+
+  useEffect(() => {
+    resizeInput()
+  }, [input, resizeInput])
 
   useEffect(() => {
     if (!panelRef.current) return

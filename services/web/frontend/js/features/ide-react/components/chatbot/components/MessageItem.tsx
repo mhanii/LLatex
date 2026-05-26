@@ -57,13 +57,13 @@ interface MessageItemProps {
   onMouseLeave: () => void
   onEdit: (id: string) => void
   onCopy: (text: string) => void
-  onRollback?: (id: string) => void
-  rollbackDisabled?: boolean
   onSubmitQuestionAnswer: (
     answerText: string,
     questionRunId?: string | null,
     options?: { visible?: boolean }
   ) => void
+  onRollback?: (id: string) => void
+  rollbackDisabled?: boolean
   onAnimationEnd?: () => void
   isStreaming?: boolean
   streamingText?: string
@@ -78,9 +78,9 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   onMouseLeave,
   onEdit,
   onCopy,
+  onSubmitQuestionAnswer,
   onRollback,
   rollbackDisabled = false,
-  onSubmitQuestionAnswer,
   onAnimationEnd,
   isStreaming = false,
   streamingText,

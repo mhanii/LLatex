@@ -115,9 +115,14 @@ export const ChatbotComposer: React.FC<ChatbotComposerProps> = ({
                 onClick={onStopGeneration}
                 aria-label={t('chatbot_stop_generating_response')}
               >
-                <span className="material-symbols ide-chatbot-panel-send-icon" aria-hidden="true">
-                  stop_circle
-                </span>
+                <svg
+                  className="ide-chatbot-panel-send-icon"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  fill="currentColor"
+                >
+                  <rect x="4.5" y="4.5" width="15" height="15" />
+                </svg>
               </button>
             ) : (
               <button

@@ -1132,14 +1132,20 @@
 }
 
 .ide-chatbot-panel-send.btn.is-generating {
-  background: linear-gradient(135deg, var(--red-50) 0%, var(--red-60) 100%);
+  background: var(--white);
+  color: var(--green-60);
+  border: 1px solid var(--green-60);
 
   &:hover:not(:disabled) {
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.14);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.08);
   }
 }
 
 .ide-chatbot-panel-send-icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
   font-variation-settings: 'wght' 500;
   font-size: 20px;
 }
