@@ -355,6 +355,9 @@ export async function run(runId, input, startedAt, opts = {}) {
           runId,
           userId: input.userId,
           content: output.content,
+          ...(output.type === 'question' && output.questions
+            ? { questions: output.questions }
+            : {}),
           outputTokensDelta: totalOutputTokens,
           costUsdDelta: totalCostUsd,
         })

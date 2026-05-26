@@ -600,11 +600,16 @@ async function getConversationMessages(req, res) {
         return { ...message, role: info.role, ...baseExtras }
       }
       let toolEvents = []
+      let questions = null
       try {
-        const { steps } = await LlmAgentApiHandler.promises.getRunSteps(
+        const run = await LlmAgentApiHandler.promises.getRunSteps(
           projectId,
           info.runId
         )
+        const { steps } = run
+        if (run.output?.type === 'question' && Array.isArray(run.output.questions)) {
+          questions = run.output.questions
+        }
         toolEvents = buildToolEvents(steps)
       } catch {
         // Non-fatal: run steps may not exist if the run was pruned or the
@@ -613,6 +618,8 @@ async function getConversationMessages(req, res) {
       return {
         ...message,
         role: info.role,
+        runId: info.runId,
+        ...(questions ? { questions } : {}),
         ...baseExtras,
         ...(toolEvents.length > 0 ? { toolEvents } : {}),
       }
@@ -835,6 +842,7 @@ async function agentComplete(req, res) {
     userId,
     content,
     runId,
+    questions,
     outputTokensDelta,
     costUsdDelta,
   } = req.body
@@ -891,7 +899,12 @@ async function agentComplete(req, res) {
   EditorRealTimeController.emitToRoom(projectId, 'agent:message', {
     conversationId,
     conversation: updatedConversation,
-    message: { ...message, role: 'assistant' },
+    message: {
+      ...message,
+      role: 'assistant',
+      runId,
+      ...(Array.isArray(questions) && questions.length > 0 ? { questions } : {}),
+    },
   })
   res.sendStatus(204)
 }

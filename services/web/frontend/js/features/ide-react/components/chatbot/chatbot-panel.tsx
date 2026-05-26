@@ -1,10 +1,12 @@
 import { Suspense, lazy, useCallback, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useIdeContext } from '@/shared/context/ide-context'
 import { useLayoutContext } from '@/shared/context/layout-context'
 import { useEditorManagerContext } from '@/features/ide-react/context/editor-manager-context'
 import { useFileTreeData } from '@/shared/context/file-tree-data-context'
 import { useProjectContext } from '@/shared/context/project-context'
 import { useUserContext } from '@/shared/context/user-context'
+import { debugConsole } from '@/utils/debugging'
 import { useChatbotState } from './hooks/useChatbotState'
 import { useMessageUtilities } from './hooks/useMessageUtilities'
 import { useConversationUtilities } from './hooks/useConversationUtilities'
@@ -36,6 +38,7 @@ const DebugPanel =
     : null
 
 export default function ChatbotPanel() {
+  const { t } = useTranslation()
   const { projectId } = useProjectContext()
   const user = useUserContext()
   const { socket } = useIdeContext()
@@ -184,6 +187,8 @@ export default function ChatbotPanel() {
     autoCompactedGroupIds,
     setAutoCompactedGroupIds,
     messageGroups: state.messageGroups,
+    resolvedQuestionRunIds: state.resolvedQuestionRunIds,
+  setResolvedQuestionRunIds: state.setResolvedQuestionRunIds,
   })
 
   const handleNewChat = controller.handleNewChat
@@ -199,7 +204,16 @@ export default function ChatbotPanel() {
   const handleClearReference = controller.clearReference
   const handleCancelEdit = controller.cancelEditing
   const handleSimulateToolCall = controller.simulateToolCall
+  const handleSimulateConversation = controller.simulateFullConversation
   const handleStopGeneration = controller.stopGeneration
+  const activeConversationLastRunId = useMemo(
+    () => state.conversations.find(conversation => conversation.id === state.activeConversationId)?.lastRunId ?? null,
+    [state.activeConversationId, state.conversations]
+  )
+  const hasPendingQuestion = useMemo(
+    () => state.messages.length > 0 && Boolean(state.messages[state.messages.length - 1]?.questions?.length),
+    [state.messages]
+  )
 
   const [pendingRollbackId, setPendingRollbackId] = useState<string | null>(null)
   const [isRollbackInFlight, setIsRollbackInFlight] = useState(false)
@@ -241,7 +255,7 @@ export default function ChatbotPanel() {
     <section
       ref={state.panelRef}
       className="ide-chatbot-panel"
-      aria-label="Chatbot panel"
+      aria-label={t('chatbot_panel_title')}
       data-chat-dock-side={chatDockSide}
     >
       <ChatbotHeader
@@ -286,6 +300,11 @@ export default function ChatbotPanel() {
         onMessageLeave={handleMessageLeave}
         onEditMessage={handleEditMessage}
         onCopyMessage={handleCopyMessage}
+        onSubmitQuestionAnswer={(answerText: string, questionRunId: string | null | undefined, options?: { visible?: boolean }) =>
+          controller.submitMessage(answerText, { ...options, questionRunId }).catch(err => debugConsole.error(err))
+        }
+        activeConversationLastRunId={activeConversationLastRunId}
+        resolvedQuestionRunIds={state.resolvedQuestionRunIds}
         onRollbackMessage={handleRequestRollback}
         rollbackDisabled={isGenerating}
         onToggleStatusGroup={handleToggleStatusGroup}
@@ -350,7 +369,7 @@ export default function ChatbotPanel() {
         <Suspense fallback={null}>
           <DebugPanel
             onSimulateToolCall={handleSimulateToolCall}
-            onSimulateConversation={controller.simulateFullConversation}
+            onSimulateConversation={handleSimulateConversation}
           />
         </Suspense>
       )}

@@ -5,6 +5,10 @@ import { createRun, getStepsForRunInProject } from './AgentStore.js'
 import { run, cancelRun } from './AgentManager.js'
 import { getAgent } from './agents/registry.js'
 
+/**
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 async function startRun(req, res) {
   const { projectId } = req.params
   const {
@@ -55,21 +59,29 @@ async function startRun(req, res) {
   res.status(200).json({ runId })
 }
 
+/**
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 async function getRunSteps(req, res) {
   const { projectId, runId } = req.params
-  const steps = await getStepsForRunInProject(projectId, runId)
-  if (steps === null) {
+  const run = await getStepsForRunInProject(projectId, runId)
+  if (run === null) {
     return res.status(404).json({ error: 'run not found in project' })
   }
-  res.json({ steps })
+  res.json(run)
 }
 
+/**
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 async function cancelRunRequest(req, res) {
   const { projectId, runId } = req.params
   // Confirm the run belongs to the project before cancelling — guards against
   // a caller using a runId from another project.
-  const steps = await getStepsForRunInProject(projectId, runId)
-  if (steps === null) {
+  const run = await getStepsForRunInProject(projectId, runId)
+  if (run === null) {
     return res.status(404).json({ error: 'run not found in project' })
   }
   const cancelled = cancelRun(runId)

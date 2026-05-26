@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { debounce, throttle } from 'lodash'
 import PdfViewerControlsToolbar from './pdf-viewer-controls-toolbar'
 import { useProjectContext } from '../../../shared/context/project-context'
@@ -36,6 +37,7 @@ type RewriteSelectionButtonState = {
 }
 
 function PdfJsViewer({ url, pdfFile }: PdfJsViewerProps) {
+  const { t } = useTranslation()
   const { projectId } = useProjectContext()
   const { setChatIsOpen } = useLayoutContext()
 
@@ -728,7 +730,7 @@ function PdfJsViewer({ url, pdfFile }: PdfJsViewerProps) {
           onMouseDown={event => event.preventDefault()}
           onClick={handleRewriteSelection}
           data-testid="pdfjs-selection-rewrite-button"
-          aria-label="Reescribir seccion"
+          aria-label={t('chatbot_reference_selected_text')}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path
@@ -736,7 +738,7 @@ function PdfJsViewer({ url, pdfFile }: PdfJsViewerProps) {
               d="m15.7 3.3 5 5c.4.4.4 1 0 1.4l-10 10c-.1.1-.3.2-.5.3l-5 1.2c-.3.1-.6 0-.8-.2-.2-.2-.3-.5-.2-.8l1.2-5c0-.2.1-.4.3-.5l10-10c.4-.4 1-.4 1.4 0ZM7.2 15.9l-.7 3 3-.7 8.8-8.8-2.3-2.3-8.8 8.8Z"
             />
           </svg>
-          <span>Reescribir seccion</span>
+          <span>{t('chatbot_reference_selected_text')}</span>
         </button>
       )}
       {toolbarInfoLoaded && (

@@ -112,6 +112,9 @@ export const ChatbotDebugPanel: React.FC<ChatbotDebugPanelProps> = ({
         <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px' }}
           onClick={() => onSimulateToolCall('read_skill', { path: 'refactor' }, 'completed', 1200)}>📖 read_sk</button>
 
+        <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px' }}
+          onClick={() => onSimulateToolCall('search_files', { query: 'TODO', directory: './' }, 'completed', 1200)}>🔎 search</button>
+
         <button className="btn btn-sm" style={{ fontSize: '11px', padding: '4px 8px', background: '#dc3545', color: 'white' }}
           onClick={() => onSimulateToolCall('read_file', { path: 'error.txt' }, 'error', 1500)}>❌ ERROR</button>
       </div>

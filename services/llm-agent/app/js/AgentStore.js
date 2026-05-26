@@ -78,16 +78,19 @@ export async function getStepsForRun(runId) {
  *
  * @param {string} projectId
  * @param {string} runId
- * @returns {Promise<Array<import('./types.js').RunStep> | null>}
+ * @returns {Promise<{ steps: Array<import('./types.js').RunStep>, output: import('./types.js').AgentOutput | null } | null>}
  */
 export async function getStepsForRunInProject(projectId, runId) {
   if (!runId || !ObjectId.isValid(runId)) return null
   const doc = await db.agentRuns.findOne(
     { _id: new ObjectId(runId), projectId },
-    { projection: { steps: 1 } }
+    { projection: { steps: 1, output: 1 } }
   )
   if (!doc) return null
-  return doc.steps ?? []
+  return {
+    steps: doc.steps ?? [],
+    output: doc.output ?? null,
+  }
 }
 
 /**
@@ -95,9 +98,10 @@ export async function getStepsForRunInProject(projectId, runId) {
  * @param {import('./types.js').RunStep} step
  */
 export async function appendStep(runId, step) {
+  const update = /** @type {any} */ ({ $push: { steps: step } })
   await db.agentRuns.updateOne(
     { _id: new ObjectId(runId) },
-    { $push: { steps: step } }
+    update
   )
 }
 
@@ -106,9 +110,10 @@ export async function appendStep(runId, step) {
  * @param {import('./context/types.js').ContextItem} item
  */
 export async function appendContextItem(runId, item) {
+  const update = /** @type {any} */ ({ $push: { contextItems: item } })
   await db.agentRuns.updateOne(
     { _id: new ObjectId(runId) },
-    { $push: { contextItems: item } }
+    update
   )
 }
 
