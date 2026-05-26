@@ -9,7 +9,7 @@ const BASE_CTX = {
 }
 
 describe('listFiles', function () {
-  it('returns path for each file in context', async function () {
+  it('returns path and type for each file in context', async function () {
     const ctx = {
       ...BASE_CTX,
       context: {
@@ -18,13 +18,15 @@ describe('listFiles', function () {
         files: [
           { path: 'main.tex', docId: 'doc1' },
           { path: 'refs.bib', docId: 'doc2' },
+          { path: 'figures/diagram.png', binary: true },
         ],
       },
     }
     const result = await listFiles({}, ctx)
     expect(result).to.deep.equal([
-      { path: 'main.tex' },
-      { path: 'refs.bib' },
+      { path: 'main.tex', type: 'text' },
+      { path: 'refs.bib', type: 'text' },
+      { path: 'figures/diagram.png', type: 'binary' },
     ])
   })
 

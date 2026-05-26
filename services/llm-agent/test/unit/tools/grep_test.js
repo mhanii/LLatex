@@ -51,6 +51,21 @@ describe('grep', function () {
     ])
   })
 
+  it('skips binary files (never fetches them)', async function () {
+    const fetched = []
+    stubFetch(async url => {
+      fetched.push(url)
+      const docId = url.match(/\/doc\/([^/]+)(?:\/peek)?$/)?.[1]
+      if (docId === 'doc111') return fakeResponse(200, { lines: ['target'] })
+      return fakeResponse(404)
+    })
+    const ctx = makeCtx()
+    ctx.context.files.push({ path: 'figures/diagram.png', binary: true })
+    const result = await grep({ pattern: 'target' }, ctx)
+    expect(result).to.not.include('diagram.png')
+    expect(fetched.some(u => u.includes('undefined'))).to.be.false
+  })
+
   it('is case-insensitive by default', async function () {
     stubFetchWithDocs({ doc111: ['Hello World'], doc222: [] })
     const result = await grep({ pattern: 'hello' }, makeCtx())

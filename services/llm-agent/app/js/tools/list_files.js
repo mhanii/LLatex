@@ -5,8 +5,11 @@
  *
  * @param {Record<string, never>} _input
  * @param {import('../types.js').RunContext} ctx
- * @returns {Promise<Array<{path: string}>>}
+ * @returns {Promise<Array<{path: string, type: 'text'|'binary'}>>}
  */
 export async function listFiles(_input, ctx) {
-  return (ctx.context?.files ?? []).map(f => ({ path: f.path }))
+  return (ctx.context?.files ?? []).map(f => ({
+    path: f.path,
+    type: 'binary' in f && f.binary ? 'binary' : 'text',
+  }))
 }
