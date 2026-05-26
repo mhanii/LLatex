@@ -14,6 +14,54 @@ export function isSafeToStream(text: string): boolean {
     return false
   }
 
+  // Guard single-asterisk italic markers. We need to ignore asterisks
+  // that are part of bold (`**`) or inside code spans/fences. Strip out
+  // code fences and inline-code segments, then count unescaped single
+  // asterisks that are not adjacent to another asterisk.
+  let filtered = ''
+  let i = 0
+  let inCodeFence = false
+  let inInlineCode = false
+
+  while (i < text.length) {
+    // Check for code fence start/end
+    if (!inInlineCode && text.slice(i, i + 3) === '```') {
+      inCodeFence = !inCodeFence
+      i += 3
+      continue
+    }
+
+    if (!inCodeFence && text[i] === '`') {
+      inInlineCode = !inInlineCode
+      i += 1
+      continue
+    }
+
+    if (!inCodeFence && !inInlineCode) {
+      filtered += text[i]
+    }
+
+    i += 1
+  }
+
+  let singleStarCount = 0
+  for (let j = 0; j < filtered.length; j++) {
+    const ch = filtered[j]
+    if (ch !== '*') continue
+    const prev = filtered[j - 1]
+    const next = filtered[j + 1]
+    const escaped = prev === '\\'
+    // Skip if escaped or part of a double-star (bold)
+    if (escaped) continue
+    if (next === '*') continue
+    if (prev === '*') continue
+    singleStarCount += 1
+  }
+
+  if (singleStarCount % 2 !== 0) {
+    return false
+  }
+
   return true
 }
 

@@ -8,6 +8,7 @@ import { isSafeToStream, splitStreamingMarkdown } from '../utils/streaming-utils
 import { renderStatusText } from '../utils/render-utils'
 import { getFullFilePathForTooltip, openEntityByPathUtil } from '../utils/file-operations'
 import { useStatusGroupUtilities } from './useStatusGroupUtilities'
+import { consumePendingChatbotPrefill, listenToChatbotPrefill } from '../chatbot-prefill-events'
 
 export type ChatbotPanelControllerArgs = {
   projectId: string
@@ -114,6 +115,8 @@ export function useChatbotPanelController(args: ChatbotPanelControllerArgs) {
     appendMessage,
     toChatbotMessage,
     createMessageId,
+    resizeInput,
+    applyPrefill,
     handleMessagesScroll,
     setChatIsOpen,
     chatDockSide,
