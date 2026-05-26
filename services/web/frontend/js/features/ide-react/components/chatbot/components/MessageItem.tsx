@@ -62,6 +62,8 @@ interface MessageItemProps {
     questionRunId?: string | null,
     options?: { visible?: boolean }
   ) => void
+  onRollback?: (id: string) => void
+  rollbackDisabled?: boolean
   onAnimationEnd?: () => void
   isStreaming?: boolean
   streamingText?: string
@@ -77,6 +79,8 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   onEdit,
   onCopy,
   onSubmitQuestionAnswer,
+  onRollback,
+  rollbackDisabled = false,
   onAnimationEnd,
   isStreaming = false,
   streamingText,
@@ -214,6 +218,26 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             <OLTooltip id={`copy-chatbot-message-${message.id}`} description={t('copy')} overlayProps={{ placement: 'bottom' }}>
               <OLIconButton onClick={() => onCopy(message.text)} className="ide-chatbot-message-footer-button" icon="content_copy" accessibilityLabel={t('copy')} size="sm" />
             </OLTooltip>
+            {onRollback && typeof message.projectVersionBefore === 'number' && (
+              <OLTooltip
+                id={`rollback-chatbot-message-${message.id}`}
+                description={
+                  rollbackDisabled
+                    ? 'Rollback unavailable while the agent is running'
+                    : 'Roll back to here (discards this message, the agent reply, and project changes since)'
+                }
+                overlayProps={{ placement: 'bottom' }}
+              >
+                <OLIconButton
+                  onClick={() => onRollback(message.id)}
+                  className="ide-chatbot-message-footer-button"
+                  icon="history"
+                  accessibilityLabel="Roll back to here"
+                  size="sm"
+                  disabled={rollbackDisabled}
+                />
+              </OLTooltip>
+            )}
           </div>
         )}
         {message.role !== 'user' && isHovered && message.role !== 'status' && !message.questions?.length && (

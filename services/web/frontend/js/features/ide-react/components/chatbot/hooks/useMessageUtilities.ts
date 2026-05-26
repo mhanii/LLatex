@@ -26,6 +26,9 @@ export const useMessageUtilities = (
       ...(message.runId ? { runId: message.runId } : {}),
       ...(message.questions ? { questions: message.questions } : {}),
       ...(conversationId ? { conversationId } : {}),
+      ...(typeof message.projectVersionBefore === 'number'
+        ? { projectVersionBefore: message.projectVersionBefore }
+        : {}),
     }),
     [user.id]
   )

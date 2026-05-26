@@ -17,6 +17,8 @@ interface ChatbotMessagesContainerProps {
   onSubmitQuestionAnswer: (answerText: string, questionRunId?: string | null) => void
   activeConversationLastRunId: string | null
   resolvedQuestionRunIds: string[]
+  onRollbackMessage?: (id: string) => void
+  rollbackDisabled?: boolean
   onToggleStatusGroup: (id: string, isExpanded: boolean) => void
   isStatusGroupExpanded: (groupId: string) => boolean
   shouldShowToggleForGroup: (groupId: string) => boolean
@@ -39,6 +41,8 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
   onSubmitQuestionAnswer,
   activeConversationLastRunId,
   resolvedQuestionRunIds,
+  onRollbackMessage,
+  rollbackDisabled = false,
   onToggleStatusGroup,
   isStatusGroupExpanded,
   shouldShowToggleForGroup,
@@ -152,6 +156,8 @@ export const ChatbotMessagesContainer: React.FC<ChatbotMessagesContainerProps> =
                   onSubmitQuestionAnswer={onSubmitQuestionAnswer}
                   isStreaming={message.isStreaming}
                   streamingText={message.streamingText}
+                  onRollback={onRollbackMessage}
+                  rollbackDisabled={rollbackDisabled}
                   onAnimationEnd={shouldReveal ? () => handleAnimationEnd(message.id) : undefined}
                 />
               )

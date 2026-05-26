@@ -20,6 +20,8 @@ let DocumentUpdaterHandler
 let LlmAgentApiHandler
 let ProjectCreationHandler
 let AgentConversationManager
+let UserGetter
+let UserUpdater
 let LlmAgentController
 
 describe('LlmAgentController', function () {
@@ -56,6 +58,7 @@ describe('LlmAgentController', function () {
           user_id: USER_ID,
           content: 'hello from agent',
         }),
+        deleteMessage: vi.fn().mockResolvedValue(undefined),
       },
     }
     vi.doMock('../../../../../app/src/Features/Chat/ChatApiHandler.mjs', () => ({
@@ -191,6 +194,7 @@ describe('LlmAgentController', function () {
         acceptChanges: vi.fn().mockResolvedValue({
           acceptedChangeIds: ['change-1'],
         }),
+        flushProjectToMongo: vi.fn().mockResolvedValue(undefined),
       },
     }
     vi.doMock(
@@ -199,6 +203,49 @@ describe('LlmAgentController', function () {
         default: DocumentUpdaterHandler,
       })
     )
+
+    vi.doMock(
+      '../../../../../app/src/Features/History/HistoryManager.mjs',
+      () => ({
+        default: {
+          promises: {
+            flushProject: vi.fn().mockResolvedValue(undefined),
+            // History-v1 shape: { chunk: { history: { changes }, startVersion } };
+            // endVersion is derived as startVersion + changes.length.
+            getLatestHistory: vi.fn().mockResolvedValue({
+              chunk: {
+                history: { changes: new Array(100) },
+                startVersion: 0,
+              },
+            }),
+          },
+        },
+      })
+    )
+
+    vi.doMock(
+      '../../../../../app/src/Features/History/RestoreManager.mjs',
+      () => ({
+        default: {
+          promises: {
+            revertProject: vi.fn().mockResolvedValue([]),
+          },
+        },
+      })
+    )
+
+    vi.doMock(
+      '../../../../../app/src/Features/Project/ProjectAuditLogHandler.mjs',
+      () => ({
+        default: {
+          addEntryIfManagedInBackground: vi.fn(),
+        },
+      })
+    )
+
+    vi.doMock('@overleaf/logger', () => ({
+      default: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
+    }))
 
     LlmAgentApiHandler = {
       promises: {
@@ -235,6 +282,10 @@ describe('LlmAgentController', function () {
           .fn()
           .mockResolvedValue(new Map([[MESSAGE_ID, { role: 'user', runId: null }]])),
         recordRun: vi.fn().mockResolvedValue(undefined),
+        findUserMessage: vi.fn().mockResolvedValue(null),
+        truncateFromMessage: vi.fn().mockResolvedValue([]),
+        getActiveRunId: vi.fn().mockResolvedValue(null),
+        markRunCancelled: vi.fn().mockResolvedValue(undefined),
       },
     }
     vi.doMock('../../../app/src/AgentConversationManager.mjs', () => ({
@@ -252,6 +303,31 @@ describe('LlmAgentController', function () {
       '../../../../../app/src/Features/Project/ProjectCreationHandler.mjs',
       () => ({ default: ProjectCreationHandler })
     )
+
+    // Defaults model an unlimited user — every existing test path stays
+    // green. Quota-specific tests override getUser per-test.
+    UserGetter = {
+      promises: {
+        getUser: vi.fn().mockResolvedValue({
+          agentQuota: {
+            outputTokensLimit: -1,
+            outputTokensUsed: 0,
+            costUsdLimit: -1,
+            costUsdUsed: 0,
+          },
+        }),
+      },
+    }
+    vi.doMock('../../../../../app/src/Features/User/UserGetter.mjs', () => ({
+      default: UserGetter,
+    }))
+
+    UserUpdater = {
+      promises: { updateUser: vi.fn().mockResolvedValue({ matchedCount: 1 }) },
+    }
+    vi.doMock('../../../../../app/src/Features/User/UserUpdater.mjs', () => ({
+      default: UserUpdater,
+    }))
 
     // Import after mocks are registered
     ;({ default: LlmAgentController } = await import(
@@ -359,7 +435,9 @@ describe('LlmAgentController', function () {
         PROJECT_ID,
         CONVERSATION_ID,
         expect.objectContaining({ id: MESSAGE_ID }),
-        'user'
+        'user',
+        null,
+        expect.anything()
       )
     })
   })
@@ -1217,6 +1295,948 @@ describe('LlmAgentController', function () {
       const passedLines =
         ProjectCreationHandler.promises.createProjectFromSnippet.mock.calls[0][2]
       expect(Array.isArray(passedLines)).toBe(true)
+    })
+  })
+
+  describe('sendMessage — agent quota gate', function () {
+    it('returns 402 with reason=output_tokens when the user is over the output-token cap', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: 1000,
+          outputTokensUsed: 1500,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+
+      expect(res.statusCode).toBe(402)
+      const body = JSON.parse(res.body)
+      expect(body.error).toBe('agent_quota_exceeded')
+      expect(body.reason).toBe('output_tokens')
+      expect(body.quota).toEqual({
+        outputTokensLimit: 1000,
+        outputTokensUsed: 1500,
+        costUsdLimit: -1,
+        costUsdUsed: 0,
+      })
+    })
+
+    it('returns 402 with reason=cost when the user is over the cost cap', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: -1,
+          outputTokensUsed: 0,
+          costUsdLimit: 1.0,
+          costUsdUsed: 1.05,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+
+      expect(res.statusCode).toBe(402)
+      const body = JSON.parse(res.body)
+      expect(body.reason).toBe('cost')
+    })
+
+    it('reports reason=cost when both caps are exceeded — cost takes precedence', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: 100,
+          outputTokensUsed: 200,
+          costUsdLimit: 0.5,
+          costUsdUsed: 0.6,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(402)
+      expect(JSON.parse(res.body).reason).toBe('cost')
+    })
+
+    it('returns exactly equal-to-limit as exceeded (>= not >)', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: 1000,
+          outputTokensUsed: 1000,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(402)
+    })
+
+    it('denies with reason=output_tokens when outputTokensLimit is exactly 0 (deny-all sentinel)', async function () {
+      // 0 is a valid "deny all" value documented in settings.defaults.js
+      // (Number.isFinite preserves it from the env var). Earlier the gate
+      // used `> 0` for cap detection, which collapsed 0 with the -1
+      // unlimited sentinel and let zero-cap users through.
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: 0,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(402)
+      expect(JSON.parse(res.body).reason).toBe('output_tokens')
+      expect(LlmAgentApiHandler.promises.startRun).not.toHaveBeenCalled()
+    })
+
+    it('denies with reason=cost when costUsdLimit is exactly 0 (deny-all sentinel)', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: -1,
+          outputTokensUsed: 0,
+          costUsdLimit: 0,
+          costUsdUsed: 0,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(402)
+      expect(JSON.parse(res.body).reason).toBe('cost')
+    })
+
+    it('denies (cost takes precedence) when both limits are 0', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: 0,
+          outputTokensUsed: 0,
+          costUsdLimit: 0,
+          costUsdUsed: 0,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(402)
+      expect(JSON.parse(res.body).reason).toBe('cost')
+    })
+
+    it('passes through when outputTokensLimit is -1 (unlimited) regardless of used', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: -1,
+          outputTokensUsed: 1_000_000_000,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(202)
+    })
+
+    it('passes through when the user document has no agentQuota field at all', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({})
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(202)
+    })
+
+    it('does not create a chat message or conversation when blocked by quota', async function () {
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: 100,
+          outputTokensUsed: 100,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      await LlmAgentController.sendMessage(makeReq(), makeRes(), vi.fn())
+
+      expect(ChatApiHandler.promises.sendComment).not.toHaveBeenCalled()
+      expect(
+        AgentConversationManager.promises.ensureConversation
+      ).not.toHaveBeenCalled()
+      expect(LlmAgentApiHandler.promises.startRun).not.toHaveBeenCalled()
+      expect(EditorRealTimeController.emitToRoom).not.toHaveBeenCalled()
+    })
+
+    it('queries the user with the agentQuota projection only', async function () {
+      await LlmAgentController.sendMessage(makeReq(), makeRes(), vi.fn())
+      expect(UserGetter.promises.getUser).toHaveBeenCalledWith(USER_ID, {
+        agentQuota: 1,
+      })
+    })
+
+    it('runs the quota check before any side effects (fails fast)', async function () {
+      // Simulate ChatApiHandler crashing. If the quota check ran after
+      // sendComment, the test would see the chat error rather than the 402.
+      ChatApiHandler.promises.sendComment.mockRejectedValueOnce(
+        new Error('chat down')
+      )
+      UserGetter.promises.getUser.mockResolvedValueOnce({
+        agentQuota: {
+          outputTokensLimit: 1,
+          outputTokensUsed: 5,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(402)
+    })
+  })
+
+  describe('agentComplete + agentCancelled — usage delta', function () {
+    it('agentComplete $inc s the user when outputTokensDelta and costUsdDelta are present', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          userId: USER_ID,
+          content: 'response from agent',
+          runId: RUN_ID,
+          outputTokensDelta: 1234,
+          costUsdDelta: 0.0042,
+        },
+      }
+      await LlmAgentController.agentComplete(req, makeRes(), vi.fn())
+
+      expect(UserUpdater.promises.updateUser).toHaveBeenCalledOnce()
+      expect(UserUpdater.promises.updateUser).toHaveBeenCalledWith(USER_ID, {
+        $inc: {
+          'agentQuota.outputTokensUsed': 1234,
+          'agentQuota.costUsdUsed': 0.0042,
+        },
+      })
+    })
+
+    it('agentComplete skips the $inc when both deltas are zero', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          userId: USER_ID,
+          content: 'response',
+          runId: RUN_ID,
+          outputTokensDelta: 0,
+          costUsdDelta: 0,
+        },
+      }
+      await LlmAgentController.agentComplete(req, makeRes(), vi.fn())
+      expect(UserUpdater.promises.updateUser).not.toHaveBeenCalled()
+    })
+
+    it('agentComplete skips the $inc when deltas are absent (older caller)', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          userId: USER_ID,
+          content: 'response',
+          runId: RUN_ID,
+        },
+      }
+      await LlmAgentController.agentComplete(req, makeRes(), vi.fn())
+      expect(UserUpdater.promises.updateUser).not.toHaveBeenCalled()
+    })
+
+    it('agentComplete skips the $inc when userId is absent', async function () {
+      // messageId path — no userId in the body. Must not $inc anyone.
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          messageId: MESSAGE_ID,
+          outputTokensDelta: 100,
+          costUsdDelta: 0.01,
+        },
+      }
+      await LlmAgentController.agentComplete(req, makeRes(), vi.fn())
+      expect(UserUpdater.promises.updateUser).not.toHaveBeenCalled()
+    })
+
+    it('agentCancelled $inc s the user for partial-run usage', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          runId: RUN_ID,
+          userId: USER_ID,
+          outputTokensDelta: 17,
+          costUsdDelta: 0.001,
+        },
+      }
+      const res = makeRes()
+      await LlmAgentController.agentCancelled(req, res, vi.fn())
+
+      expect(res.statusCode).toBe(204)
+      expect(UserUpdater.promises.updateUser).toHaveBeenCalledWith(USER_ID, {
+        $inc: {
+          'agentQuota.outputTokensUsed': 17,
+          'agentQuota.costUsdUsed': 0.001,
+        },
+      })
+      expect(EditorRealTimeController.emitToRoom).toHaveBeenCalledWith(
+        PROJECT_ID,
+        'agent:cancelled',
+        { conversationId: CONVERSATION_ID, runId: RUN_ID }
+      )
+    })
+
+    it('agentCancelled still 204s and emits when no usage was incurred (cancelled before first step)', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          runId: RUN_ID,
+          userId: USER_ID,
+          outputTokensDelta: 0,
+          costUsdDelta: 0,
+        },
+      }
+      const res = makeRes()
+      await LlmAgentController.agentCancelled(req, res, vi.fn())
+
+      expect(res.statusCode).toBe(204)
+      expect(UserUpdater.promises.updateUser).not.toHaveBeenCalled()
+      expect(EditorRealTimeController.emitToRoom).toHaveBeenCalled()
+    })
+
+    it('agentCancelled marks the run as cancelled so getActiveRunId stops blocking rollback', async function () {
+      // Greptile PR #39 round-3: without this, the rollback in-flight
+      // guard would 409 forever after a cancel.
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          runId: RUN_ID,
+          userId: USER_ID,
+        },
+      }
+      const res = makeRes()
+      await LlmAgentController.agentCancelled(req, res, vi.fn())
+
+      expect(
+        AgentConversationManager.promises.markRunCancelled
+      ).toHaveBeenCalledWith(PROJECT_ID, CONVERSATION_ID, RUN_ID)
+      expect(res.statusCode).toBe(204)
+    })
+
+    it('agentCancelled still 204s when markRunCancelled throws (best-effort)', async function () {
+      AgentConversationManager.promises.markRunCancelled.mockRejectedValueOnce(
+        new Error('mongo flaky')
+      )
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          runId: RUN_ID,
+          userId: USER_ID,
+        },
+      }
+      const res = makeRes()
+      await LlmAgentController.agentCancelled(req, res, vi.fn())
+      expect(res.statusCode).toBe(204)
+      expect(EditorRealTimeController.emitToRoom).toHaveBeenCalled()
+    })
+
+    it('agentCancelled still 400s when conversationId or runId are missing', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: { runId: RUN_ID, userId: USER_ID },
+      }
+      const res = makeRes()
+      await LlmAgentController.agentCancelled(req, res, vi.fn())
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('coerces string-valued deltas (e.g. JSON re-serialised) to numbers', async function () {
+      const req = {
+        params: { project_id: PROJECT_ID },
+        body: {
+          conversationId: CONVERSATION_ID,
+          userId: USER_ID,
+          content: 'r',
+          runId: RUN_ID,
+          outputTokensDelta: '500',
+          costUsdDelta: '0.02',
+        },
+      }
+      await LlmAgentController.agentComplete(req, makeRes(), vi.fn())
+      expect(UserUpdater.promises.updateUser).toHaveBeenCalledWith(USER_ID, {
+        $inc: {
+          'agentQuota.outputTokensUsed': 500,
+          'agentQuota.costUsdUsed': 0.02,
+        },
+      })
+    })
+  })
+
+  // The reservation tracker lives in module-scope Maps inside
+  // LlmAgentController.mjs. vi.resetModules() in the outer beforeEach
+  // gives each `it` a fresh import, so reservation state is reset between
+  // tests. Within a single `it`, both concurrent calls share the same
+  // module instance (this is what makes the race observable).
+  describe('sendMessage — concurrent quota reservations (TOCTOU)', function () {
+    // ESTIMATE_OUTPUT_TOKENS in the controller — kept in sync here. If
+    // that constant ever changes, this number needs to track it.
+    const ESTIMATE = 4000
+
+    it('two concurrent sendMessages from the same user with headroom for one — exactly one passes, one 402s', async function () {
+      // Limit of exactly one ESTIMATE worth: first reserves it all,
+      // second sees zero headroom and is rejected.
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: ESTIMATE,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+
+      const res1 = makeRes()
+      const res2 = makeRes()
+      await Promise.all([
+        LlmAgentController.sendMessage(makeReq(), res1, vi.fn()),
+        LlmAgentController.sendMessage(makeReq(), res2, vi.fn()),
+      ])
+
+      const statuses = [res1.statusCode, res2.statusCode].sort()
+      expect(statuses).toEqual([202, 402])
+      const rejected = res1.statusCode === 402 ? res1 : res2
+      expect(JSON.parse(rejected.body)).toMatchObject({
+        error: 'agent_quota_exceeded',
+        reason: 'output_tokens',
+      })
+      // Only one startRun fired — the other was blocked before
+      // touching the llm-agent service.
+      expect(LlmAgentApiHandler.promises.startRun).toHaveBeenCalledTimes(1)
+    })
+
+    it('concurrent sendMessages from different users do not interfere with each other', async function () {
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: ESTIMATE,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      // Two distinct sessions: reservations are keyed by userId so
+      // neither blocks the other.
+      SessionManager.getLoggedInUserId
+        .mockReturnValueOnce('user-A')
+        .mockReturnValueOnce('user-B')
+
+      const res1 = makeRes()
+      const res2 = makeRes()
+      await Promise.all([
+        LlmAgentController.sendMessage(makeReq(), res1, vi.fn()),
+        LlmAgentController.sendMessage(makeReq(), res2, vi.fn()),
+      ])
+      expect(res1.statusCode).toBe(202)
+      expect(res2.statusCode).toBe(202)
+      expect(LlmAgentApiHandler.promises.startRun).toHaveBeenCalledTimes(2)
+    })
+
+    it('with headroom for two ESTIMATEs, two concurrent pass and a third 402s', async function () {
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: ESTIMATE * 2,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+
+      const results = await Promise.all([
+        (async () => {
+          const r = makeRes()
+          await LlmAgentController.sendMessage(makeReq(), r, vi.fn())
+          return r.statusCode
+        })(),
+        (async () => {
+          const r = makeRes()
+          await LlmAgentController.sendMessage(makeReq(), r, vi.fn())
+          return r.statusCode
+        })(),
+        (async () => {
+          const r = makeRes()
+          await LlmAgentController.sendMessage(makeReq(), r, vi.fn())
+          return r.statusCode
+        })(),
+      ])
+      const sorted = [...results].sort()
+      expect(sorted).toEqual([202, 202, 402])
+    })
+
+    it('agentComplete releases the reservation so a follow-up send passes', async function () {
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: ESTIMATE,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+
+      const firstRes = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), firstRes, vi.fn())
+      expect(firstRes.statusCode).toBe(202)
+
+      // Without releasing, the next send would be blocked (cap fully
+      // reserved). Confirm that.
+      const blockedRes = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), blockedRes, vi.fn())
+      expect(blockedRes.statusCode).toBe(402)
+
+      // Now fire the agent-complete callback for the first run, which
+      // releases its reservation.
+      await LlmAgentController.agentComplete(
+        {
+          params: { project_id: PROJECT_ID },
+          body: {
+            conversationId: CONVERSATION_ID,
+            userId: USER_ID,
+            content: 'agent reply',
+            runId: RUN_ID,
+            outputTokensDelta: 0,
+            costUsdDelta: 0,
+          },
+        },
+        makeRes(),
+        vi.fn()
+      )
+
+      const afterRes = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), afterRes, vi.fn())
+      expect(afterRes.statusCode).toBe(202)
+    })
+
+    it('agentCancelled releases the reservation so a follow-up send passes', async function () {
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: ESTIMATE,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+
+      const firstRes = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), firstRes, vi.fn())
+      expect(firstRes.statusCode).toBe(202)
+
+      await LlmAgentController.agentCancelled(
+        {
+          params: { project_id: PROJECT_ID },
+          body: {
+            conversationId: CONVERSATION_ID,
+            runId: RUN_ID,
+            userId: USER_ID,
+            outputTokensDelta: 0,
+            costUsdDelta: 0,
+          },
+        },
+        makeRes(),
+        vi.fn()
+      )
+
+      const afterRes = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), afterRes, vi.fn())
+      expect(afterRes.statusCode).toBe(202)
+    })
+
+    it('reservation is released when startRun throws (no leak from a failed send)', async function () {
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: ESTIMATE,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      // First call reserves, then explodes inside startRun. The error
+      // surfaces via Express's `next(err)` (expressify catches the
+      // rejection), so observe it via the mocked next.
+      LlmAgentApiHandler.promises.startRun.mockRejectedValueOnce(
+        new Error('llm-agent unavailable')
+      )
+
+      const next = vi.fn()
+      await LlmAgentController.sendMessage(makeReq(), makeRes(), next)
+      expect(next).toHaveBeenCalledOnce()
+      expect(next.mock.calls[0][0]).toMatchObject({
+        message: 'llm-agent unavailable',
+      })
+
+      // Reservation must have been released — the next send should
+      // pass (it would 402 if the failed send had leaked its 4000-token
+      // reservation).
+      const afterRes = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), afterRes, vi.fn())
+      expect(afterRes.statusCode).toBe(202)
+    })
+
+    it('reservation is released when project is not found (early 404 path)', async function () {
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: ESTIMATE,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+      ProjectGetter.promises.getProject.mockResolvedValueOnce(null)
+
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(res.statusCode).toBe(404)
+
+      // Reservation released — follow-up send still passes.
+      const afterRes = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), afterRes, vi.fn())
+      expect(afterRes.statusCode).toBe(202)
+    })
+
+    it('reservation tracking imposes no per-user concurrency limit when the cap is unlimited', async function () {
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: -1,
+          outputTokensUsed: 0,
+          costUsdLimit: -1,
+          costUsdUsed: 0,
+        },
+      })
+
+      const results = await Promise.all(
+        Array.from({ length: 4 }, () => {
+          const r = makeRes()
+          return LlmAgentController.sendMessage(makeReq(), r, vi.fn()).then(
+            () => r.statusCode
+          )
+        })
+      )
+      expect(results).toEqual([202, 202, 202, 202])
+    })
+
+    it('concurrent race on cost cap — first reserves, second 402s with reason=cost', async function () {
+      // Output unlimited; cost cap headroom for exactly one ESTIMATE
+      // worth (~$0.04 in the controller's ESTIMATE_COST_USD).
+      UserGetter.promises.getUser.mockResolvedValue({
+        agentQuota: {
+          outputTokensLimit: -1,
+          outputTokensUsed: 0,
+          costUsdLimit: 0.04,
+          costUsdUsed: 0,
+        },
+      })
+
+      const res1 = makeRes()
+      const res2 = makeRes()
+      await Promise.all([
+        LlmAgentController.sendMessage(makeReq(), res1, vi.fn()),
+        LlmAgentController.sendMessage(makeReq(), res2, vi.fn()),
+      ])
+
+      const statuses = [res1.statusCode, res2.statusCode].sort()
+      expect(statuses).toEqual([202, 402])
+      const rejected = res1.statusCode === 402 ? res1 : res2
+      expect(JSON.parse(rejected.body).reason).toBe('cost')
+    })
+  })
+
+  describe('rollbackToMessage', function () {
+    function makeRollbackReq() {
+      return {
+        params: {
+          project_id: PROJECT_ID,
+          conversation_id: CONVERSATION_ID,
+          message_id: MESSAGE_ID,
+        },
+        body: {},
+        session: {},
+      }
+    }
+
+    let RestoreManager
+    let HistoryManager
+
+    beforeEach(async function () {
+      ;({ default: RestoreManager } = await import(
+        '../../../../../app/src/Features/History/RestoreManager.mjs'
+      ))
+      ;({ default: HistoryManager } = await import(
+        '../../../../../app/src/Features/History/HistoryManager.mjs'
+      ))
+      // Default the project to ranges-support-enabled so the pre-check
+      // passes and rollback tests can exercise the full path. Tests that
+      // need the disabled-state override this with mockResolvedValueOnce.
+      // Include name/compiler so the same mock is fine for any sendMessage
+      // path exercised inside this describe (buildProjectContext reads
+      // those with optional-chaining, but tracking them keeps the mock
+      // shape stable across test paths).
+      ProjectGetter.promises.getProject.mockResolvedValue({
+        _id: PROJECT_ID,
+        name: 'Sample Project',
+        compiler: 'pdflatex',
+        overleaf: { history: { rangesSupportEnabled: true } },
+      })
+    })
+
+    it('returns 403 when the user is not logged in', async function () {
+      SessionManager.getLoggedInUserId.mockReturnValueOnce(null)
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(403)
+      expect(RestoreManager.promises.revertProject).not.toHaveBeenCalled()
+    })
+
+    it('returns 404 when the message is not found / not owned by user', async function () {
+      AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce(
+        null
+      )
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(404)
+      expect(RestoreManager.promises.revertProject).not.toHaveBeenCalled()
+    })
+
+    it('returns 400 when target is not a user message', async function () {
+      AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce({
+        messageId: MESSAGE_ID,
+        role: 'assistant',
+        runId: RUN_ID,
+        createdAt: new Date(),
+        projectVersionBefore: 5,
+      })
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(400)
+      expect(RestoreManager.promises.revertProject).not.toHaveBeenCalled()
+    })
+
+    it('returns 400 when projectVersionBefore was not recorded', async function () {
+      AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce({
+        messageId: MESSAGE_ID,
+        role: 'user',
+        runId: null,
+        createdAt: new Date(),
+        projectVersionBefore: null,
+      })
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error).toBe('no_recorded_version')
+    })
+
+    it('reverts the project, truncates the conversation, and emits the realtime event', async function () {
+      const createdAt = new Date('2026-05-24T00:00:00Z')
+      AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce({
+        messageId: MESSAGE_ID,
+        role: 'user',
+        runId: null,
+        createdAt,
+        projectVersionBefore: 42,
+      })
+      AgentConversationManager.promises.truncateFromMessage.mockResolvedValueOnce(
+        [MESSAGE_ID, 'reply-1']
+      )
+
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+
+      expect(RestoreManager.promises.revertProject).toHaveBeenCalledWith(
+        USER_ID,
+        PROJECT_ID,
+        42
+      )
+      expect(
+        AgentConversationManager.promises.truncateFromMessage
+      ).toHaveBeenCalledWith(PROJECT_ID, CONVERSATION_ID, createdAt)
+      expect(ChatApiHandler.promises.deleteMessage).toHaveBeenCalledTimes(2)
+      expect(EditorRealTimeController.emitToRoom).toHaveBeenCalledWith(
+        PROJECT_ID,
+        'agent:conversation-rolled-back',
+        expect.objectContaining({
+          conversationId: CONVERSATION_ID,
+          rolledBackToMessageId: MESSAGE_ID,
+          rolledBackToVersion: 42,
+          removedMessageIds: [MESSAGE_ID, 'reply-1'],
+        })
+      )
+      expect(res.statusCode).toBe(200)
+    })
+
+    it('returns 400 history_not_supported via the pre-check when rangesSupportEnabled is false', async function () {
+      AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce({
+        messageId: MESSAGE_ID,
+        role: 'user',
+        runId: null,
+        createdAt: new Date(),
+        projectVersionBefore: 9,
+      })
+      ProjectGetter.promises.getProject.mockResolvedValueOnce({
+        _id: PROJECT_ID,
+        overleaf: { history: { rangesSupportEnabled: false } },
+      })
+
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error).toBe('history_not_supported')
+      // Pre-check short-circuits — we never call revertProject.
+      expect(RestoreManager.promises.revertProject).not.toHaveBeenCalled()
+      expect(
+        AgentConversationManager.promises.truncateFromMessage
+      ).not.toHaveBeenCalled()
+    })
+
+    it('falls back to mapping history_not_supported from the OError message (rangesSupport flipped off mid-request)', async function () {
+      AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce({
+        messageId: MESSAGE_ID,
+        role: 'user',
+        runId: null,
+        createdAt: new Date(),
+        projectVersionBefore: 9,
+      })
+      // Pre-check passes (rangesSupportEnabled=true from the describe-level
+      // default), but revertProject still rejects with the same OError —
+      // simulating an admin toggling the flag off between our pre-check
+      // and the revertProject call. The string-match fallback must still
+      // map back to the typed error code.
+      RestoreManager.promises.revertProject.mockRejectedValueOnce(
+        new Error('project does not have ranges support')
+      )
+
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error).toBe('history_not_supported')
+      expect(
+        AgentConversationManager.promises.truncateFromMessage
+      ).not.toHaveBeenCalled()
+    })
+
+    it('returns 500 rollback_partial when truncateFromMessage throws after revertProject succeeds', async function () {
+      const createdAt = new Date('2026-05-24T00:00:00Z')
+      AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce({
+        messageId: MESSAGE_ID,
+        role: 'user',
+        runId: null,
+        createdAt,
+        projectVersionBefore: 42,
+      })
+      AgentConversationManager.promises.truncateFromMessage.mockRejectedValueOnce(
+        new Error('mongo unavailable')
+      )
+
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+
+      // Project files WERE reverted before truncate failed.
+      expect(RestoreManager.promises.revertProject).toHaveBeenCalledWith(
+        USER_ID,
+        PROJECT_ID,
+        42
+      )
+      // Realtime event still emits so other tabs know the project changed,
+      // marked partial: true with no removed ids.
+      expect(EditorRealTimeController.emitToRoom).toHaveBeenCalledWith(
+        PROJECT_ID,
+        'agent:conversation-rolled-back',
+        expect.objectContaining({
+          partial: true,
+          removedMessageIds: [],
+          rolledBackToVersion: 42,
+        })
+      )
+      // Chat-service cleanup is skipped on the partial path since we don't
+      // know which ids would have been pulled.
+      expect(ChatApiHandler.promises.deleteMessage).not.toHaveBeenCalled()
+      expect(res.statusCode).toBe(500)
+      expect(JSON.parse(res.body).error).toBe('rollback_partial')
+    })
+
+    it('returns 409 run_in_flight when an agent run is still active', async function () {
+      AgentConversationManager.promises.findUserMessage.mockResolvedValueOnce({
+        messageId: MESSAGE_ID,
+        role: 'user',
+        runId: null,
+        createdAt: new Date(),
+        projectVersionBefore: 9,
+      })
+      AgentConversationManager.promises.getActiveRunId.mockResolvedValueOnce(
+        RUN_ID
+      )
+
+      const res = makeRes()
+      await LlmAgentController.rollbackToMessage(
+        makeRollbackReq(),
+        res,
+        vi.fn()
+      )
+      expect(res.statusCode).toBe(409)
+      expect(JSON.parse(res.body).error).toBe('run_in_flight')
+      expect(RestoreManager.promises.revertProject).not.toHaveBeenCalled()
+      expect(
+        AgentConversationManager.promises.truncateFromMessage
+      ).not.toHaveBeenCalled()
+    })
+
+    it('uses the latest endVersion for projectVersionBefore in sendMessage', async function () {
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      expect(HistoryManager.promises.flushProject).toHaveBeenCalledWith(
+        PROJECT_ID
+      )
+      // 100 is the default mocked endVersion above.
+      const recordArgs =
+        AgentConversationManager.promises.recordMessage.mock.calls[0]
+      expect(recordArgs[5]).toBe(100)
+    })
+
+    it('records null when history is unavailable', async function () {
+      HistoryManager.promises.getLatestHistory.mockRejectedValueOnce(
+        new Error('history down')
+      )
+      const res = makeRes()
+      await LlmAgentController.sendMessage(makeReq(), res, vi.fn())
+      const recordArgs =
+        AgentConversationManager.promises.recordMessage.mock.calls[0]
+      expect(recordArgs[5]).toBeNull()
     })
   })
 })

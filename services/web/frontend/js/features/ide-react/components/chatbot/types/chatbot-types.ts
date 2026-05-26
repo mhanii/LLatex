@@ -12,6 +12,10 @@ export type ChatbotMessage = {
   toolInput?: Record<string, unknown>
   questions?: AgentQuestion[]
   error?: string
+  // Set on user messages where the backend captured the project history
+  // version before the agent ran. Required for the "Roll back to here"
+  // action; absent means rollback isn't available for that message.
+  projectVersionBefore?: number
 }
 
 export type ChatbotMessageGroup =
@@ -42,6 +46,7 @@ export type AgentServerMessage = {
   runId?: string | null
   toolEvents?: AgentToolCallEvent[]
   questions?: AgentQuestion[]
+  projectVersionBefore?: number
 }
 
 export type AgentQuestion = {
