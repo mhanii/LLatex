@@ -102,4 +102,15 @@ describe('readFile', function () {
     expect(result).to.include('list_files')
     expect(called).to.be.false
   })
+
+  it('refuses a binary file without hitting doc-updater', async function () {
+    let called = false
+    stubFetch(async () => { called = true; return fakeResponse(200, { lines: [], version: 1 }) })
+    const ctx = makeCtx()
+    ctx.context.files.push({ path: 'figures/diagram.png', binary: true })
+    const result = await readFile({ path: 'figures/diagram.png' }, ctx)
+    expect(result).to.be.a('string')
+    expect(result).to.include('binary file')
+    expect(called).to.be.false
+  })
 })

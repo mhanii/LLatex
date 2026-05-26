@@ -1,5 +1,10 @@
 // @ts-check
-import { resolveFile, docUpdaterUrl, unknownPathError } from './utils.js'
+import {
+  resolveFile,
+  docUpdaterUrl,
+  unknownPathError,
+  binaryFileError,
+} from './utils.js'
 
 const OUTLINE_RE =
   /^\\(chapter|section|subsection|subsubsection)\*?\{([^}]*)\}|^\\begin\{([^}]+)\}/
@@ -12,6 +17,7 @@ const OUTLINE_RE =
 export async function getOutline({ path }, ctx) {
   const file = resolveFile(path, ctx)
   if (!file) return unknownPathError(path)
+  if ('binary' in file) return binaryFileError(path)
   const { docId } = file
   const base = `${docUpdaterUrl()}/project/${ctx.projectId}/doc/${docId}`
   // Peek first — Redis-only, lock-free, reflects the latest in-flight edits

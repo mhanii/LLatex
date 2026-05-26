@@ -49,6 +49,16 @@ export async function compileAndCheck({ path } = {}, ctx) {
         pageCount: null,
       }
     }
+    if ('binary' in file) {
+      return {
+        success: false,
+        status: `cannot compile binary file as root document: ${path}`,
+        errors: [],
+        warnings: [],
+        typesetting: [],
+        pageCount: null,
+      }
+    }
     body.rootDoc_id = file.docId
   }
   const res = await fetch(

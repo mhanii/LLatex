@@ -1,4 +1,5 @@
 // @ts-check
+import logger from '@overleaf/logger'
 import { docUpdaterUrl } from './utils.js'
 
 const HARD_MAX_RESULTS = 500
@@ -118,7 +119,8 @@ export async function grep(
     HARD_MAX_RESULTS
   )
 
-  const allFiles = ctx.context?.files ?? []
+  // Binary files (images, PDFs, ...) have no doc body to search.
+  const allFiles = (ctx.context?.files ?? []).filter(f => !('binary' in f))
   const files = (globRe ? allFiles.filter(f => globRe.test(f.path)) : allFiles)
     .slice(0, MAX_FILES_PER_CALL)
 

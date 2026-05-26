@@ -15,7 +15,7 @@
  * @typedef {Object} ProjectContext
  * @property {string} projectName
  * @property {string} compiler
- * @property {Array<{path: string, docId: string}>} files
+ * @property {Array<{path: string, docId: string} | {path: string, binary: true}>} files
  */
 
 /**
