@@ -845,7 +845,6 @@ async function agentComplete(req, res) {
     questions,
     outputTokensDelta,
     costUsdDelta,
-    questions,
   } = req.body
   if (!conversationId) {
     return res.status(400).json({ error: 'conversationId required' })

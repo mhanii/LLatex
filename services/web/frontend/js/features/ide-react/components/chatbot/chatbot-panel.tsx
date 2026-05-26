@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useIdeContext } from '@/shared/context/ide-context'
 import { useLayoutContext } from '@/shared/context/layout-context'
@@ -11,10 +11,6 @@ import { useChatbotState } from './hooks/useChatbotState'
 import { useMessageUtilities } from './hooks/useMessageUtilities'
 import { useConversationUtilities } from './hooks/useConversationUtilities'
 import { useInputUtilities } from './hooks/useInputUtilities'
-import {
-  consumePendingChatbotPrefill,
-  listenToChatbotPrefill,
-} from './chatbot-prefill-events'
 import { useChatbotPanelController } from './hooks/useChatbotPanelController'
 import { ChatbotHeader } from './components/ChatbotHeader'
 import { ChatbotMessagesContainer } from './components/ChatbotMessagesContainer'
@@ -131,18 +127,6 @@ export default function ChatbotPanel() {
     state.setEditingMessageId,
   )
 
-  useEffect(() => {
-    const pendingText = consumePendingChatbotPrefill()
-    if (pendingText) {
-      applyPrefill(pendingText)
-    }
-    return listenToChatbotPrefill(applyPrefill)
-  }, [applyPrefill])
-
-  useEffect(() => {
-    resizeInput()
-  }, [state.input, resizeInput])
-
   const controller = useChatbotPanelController({
     projectId,
     userId: user.id,
@@ -184,6 +168,8 @@ export default function ChatbotPanel() {
     appendMessage,
     toChatbotMessage,
     createMessageId,
+    resizeInput,
+    applyPrefill,
     handleMessagesScroll,
     setChatIsOpen,
     chatDockSide,

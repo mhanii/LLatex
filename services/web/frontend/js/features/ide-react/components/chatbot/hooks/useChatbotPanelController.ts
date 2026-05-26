@@ -53,6 +53,8 @@ export type ChatbotPanelControllerArgs = {
   appendMessage: (message: ChatbotMessage) => void
   toChatbotMessage: (message: AgentServerMessage, conversationId?: string) => ChatbotMessage
   createMessageId: (prefix: 'user' | 'assistant' | 'status') => string
+  resizeInput: () => void
+  applyPrefill: (payload: { text?: string; referenceText?: string; referenceLines?: { start: number; end: number } | null }) => void
   handleMessagesScroll: () => void
   setChatIsOpen: (open: boolean) => void
   chatDockSide: string
