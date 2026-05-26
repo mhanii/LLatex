@@ -1,1 +1,1 @@
-List all files in the project.
+List all files in the project. Each entry has a `type`: "text" files (.tex, .bib, ...) can be read and edited; "binary" files (images, PDFs, ...) cannot be read or edited as text.

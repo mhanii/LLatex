@@ -1,5 +1,10 @@
 // @ts-check
-import { resolveFile, docUpdaterUrl, unknownPathError } from './utils.js'
+import {
+  resolveFile,
+  docUpdaterUrl,
+  unknownPathError,
+  binaryFileError,
+} from './utils.js'
 
 async function readErrorBody(res) {
   const body = await res.text().catch(() => '')
@@ -22,6 +27,7 @@ async function readErrorBody(res) {
 export async function editFile({ path, oldText, newText }, ctx) {
   const file = resolveFile(path, ctx)
   if (!file) return unknownPathError(path)
+  if ('binary' in file) return binaryFileError(path)
   const { docId } = file
   const res = await fetch(
     `${docUpdaterUrl()}/project/${ctx.projectId}/doc/${docId}/agent-replace`,
