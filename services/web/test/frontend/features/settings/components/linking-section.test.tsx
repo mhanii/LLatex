@@ -29,7 +29,7 @@ const mockOauthProviders = {
     descriptionKey: 'oauth_orcid_description',
     descriptionOptions: {
       link: '/blog/434',
-      appName: 'Overleaf',
+      appName: 'DoubleBackSlash',
     },
     name: 'ORCID',
     linkPath: '/auth/orcid',

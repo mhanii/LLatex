@@ -22,7 +22,7 @@ async function readImagesInUse() {
 
 function checkIsServerPro() {
   if (process.env.OVERLEAF_IS_SERVER_PRO !== 'true') {
-    console.log('Running Overleaf Community Edition, skipping TexLive checks')
+    console.log('Running DoubleBackSlash Community Edition, skipping TexLive checks')
     process.exit(0)
   }
 }

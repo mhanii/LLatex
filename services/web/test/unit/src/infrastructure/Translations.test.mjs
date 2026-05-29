@@ -81,11 +81,11 @@ describe('Translations', function () {
       // dash: `__len__-day`
       expect(
         req.i18n.t('faq_how_does_free_trial_works_answer', {
-          appName: 'Overleaf',
+          appName: 'DoubleBackSlash',
           len: '5',
         })
       ).to.equal(
-        'You get full access to your chosen Overleaf plan during your 5-day free trial. There is no obligation to continue beyond the trial. Your card will be charged at the end of your 5 day trial unless you cancel before then. You can cancel via your subscription settings.'
+        'You get full access to your chosen DoubleBackSlash plan during your 5-day free trial. There is no obligation to continue beyond the trial. Your card will be charged at the end of your 5 day trial unless you cancel before then. You can cancel via your subscription settings.'
       )
     })
 

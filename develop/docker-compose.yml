@@ -86,20 +86,12 @@ services:
       dockerfile: services/filestore/Dockerfile
     env_file:
       - dev.env
-    environment:
-      # Filestore proxies /history/project/.../hash/... reads from the blob
-      # store that history-v1 writes. Without these paths (and the shared
-      # volume below) it returns 500 ERR_INVALID_ARG_TYPE / 404 and CLSI
-      # compilation fails for any project with binary resources (images),
-      # showing "File `x.jpg' not found: using draft setting".
-      OVERLEAF_EDITOR_PROJECT_BLOBS_BUCKET: "/buckets/project_blobs"
-      OVERLEAF_EDITOR_BLOBS_BUCKET: "/buckets/blobs"
-    #      ENABLE_CONVERSIONS: "true"
+    #    environment:
+    #      - ENABLE_CONVERSIONS=true
     volumes:
       - filestore-public-files:/overleaf/services/filestore/public_files
       - filestore-template-files:/overleaf/services/filestore/template_files
       - filestore-uploads:/overleaf/services/filestore/uploads
-      - history-v1-buckets:/buckets
 
   history-v1:
     build:
@@ -169,7 +161,7 @@ services:
     env_file:
       - dev.env
     environment:
-      - APP_NAME=Overleaf Community Edition
+      - APP_NAME=DoubleBackSlash Community Edition
       - ENABLED_LINKED_FILE_TYPES=project_file,project_output_file
       - EMAIL_CONFIRMATION_DISABLED=true
       - NODE_ENV=development

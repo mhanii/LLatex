@@ -277,7 +277,7 @@ $(TEST_ACCEPTANCE_APP):
 #  template at the very top of this file.
 # Example: `web$ make modules/server-ce-scripts/test_acceptance_server_ce`
 # Description: Run the acceptance tests of the server-ce-scripts module in an
-#               Overleaf Community Edition Environment.
+#               DoubleBackSlash Community Edition Environment.
 # Break down:
 #  Target: modules/server-ce-scripts/test_acceptance_server_ce
 #    -> depends on modules/server-ce-scripts/Makefile

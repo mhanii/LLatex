@@ -131,7 +131,7 @@ describe('TeamInvitesHandler', function () {
     }))
 
     vi.doMock('@overleaf/settings', () => ({
-      default: { siteUrl: 'http://example.com', appName: 'Overleaf' },
+      default: { siteUrl: 'http://example.com', appName: 'DoubleBackSlash' },
     }))
 
     vi.doMock('../../../../app/src/models/TeamInvite', () => ({
@@ -446,7 +446,7 @@ describe('TeamInvitesHandler', function () {
               to: 'user@example.com',
               inviter: ctx.manager,
               acceptInviteUrl: `http://example.com${initPath}`,
-              appName: 'Overleaf',
+              appName: 'DoubleBackSlash',
             })
           )
           .should.equal(true)
@@ -490,7 +490,7 @@ describe('TeamInvitesHandler', function () {
                 to: 'user@example.com',
                 inviter: ctx.manager,
                 acceptInviteUrl: `http://example.com${initPath}`,
-                appName: 'Overleaf',
+                appName: 'DoubleBackSlash',
                 admin: ctx.manager,
               })
             )
