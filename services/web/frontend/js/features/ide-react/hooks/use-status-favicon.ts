@@ -24,24 +24,10 @@ const useCompileStatus = (): CompileStatus => {
 
 const removeFavicon = () => {
   const existingFavicons = document.head.querySelectorAll(
-    "link[rel*='icon']"
+    "link[rel='icon'][data-compile-status='true']"
   ) as NodeListOf<HTMLLinkElement>
   existingFavicons.forEach(favicon => {
-    try {
-      const href = favicon.href || ''
-      const pathname = new URL(href).pathname
-      if (
-        pathname.endsWith('.svg') ||
-        href.includes('/branding/favicon') ||
-        favicon.getAttribute('data-compile-status') === 'true'
-      ) {
-        favicon.parentNode?.removeChild(favicon)
-      }
-    } catch (err) {
-      if (favicon.href && favicon.href.indexOf('.svg') !== -1) {
-        favicon.parentNode?.removeChild(favicon)
-      }
-    }
+    favicon.parentNode?.removeChild(favicon)
   })
 }
 
