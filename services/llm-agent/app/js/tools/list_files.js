@@ -10,6 +10,6 @@
 export async function listFiles(_input, ctx) {
   return (ctx.context?.files ?? []).map(f => ({
     path: f.path,
-    type: 'binary' in f && f.binary ? 'binary' : 'text',
+    type: 'binary' in f ? 'binary' : 'text',
   }))
 }
