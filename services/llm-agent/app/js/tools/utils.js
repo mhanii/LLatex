@@ -4,7 +4,7 @@ import settings from '@overleaf/settings'
 /**
  * @param {string} path
  * @param {import('../types.js').RunContext} ctx
- * @returns {{path: string, docId: string} | null}
+ * @returns {{path: string, docId: string} | {path: string, binary: true} | null}
  */
 export function resolveFile(path, ctx) {
   return ctx.context?.files?.find(f => f.path === path) ?? null
@@ -17,6 +17,15 @@ export function resolveFile(path, ctx) {
  */
 export function unknownPathError(path) {
   return `File "${path}" not found. Call list_files to see available files.`
+}
+
+/**
+ * Standard error string when a text tool is pointed at a binary file.
+ * @param {string} path
+ * @returns {string}
+ */
+export function binaryFileError(path) {
+  return `"${path}" is a binary file (image, PDF, ...) and cannot be read or edited as text.`
 }
 
 export function docUpdaterUrl() {

@@ -72,7 +72,10 @@ describe('tools/index buildTools', function () {
   it('curries ctx into execute (list_files reads ctx.context.files)', async function () {
     const tools = buildTools(makeCtx(), ['list_files'])
     const result = await tools.list_files.execute({}, {})
-    expect(result).to.deep.equal([{ path: 'main.tex' }, { path: 'refs.bib' }])
+    expect(result).to.deep.equal([
+      { path: 'main.tex', type: 'text' },
+      { path: 'refs.bib', type: 'text' },
+    ])
   })
 
   it('different ctx objects produce different bindings (no shared state)', async function () {
@@ -84,8 +87,8 @@ describe('tools/index buildTools', function () {
       toolsA.list_files.execute({}, {}),
       toolsB.list_files.execute({}, {}),
     ])
-    expect(a).to.deep.equal([{ path: 'a.tex' }])
-    expect(b).to.deep.equal([{ path: 'b.tex' }])
+    expect(a).to.deep.equal([{ path: 'a.tex', type: 'text' }])
+    expect(b).to.deep.equal([{ path: 'b.tex', type: 'text' }])
   })
 
   it('auto-accepts pending agent changes before the first edit in a follow-up run', async function () {

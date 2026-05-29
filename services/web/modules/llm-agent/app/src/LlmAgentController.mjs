@@ -152,13 +152,21 @@ function decreaseInflight(userId, reservedTokens, reservedCostUsd) {
 }
 
 function buildProjectContext(project) {
-  const { docs } = ProjectEntityHandler.getAllEntitiesFromProject(project)
-  const files = docs
-    .map(({ path, doc }) => ({
+  const { docs, files: fileRefs = [] } =
+    ProjectEntityHandler.getAllEntitiesFromProject(project)
+  const files = [
+    ...docs.map(({ path, doc }) => ({
       path: normalizeProjectPath(path),
       docId: doc._id.toString(),
-    }))
-    .sort((a, b) => a.path.localeCompare(b.path))
+    })),
+    // Binary entities (images, PDFs, ...) have no editable doc body, so they
+    // carry no docId. The flag lets the agent's text tools refuse them while
+    // list_files still surfaces them.
+    ...fileRefs.map(({ path }) => ({
+      path: normalizeProjectPath(path),
+      binary: true,
+    })),
+  ].sort((a, b) => a.path.localeCompare(b.path))
 
   return {
     projectName: project.name ?? '',
