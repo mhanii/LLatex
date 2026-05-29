@@ -554,7 +554,7 @@ describe('ServerCEScripts', function () {
 
       it('should skip checks', function () {
         expect(output).to.include(
-          'Running Overleaf Community Edition, skipping TexLive checks'
+          'Running DoubleBackSlash Community Edition, skipping TexLive checks'
         )
       })
     })

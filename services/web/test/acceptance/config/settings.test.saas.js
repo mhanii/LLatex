@@ -12,7 +12,7 @@ const overleafHost =
   `http://${process.env.HTTP_TEST_HOST || '127.0.0.1'}:23000`
 
 const overrides = {
-  appName: 'Overleaf',
+  appName: 'DoubleBackSlash',
   siteUrl: overleafHost,
 
   enableSubscriptions: true,

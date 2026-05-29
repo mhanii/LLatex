@@ -19,9 +19,9 @@ function resetMeta() {
   })
   window.metaAttributesCache.set('ol-ExposedSettings', {
     adminEmail: 'placeholder@example.com',
-    appName: 'Overleaf',
+    appName: 'DoubleBackSlash',
     cookieDomain: '.overleaf.stories',
-    dropboxAppName: 'Overleaf-Stories',
+    dropboxAppName: 'DoubleBackSlash-Stories',
     emailConfirmationDisabled: false,
     enableSubscriptions: true,
     hasAffiliationsFeature: false,
@@ -114,7 +114,7 @@ i18n.use(initReactI18next).init({
     skipOnVariables: true,
     escapeValue: false,
     defaultVariables: {
-      appName: 'Overleaf',
+      appName: 'DoubleBackSlash',
     },
   },
 })

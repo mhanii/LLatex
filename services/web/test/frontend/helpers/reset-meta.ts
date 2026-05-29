@@ -7,7 +7,7 @@ export function resetMeta() {
     'link-sharing',
   ])
   window.metaAttributesCache.set('ol-ExposedSettings', {
-    appName: 'Overleaf',
+    appName: 'DoubleBackSlash',
     maxEntitiesPerProject: 10,
     maxUploadSize: 5 * 1024 * 1024,
     siteUrl: 'https://www.dev-overleaf.com',

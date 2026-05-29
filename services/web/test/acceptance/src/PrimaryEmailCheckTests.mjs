@@ -22,7 +22,7 @@ describe('PrimaryEmailCheck', function () {
     )
   })
 
-  describe('redirections in Overleaf Community Edition/Server Pro', function () {
+  describe('redirections in DoubleBackSlash Community Edition/Server Pro', function () {
     before(async function () {
       if (Features.hasFeature('saas')) {
         this.skip()

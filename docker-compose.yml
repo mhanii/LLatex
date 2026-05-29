@@ -21,7 +21,7 @@ services:
       ########################################################################
       # - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      OVERLEAF_APP_NAME: Overleaf Community Edition
+      OVERLEAF_APP_NAME: DoubleBackSlash Community Edition
 
       OVERLEAF_MONGO_URL: mongodb://mongo/sharelatex
 
@@ -42,7 +42,7 @@ services:
       #VIRTUAL_HOST: 103.112.212.22
 
       # OVERLEAF_SITE_URL: http://overleaf.example.com
-      # OVERLEAF_NAV_TITLE: Overleaf Community Edition
+      # OVERLEAF_NAV_TITLE: DoubleBackSlash Community Edition
       # OVERLEAF_HEADER_IMAGE_URL: http://example.com/mylogo.png
       # OVERLEAF_ADMIN_EMAIL: support@it.com
 
