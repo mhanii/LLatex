@@ -8,6 +8,19 @@
   }
 }
 
+main#main-content {
+  min-height: 100vh;
+  color: var(--content-primary-themed);
+  background:
+    radial-gradient(circle at top left, rgb(95 95 240 / 12%), transparent 40%),
+    radial-gradient(circle at top right, rgb(187 219 184 / 16%), transparent 35%),
+    linear-gradient(
+      180deg,
+      var(--bg-secondary-themed) 0%,
+      var(--bg-primary-themed) 52%
+    );
+}
+
 .auth-aux-container {
   display: flex;
   flex-direction: column;
@@ -15,27 +28,9 @@
   padding-top: calc($header-height + $spacing-11);
   padding-bottom: var(--spacing-11);
   max-width: 320px;
-  min-height: 100vh;
   margin-left: auto;
   margin-right: auto;
   width: 100%;
-  background:
-    radial-gradient(
-      circle at top left,
-      rgb(95 95 240 / 12%),
-      transparent 40%
-    ),
-    radial-gradient(
-      circle at top right,
-      rgb(187 219 184 / 16%),
-      transparent 35%
-    ),
-    linear-gradient(
-      180deg,
-      var(--bg-secondary-themed) 0%,
-      var(--bg-primary-themed) 52%
-    );
-  color: var(--content-primary-themed);
 
   .recaptcha-branding {
     @include body-xs;
