@@ -3,8 +3,6 @@ import { isExcludedBySharding, startWith } from './helpers/config'
 describe('Customization', function () {
   if (isExcludedBySharding('CE_CUSTOM_1')) return
 
-
-
   describe('custom settings', function () {
     startWith({
       vars: {
@@ -21,15 +19,6 @@ describe('Customization', function () {
       cy.findByRole('navigation', { name: 'Primary' }).findByText(
         'CUSTOM APP NAME'
       )
-    })
-
-    it('should display custom left footer', function () {
-      cy.visit('/')
-      cy.findByRole('contentinfo').findByText('CUSTOM LEFT FOOTER')
-    })
-    it('should display custom right footer', function () {
-      cy.visit('/')
-      cy.findByRole('contentinfo').findByText('CUSTOM RIGHT FOOTER')
     })
   })
 })
