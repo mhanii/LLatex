@@ -42,7 +42,7 @@ else if settings.overleaf
 	meta(itemprop='image' content=buildImgPath('ol-brand/overleaf_og_logo.png'))
 	meta(name='image' content=buildImgPath('ol-brand/overleaf_og_logo.png'))
 else
-	//- the default image for Overleaf Community Edition/Server Pro
+	//- the default image for DoubleBackSlash Community Edition/Server Pro
 	meta(itemprop='image' content=buildBaseAssetPath() + 'apple-touch-icon.png')
 	meta(name='image' content=buildBaseAssetPath() + 'apple-touch-icon.png')
 
@@ -78,7 +78,7 @@ else if settings.overleaf
 		content=buildImgPath('ol-brand/overleaf_og_logo.png')
 	)
 else
-	//- the default image for Overleaf Community Edition/Server Pro
+	//- the default image for DoubleBackSlash Community Edition/Server Pro
 	meta(
 		name='twitter:image'
 		content=buildBaseAssetPath() + 'apple-touch-icon.png'
@@ -104,7 +104,7 @@ else if settings.overleaf
 		content=buildImgPath('ol-brand/overleaf_og_logo.png')
 	)
 else
-	//- the default image for Overleaf Community Edition/Server Pro
+	//- the default image for DoubleBackSlash Community Edition/Server Pro
 	meta(
 		property='og:image'
 		content=buildBaseAssetPath() + 'apple-touch-icon.png'
@@ -131,13 +131,11 @@ if settings.robotsNoindex
 	meta(name='robots' content='noindex')
 
 //- Icons
-link(rel='icon' sizes='32x32' href=buildBaseAssetPath() + 'favicon-32x32.png')
-link(rel='icon' sizes='16x16' href=buildBaseAssetPath() + 'favicon-16x16.png')
-link(rel='icon' href=buildBaseAssetPath() + 'favicon.svg' type='image/svg+xml')
+link(rel='icon' href=buildBaseAssetPath() + 'branding/favicon.svg?v=20260529' type='image/svg+xml')
 link(rel='apple-touch-icon' href=buildBaseAssetPath() + 'apple-touch-icon.png')
 link(
 	rel='mask-icon'
-	href=buildBaseAssetPath() + 'mask-favicon.svg'
+	href=buildBaseAssetPath() + 'branding/mask-favicon.svg?v=20260529'
 	color='#046530'
 )
 

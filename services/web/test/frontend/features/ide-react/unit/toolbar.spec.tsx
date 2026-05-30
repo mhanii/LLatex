@@ -70,7 +70,7 @@ describe('<Toolbar />', function () {
         <Toolbar />
       </EditorProviders>
     )
-    cy.findByLabelText('Overleaf logo')
+    cy.findByLabelText('DoubleBackSlash logo')
       // We can't click the link in component tests, so just look at the
       // parent directly
       .parent()

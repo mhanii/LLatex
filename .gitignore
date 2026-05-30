@@ -28,3 +28,4 @@ develop/*.te
 # local compile artifacts (local build outputs, not for repo)
 develop/output/
 develop/compiles/
+.claude/

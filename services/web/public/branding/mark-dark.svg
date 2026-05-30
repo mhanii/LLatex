@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title desc">
+  <title id="title">DoubleBackSlash mark</title>
+  <desc id="desc">Monogram used for compact branding slots</desc>
+  <rect x="16" y="16" width="224" height="224" rx="48" ry="48" fill="#1a1a1a"/>
+  <text x="128" y="164" font-family="'Helvetica Neue', 'Arial Black', 'Impact', sans-serif" font-size="140" font-weight="900" fill="#ffffff" text-anchor="middle" dominant-baseline="middle" letter-spacing="-14">\\d</text>
+</svg>

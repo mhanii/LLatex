@@ -66,7 +66,7 @@ const renderWithinProjectListProvider = (
 describe('<UserNotifications />', function () {
   const exposedSettings = {
     samlInitPath: '/fakeSaml/',
-    appName: 'Overleaf',
+    appName: 'DoubleBackSlash',
   }
 
   beforeEach(function () {

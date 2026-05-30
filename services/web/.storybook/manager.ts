@@ -3,12 +3,12 @@ import { create } from '@storybook/theming/create'
 
 import './manager.css'
 
-import brandImage from '../public/img/ol-brand/overleaf.svg'
+import brandImage from '../public/branding/logo-dark.svg'
 
 const theme = create({
   base: 'light',
-  brandTitle: 'Overleaf',
-  brandUrl: 'https://www.overleaf.com',
+  brandTitle: 'DoubleBackSlash',
+  brandUrl: '/',
   brandImage,
 })
 

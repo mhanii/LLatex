@@ -20,6 +20,7 @@
   --border-active-themed: var(--border-active-dark);
   --border-danger-themed: var(--border-danger-dark);
   --border-divider-themed: var(--border-divider-dark);
+  --focus-ring-color: var(--border-active-themed);
   --link-web-themed: var(--link-web-dark);
   --link-web-hover-themed: var(--link-web-hover-dark);
   --link-web-visited-themed: var(--link-web-visited-dark);
@@ -27,6 +28,16 @@
   --link-ui-hover-themed: var(--link-ui-hover-dark);
   --link-ui-visited-themed: var(--link-ui-visited-dark);
   --premium-gradient-themed: var(--premium-gradient-dark);
+
+  /* Themed accents */
+  --bg-accent-01: var(--neutral-80);
+  --bg-accent-02: var(--neutral-70);
+  --bg-accent-03: var(--neutral-90);
+  --border-active: var(--white);
+  --link-web: var(--white);
+  --link-web-hover: var(--neutral-20);
+  --link-ui: var(--white);
+  --link-ui-hover: var(--neutral-20);
 }
 
 @include theme('light') {
@@ -50,6 +61,7 @@
   --border-danger-themed: var(--border-danger);
   --border-divider-themed: var(--border-divider);
   --border-dark-divider-themed: var(--border-dark-divider);
+  --focus-ring-color: var(--border-active-themed);
   --link-web-themed: var(--link-web);
   --link-web-hover-themed: var(--link-web-hover);
   --link-web-visited-themed: var(--link-web-visited);
@@ -57,4 +69,14 @@
   --link-ui-hover-themed: var(--link-ui-hover);
   --link-ui-visited-themed: var(--link-ui-visited);
   --premium-gradient-themed: var(--premium-gradient);
+
+  /* Themed accents */
+  --bg-accent-01: #000;
+  --bg-accent-02: var(--neutral-90);
+  --bg-accent-03: var(--neutral-10);
+  --border-active: #000;
+  --link-web: #000;
+  --link-web-hover: var(--neutral-80);
+  --link-ui: #000;
+  --link-ui-hover: var(--neutral-80);
 }
