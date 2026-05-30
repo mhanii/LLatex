@@ -163,7 +163,7 @@ services:
     env_file:
       - dev.env
     environment:
-      - APP_NAME=DoubleBackSlash Community Edition
+      - APP_NAME=dBackSlash
       - ENABLED_LINKED_FILE_TYPES=project_file,project_output_file
       - EMAIL_CONFIRMATION_DISABLED=true
       - NODE_ENV=development

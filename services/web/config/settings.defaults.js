@@ -814,7 +814,7 @@ module.exports = {
     userId: process.env.SMOKE_TEST_USER_ID,
   },
 
-  appName: process.env.APP_NAME || 'DoubleBackSlash (Community Edition)',
+  appName: process.env.APP_NAME || 'dBackSlash',
 
   adminEmail: process.env.ADMIN_EMAIL || 'placeholder@example.com',
   adminDomains: process.env.ADMIN_DOMAINS
@@ -822,16 +822,12 @@ module.exports = {
     : undefined,
 
   nav: {
-    title: process.env.APP_NAME || 'DoubleBackSlash Community Edition',
+    title: process.env.APP_NAME || 'dBackSlash',
 
     hide_powered_by: process.env.NAV_HIDE_POWERED_BY === 'true',
     left_footer: [],
 
-    right_footer: [
-      {
-        text: '<a href="https://github.com/overleaf/overleaf">Fork on GitHub!</a>',
-      },
-    ],
+    right_footer: [],
 
     showSubscriptionLink: false,
 

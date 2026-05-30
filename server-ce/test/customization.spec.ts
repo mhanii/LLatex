@@ -3,16 +3,7 @@ import { isExcludedBySharding, startWith } from './helpers/config'
 describe('Customization', function () {
   if (isExcludedBySharding('CE_CUSTOM_1')) return
 
-  describe('default settings', function () {
-    startWith({})
 
-    it('should display the default right footer', function () {
-      cy.visit('/')
-      cy.findByRole('contentinfo').findByRole('link', {
-        name: 'Fork on GitHub!',
-      })
-    })
-  })
 
   describe('custom settings', function () {
     startWith({
