@@ -1,72 +1,65 @@
-// This file provides CSS and Sass variables for colors as full color values.
-// To combine one of these colors with an alpha value, use Sass's built-in
-// rgba() function.
-
-// Note that colors used by Bootstrap's Sass are used in calculations and
-// therefore cannot contain CSS variables
-
 /* ====== Sass color variables ====== */
 
 /* Neutral */
-$white: #fff;
-$neutral-10: #f4f5f6;
-$neutral-20: #e7e9ee;
-$neutral-30: #d0d5dd;
-$neutral-40: #afb5c0;
-$neutral-50: #8d96a5;
-$neutral-60: #677283;
-$neutral-70: #495365;
-$neutral-80: #2f3a4c;
-$neutral-90: #1b222c;
+$white: #ffffff;
+$neutral-10: #f5f5f5;
+$neutral-20: #e5e5e5;
+$neutral-30: #d4d4d4;
+$neutral-40: #a3a3a3;
+$neutral-50: #737373;
+$neutral-60: #525252;
+$neutral-70: #404040;
+$neutral-80: #262626;
+$neutral-90: #171717;
 
-/* Green */
-$green-10: #eaf6ef;
-$green-20: #b8dbc8;
-$green-30: #86caa5;
-$green-40: #53b57f;
-$green-50: #098842;
-$green-60: #1e6b41;
-$green-70: #195936;
+/* Green (Desaturated Gray-Green) */
+$green-10: #f2f5f3;
+$green-20: #d6deda;
+$green-30: #b8c7bf;
+$green-40: #9ab0a5;
+$green-50: #6b8275;
+$green-60: #516358;
+$green-70: #3c4a41;
 
-/* Blue */
-$blue-10: #f1f4f9;
-$blue-20: #c3d0e3;
-$blue-30: #97b6e5;
-$blue-40: #6597e0;
-$blue-50: #366cbf;
-$blue-60: #28518f;
-$blue-70: #214475;
+/* Blue (Desaturated Slate/Gray-Blue) */
+$blue-10: #f4f6f8;
+$blue-20: #dadfe5;
+$blue-30: #bdc5d1;
+$blue-40: #9faabd;
+$blue-50: #6f7f98;
+$blue-60: #546277;
+$blue-70: #3e4858;
 
-/* Red */
-$red-10: #f9f1f1;
-$red-20: #f5beba;
-$red-30: #e59d9a;
-$red-40: #e36d66;
-$red-50: #b83a33;
-$red-60: #942f2a;
-$red-70: #782722;
+/* Red (Desaturated Muted Brick Red) */
+$red-10: #f9f5f5;
+$red-20: #ebdada;
+$red-30: #debdbd;
+$red-40: #cf9c9c;
+$red-50: #9f6666;
+$red-60: #7f5050;
+$red-70: #5f3a3a;
 
-/* Yellow */
-$yellow-10: #fcf1e3;
-$yellow-20: #fcc483;
-$yellow-30: #f7a445;
-$yellow-40: #de8014;
-$yellow-50: #8f5514;
-$yellow-60: #7a4304;
-$yellow-70: #633a0b;
+/* Yellow (Desaturated Muted Sand/Ochre) */
+$yellow-10: #faf7f2;
+$yellow-20: #ede3d5;
+$yellow-30: #ded0bc;
+$yellow-40: #cbb99e;
+$yellow-50: #9b876a;
+$yellow-60: #7d6b52;
+$yellow-70: #5e503c;
 
 /* ====== Semantic Sass color variables ====== */
 $bg-light-primary: $white;
 $bg-light-secondary: $neutral-10;
 $bg-light-tertiary: $neutral-20;
 $bg-light-disabled: $neutral-20;
-$bg-dark-primary: $neutral-90;
-$bg-dark-secondary: $neutral-80;
-$bg-dark-tertiary: $neutral-70;
-$bg-dark-disabled: $neutral-70;
-$bg-accent-01: $green-50;
-$bg-accent-02: $green-60;
-$bg-accent-03: $green-10;
+$bg-dark-primary: #0a0a0a;
+$bg-dark-secondary: $neutral-90;
+$bg-dark-tertiary: $neutral-80;
+$bg-dark-disabled: $neutral-80;
+$bg-accent-01: #000000;
+$bg-accent-02: $neutral-90;
+$bg-accent-03: $neutral-10;
 $bg-danger-01: $red-50;
 $bg-danger-02: $red-60;
 $bg-danger-03: $red-10;
@@ -76,7 +69,7 @@ $bg-warning-03: $yellow-10;
 $bg-info-01: $blue-50;
 $bg-info-02: $blue-60;
 $bg-info-03: $blue-10;
-$content-primary: $neutral-90;
+$content-primary: #000000;
 $content-secondary: $neutral-70;
 $content-disabled: $neutral-40;
 $content-placeholder: $neutral-60;
@@ -87,15 +80,15 @@ $content-info: $blue-50;
 $border-primary: $neutral-60;
 $border-hover: $neutral-70;
 $border-disabled: $neutral-20;
-$border-active: $blue-50;
+$border-active: #000000;
 $border-danger: $red-50;
 $border-divider: $neutral-20;
-$link-web: $green-60;
-$link-web-hover: $green-70;
-$link-web-visited: $green-60;
-$link-ui: $blue-50;
-$link-ui-hover: $blue-60;
-$link-ui-visited: $blue-60;
+$link-web: #000000;
+$link-web-hover: $neutral-80;
+$link-web-visited: #000000;
+$link-ui: #000000;
+$link-ui-hover: $neutral-80;
+$link-ui-visited: #000000;
 $content-primary-dark: $white;
 $content-secondary-dark: $neutral-20;
 $content-disabled-dark: $neutral-60;
@@ -107,15 +100,15 @@ $content-info-dark: $blue-30;
 $border-primary-dark: $neutral-30;
 $border-hover-dark: $neutral-20;
 $border-disabled-dark: $neutral-80;
-$border-active-dark: $blue-30;
+$border-active-dark: $white;
 $border-danger-dark: $red-40;
 $border-divider-dark: $neutral-80;
-$link-web-dark: $green-30;
-$link-web-hover-dark: $green-40;
-$link-web-visited-dark: $green-40;
-$link-ui-dark: $blue-30;
-$link-ui-hover-dark: $blue-40;
-$link-ui-visited-dark: $blue-40;
+$link-web-dark: $white;
+$link-web-hover-dark: $neutral-20;
+$link-web-visited-dark: $white;
+$link-ui-dark: $white;
+$link-ui-hover-dark: $neutral-20;
+$link-ui-visited-dark: $white;
 
 /* ====== CSS color variables ====== */
 :root {
@@ -172,13 +165,13 @@ $link-ui-visited-dark: $blue-40;
   --bg-light-secondary: var(--neutral-10);
   --bg-light-tertiary: var(--neutral-20);
   --bg-light-disabled: var(--neutral-20);
-  --bg-dark-primary: var(--neutral-90);
-  --bg-dark-secondary: var(--neutral-80);
-  --bg-dark-tertiary: var(--neutral-70);
-  --bg-dark-disabled: var(--neutral-70);
-  --bg-accent-01: var(--green-50);
-  --bg-accent-02: var(--green-60);
-  --bg-accent-03: var(--green-10);
+  --bg-dark-primary: #0a0a0a;
+  --bg-dark-secondary: var(--neutral-90);
+  --bg-dark-tertiary: var(--neutral-80);
+  --bg-dark-disabled: var(--neutral-80);
+  --bg-accent-01: #000000;
+  --bg-accent-02: var(--neutral-90);
+  --bg-accent-03: var(--neutral-10);
   --bg-danger-01: var(--red-50);
   --bg-danger-02: var(--red-60);
   --bg-danger-03: var(--red-10);
@@ -188,7 +181,7 @@ $link-ui-visited-dark: $blue-40;
   --bg-info-01: var(--blue-50);
   --bg-info-02: var(--blue-60);
   --bg-info-03: var(--blue-10);
-  --content-primary: var(--neutral-90);
+  --content-primary: #000000;
   --content-secondary: var(--neutral-70);
   --content-disabled: var(--neutral-40);
   --content-placeholder: var(--neutral-60);
@@ -199,16 +192,16 @@ $link-ui-visited-dark: $blue-40;
   --border-primary: var(--neutral-60);
   --border-hover: var(--neutral-70);
   --border-disabled: var(--neutral-20);
-  --border-active: var(--blue-50);
+  --border-active: #000000;
   --border-danger: var(--red-50);
   --border-divider: var(--neutral-20);
   --border-dark-divider: var(--neutral-70);
-  --link-web: var(--green-60);
-  --link-web-hover: var(--green-70);
-  --link-web-visited: var(--green-60);
-  --link-ui: var(--blue-50);
-  --link-ui-hover: var(--blue-60);
-  --link-ui-visited: var(--blue-60);
+  --link-web: #000000;
+  --link-web-hover: var(--neutral-80);
+  --link-web-visited: #000000;
+  --link-ui: #000000;
+  --link-ui-hover: var(--neutral-80);
+  --link-ui-visited: #000000;
   --content-primary-dark: var(--neutral-10);
   --content-secondary-dark: var(--neutral-20);
   --content-disabled-dark: var(--neutral-60);
@@ -233,14 +226,14 @@ $link-ui-visited-dark: $blue-40;
   /* ====== Gradients ====== */
   --premium-gradient: linear-gradient(
     246deg,
-    var(--blue-70) 0%,
-    #254c84 29%,
-    var(--blue-40) 97%
+    #000000 0%,
+    #1a1a1a 50%,
+    #333333 100%
   );
   --premium-gradient-dark: linear-gradient(
     246deg,
-    #6f8bcd 0%,
-    #8ea3d7 29%,
-    #ccdcff 97%
+    #ffffff 0%,
+    #e5e5e5 50%,
+    #a3a3a3 100%
   );
 }

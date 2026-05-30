@@ -9,11 +9,33 @@
 }
 
 .auth-aux-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   padding-top: calc($header-height + $spacing-11);
+  padding-bottom: var(--spacing-11);
   max-width: 320px;
   min-height: 100vh;
   margin-left: auto;
   margin-right: auto;
+  width: 100%;
+  background:
+    radial-gradient(
+      circle at top left,
+      rgb(95 95 240 / 12%),
+      transparent 40%
+    ),
+    radial-gradient(
+      circle at top right,
+      rgb(187 219 184 / 16%),
+      transparent 35%
+    ),
+    linear-gradient(
+      180deg,
+      var(--bg-secondary-themed) 0%,
+      var(--bg-primary-themed) 52%
+    );
+  color: var(--content-primary-themed);
 
   .recaptcha-branding {
     @include body-xs;
@@ -28,6 +50,7 @@
 }
 
 .login-register-container {
+  width: 100%;
   max-width: 400px;
   margin: 0 auto;
   padding-bottom: 125px;
@@ -39,19 +62,27 @@
 }
 
 .login-register-card {
-  padding-top: 0;
-  padding-bottom: 0;
+  padding-top: var(--spacing-08);
+  padding-bottom: var(--spacing-08);
   text-align: center;
+  border: 1px solid var(--border-divider-themed);
+  border-radius: var(--border-radius-large);
+  background-color: color-mix(
+    in srgb,
+    var(--bg-primary-themed) 94%,
+    var(--bg-secondary-themed)
+  );
+  box-shadow: 0 18px 45px rgb(0 0 0 / 12%);
 }
 
 .login-register-header {
   padding-bottom: var(--spacing-07);
-  border-bottom: solid 1px var(--border-divider);
+  border-bottom: solid 1px var(--border-divider-themed);
 }
 
 .login-register-header-heading {
   margin: 0;
-  color: var(--content-secondary);
+  color: var(--content-secondary-themed);
 }
 
 .login-register-hr-text-container {
@@ -64,7 +95,7 @@
     content: '';
     position: absolute;
     height: 1px;
-    background-color: var(--neutral-20);
+    background-color: var(--border-divider-themed);
     top: 50%;
     left: 0;
     right: 0;
@@ -73,7 +104,7 @@
 
 .login-register-hr-text {
   position: relative;
-  background-color: #fff;
+  background-color: var(--bg-primary-themed);
   padding: 0 var(--spacing-05);
 }
 
