@@ -39,8 +39,8 @@ else if metadata && metadata.image_src
 	meta(name='image' content=metadata.image_src)
 else if settings.overleaf
 	//- the default image for Overleaf
-	meta(itemprop='image' content=buildImgPath('branding/logo-dark.svg'))
-	meta(name='image' content=buildImgPath('branding/logo-dark.svg'))
+	meta(itemprop='image' content=buildImgPath('ol-brand/overleaf_og_logo.png'))
+	meta(name='image' content=buildImgPath('ol-brand/overleaf_og_logo.png'))
 else
 	//- the default image for DoubleBackSlash Community Edition/Server Pro
 	meta(itemprop='image' content=buildBaseAssetPath() + 'apple-touch-icon.png')
@@ -75,7 +75,7 @@ else if settings.overleaf
 	//- the default image for Overleaf
 	meta(
 		name='twitter:image'
-		content=buildImgPath('branding/logo-dark.svg')
+		content=buildImgPath('ol-brand/overleaf_og_logo.png')
 	)
 else
 	//- the default image for DoubleBackSlash Community Edition/Server Pro
@@ -101,7 +101,7 @@ else if settings.overleaf
 	//- the default image for Overleaf
 	meta(
 		property='og:image'
-		content=buildImgPath('branding/logo-dark.svg')
+		content=buildImgPath('ol-brand/overleaf_og_logo.png')
 	)
 else
 	//- the default image for DoubleBackSlash Community Edition/Server Pro

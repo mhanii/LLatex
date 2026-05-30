@@ -1,14 +1,14 @@
 @use 'sass:color';
 
 /* Website redesign */
-$vivid-tangerine: #f1a695;
-$ceil: #9597c9;
-$caramel: #f9d38f;
-$dark-jungle-green: #0f271a;
-$sapphire-blue: #4354a3;
-$sapphire-blue-dark: #3c4c93;
-$purple-bright: #939aff;
-$green-bright: #13c965;
+$vivid-tangerine: #b5b5b5;
+$ceil: #a3a3a3;
+$caramel: #d4d4d4;
+$dark-jungle-green: #171717;
+$sapphire-blue: #262626;
+$sapphire-blue-dark: #0a0a0a;
+$purple-bright: #e5e5e5;
+$green-bright: #404040;
 $green-bright-tint-50: color.mix($green-bright, #fff, 50%);
 
 :root {
