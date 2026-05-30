@@ -18,20 +18,20 @@ block content
 								| #{translate("already_have_sl_account")}
 								|
 								a(href='/login') #{translate("login_here")}
-							else if newTemplateData.templateName !== undefined
-								h1 #{translate("register_to_edit_template", {templateName:newTemplateData.templateName})}
+						else if newTemplateData.templateName !== undefined
+							h1 #{translate("register_to_edit_template", {templateName:newTemplateData.templateName})}
 
-								div #{translate("already_have_sl_account")}
-									|
-									a(href='/login') #{translate("login_here")}
+							div #{translate("already_have_sl_account")}
+								|
+								a(href='/login') #{translate("login_here")}
 
-					.row
-						.col-lg-8.offset-lg-2.col-xl-6.offset-xl-3
-							.page-header
-								h1 #{translate("register")}
-							p
-								| Please contact
-								|
-								strong #{settings.adminEmail}
-								|
-								| to create an account.
+				.row
+					.col-lg-8.offset-lg-2.col-xl-6.offset-xl-3
+						.page-header
+							h1 #{translate("register")}
+						p
+							| Please contact
+							|
+							strong #{settings.adminEmail}
+							|
+							| to create an account.
