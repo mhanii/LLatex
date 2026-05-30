@@ -21,7 +21,7 @@ $line-height-base: 1.5;
 
 $focus-ring-width: 2px;
 $focus-ring-opacity: 1;
-$focus-ring-color: $white;
+$focus-ring-color: var(--focus-ring-color);
 $focus-ring-blur: 0;
 
 // Buttons

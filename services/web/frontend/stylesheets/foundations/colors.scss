@@ -213,15 +213,15 @@ $link-ui-visited-dark: $white;
   --border-primary-dark: var(--neutral-30);
   --border-hover-dark: var(--neutral-20);
   --border-disabled-dark: var(--neutral-80);
-  --border-active-dark: var(--blue-30);
+  --border-active-dark: var(--white);
   --border-danger-dark: var(--red-40);
   --border-divider-dark: var(--neutral-80);
-  --link-web-dark: var(--green-30);
-  --link-web-hover-dark: var(--green-40);
-  --link-web-visited-dark: var(--green-40);
-  --link-ui-dark: var(--blue-30);
-  --link-ui-hover-dark: var(--blue-40);
-  --link-ui-visited-dark: var(--blue-40);
+  --link-web-dark: var(--white);
+  --link-web-hover-dark: var(--neutral-20);
+  --link-web-visited-dark: var(--white);
+  --link-ui-dark: var(--white);
+  --link-ui-hover-dark: var(--neutral-20);
+  --link-ui-visited-dark: var(--white);
 
   /* ====== Gradients ====== */
   --premium-gradient: linear-gradient(
