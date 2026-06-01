@@ -10,7 +10,7 @@ describe('HttpErrorHandler', function () {
 
     vi.doMock('@overleaf/settings', () => ({
       default: {
-        appName: 'Overleaf',
+        appName: 'DoubleBackSlash',
         statusPageUrl: 'https://status.overlaf.com',
       },
     }))

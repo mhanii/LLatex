@@ -1,7 +1,28 @@
 .homepage-container {
   --password-visibility-toggle-width: 44px;
 
+  position: relative;
+  overflow: hidden;
   padding-top: $header-height;
+  padding-bottom: var(--spacing-11);
+  min-height: calc(100vh - #{$header-height});
+  background:
+    radial-gradient(
+      circle at top left,
+      rgb(95 95 240 / 16%),
+      transparent 38%
+    ),
+    radial-gradient(
+      circle at top right,
+      rgb(187 219 184 / 18%),
+      transparent 32%
+    ),
+    linear-gradient(
+      180deg,
+      var(--bg-secondary-themed) 0%,
+      var(--bg-primary-themed) 52%
+    );
+  color: var(--content-primary-themed);
 
   .home-animation-text-container {
     display: flex;
@@ -39,7 +60,7 @@
       }
 
       #home-animation-text {
-        color: var(--neutral-70);
+        color: var(--content-secondary-themed);
       }
 
       @include media-breakpoint-down(lg) {
@@ -89,6 +110,18 @@
     flex-direction: column;
     align-items: center;
     margin-top: var(--spacing-07);
+    width: min(100%, 620px);
+    margin-left: auto;
+    margin-right: auto;
+    padding: var(--spacing-08);
+    border: 1px solid var(--border-divider-themed);
+    border-radius: var(--border-radius-large);
+    background-color: color-mix(
+      in srgb,
+      var(--bg-primary-themed) 92%,
+      var(--bg-secondary-themed)
+    );
+    box-shadow: 0 18px 45px rgb(0 0 0 / 12%);
 
     .home-registration-sso {
       display: flex;
@@ -106,7 +139,7 @@
 
     .home-registration-separator {
       margin: var(--spacing-04) 0;
-      color: var(--neutral-90);
+      color: var(--content-secondary-themed);
 
       > span {
         vertical-align: middle;
@@ -118,7 +151,7 @@
           vertical-align: middle;
           width: 196px;
           height: 1px;
-          background-color: var(--neutral-20);
+          background-color: var(--border-divider-themed);
 
           @include media-breakpoint-down(lg) {
             flex-direction: column;
@@ -180,10 +213,10 @@
         border: none;
         background-color: transparent;
         cursor: pointer;
-        color: var(--content-secondary);
+        color: var(--content-secondary-themed);
 
         &:hover {
-          color: var(--content-primary);
+          color: var(--content-primary-themed);
         }
       }
     }
@@ -231,6 +264,7 @@
     @include heading-sm;
 
     text-align: center;
+    color: var(--content-secondary-themed);
 
     @include media-breakpoint-down(lg) {
       @include body-base;
@@ -265,6 +299,8 @@
 
   .header-description {
     @include heading-sm;
+
+    color: var(--content-secondary-themed);
 
     p {
       margin-bottom: 0;

@@ -326,7 +326,7 @@ module.exports = {
 
   splitTests: [],
 
-  // Where your instance of Overleaf Community Edition/Server Pro can be found publicly. Used in emails
+  // Where your DoubleBackSlash installation can be found publicly. Used in emails
   // that are sent out, generated links, etc.
   siteUrl: (siteUrl = process.env.PUBLIC_URL || 'http://127.0.0.1:3000'),
 
@@ -814,7 +814,7 @@ module.exports = {
     userId: process.env.SMOKE_TEST_USER_ID,
   },
 
-  appName: process.env.APP_NAME || 'Overleaf (Community Edition)',
+  appName: process.env.APP_NAME || 'dBackSlash',
 
   adminEmail: process.env.ADMIN_EMAIL || 'placeholder@example.com',
   adminDomains: process.env.ADMIN_DOMAINS
@@ -822,16 +822,12 @@ module.exports = {
     : undefined,
 
   nav: {
-    title: process.env.APP_NAME || 'Overleaf Community Edition',
+    title: process.env.APP_NAME || 'dBackSlash',
 
     hide_powered_by: process.env.NAV_HIDE_POWERED_BY === 'true',
     left_footer: [],
 
-    right_footer: [
-      {
-        text: '<a href="https://github.com/overleaf/overleaf">Fork on GitHub!</a>',
-      },
-    ],
+    right_footer: [],
 
     showSubscriptionLink: false,
 

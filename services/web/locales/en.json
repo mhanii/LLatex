@@ -135,7 +135,7 @@
   "advanced_reference_search": "Advanced <0>reference search</0>",
   "advanced_reference_search_explanation": "Quickly find and insert references by author, title, year, or journal — using your own .bib files or connected reference managers.",
   "advanced_reference_search_mode": "Advanced reference search",
-  "advancing_research_with": "Advancing research with <0>Overleaf</0>, <1>Papers</1>, and more.",
+
   "after_that_well_bill_you_x_total_y_subtotal_z_tax_annually_on_date_unless_you_cancel": "After that, we’ll bill you __totalAmount__ (__subtotalAmount__ + __taxAmount__ tax) annually on __date__, unless you cancel.",
   "aggregate_changed": "Changed",
   "aggregate_to": "to",
@@ -1748,10 +1748,10 @@
   "overleaf_group_plans": "Overleaf group plans",
   "overleaf_history_system": "Overleaf History System",
   "overleaf_individual_plans": "Overleaf individual plans",
-  "overleaf_is_a_ds_product": "Overleaf is a Digital Science product.",
+
   "overleaf_is_easy_to_use": "Overleaf is easy to use.",
   "overleaf_labs": "Overleaf Labs",
-  "overleaf_logo": "Overleaf logo",
+  "doublebackslash_logo": "DoubleBackSlash logo",
   "overleaf_multi_license_plans": "Overleaf multi-license plans",
   "overleaf_plans_and_pricing": "overleaf plans and pricing",
   "overleaf_template_gallery": "overleaf template gallery",
@@ -1892,7 +1892,7 @@
   "portal_add_affiliation_to_join": "It looks like you are already logged in to __appName__. If you have a __portalTitle__ email you can add it now.",
   "position": "Position",
   "postal_code": "Postal code",
-  "powered_by_digital_science": "Powered by <0>Digital Science</0>.",
+
   "premium": "Premium",
   "premium_feature": "Premium feature",
   "premium_plan_label": "You’re using <b>Overleaf Premium</b>",

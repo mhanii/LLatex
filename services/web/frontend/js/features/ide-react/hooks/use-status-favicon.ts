@@ -6,10 +6,10 @@ import getMeta from '@/utils/meta'
 const RESET_AFTER_MS = 5_000
 
 const COMPILE_ICONS = {
-  ERROR: 'favicon-error.svg',
-  COMPILING: 'favicon-compiling.svg',
-  COMPILED: 'favicon-compiled.svg',
-  UNCOMPILED: 'favicon.svg',
+  ERROR: 'branding/favicon-error.svg?v=20260529',
+  COMPILING: 'branding/favicon-compiling.svg?v=20260529',
+  COMPILED: 'branding/favicon-compiled.svg?v=20260529',
+  UNCOMPILED: 'branding/favicon.svg?v=20260529',
 } as const
 
 type CompileStatus = keyof typeof COMPILE_ICONS
@@ -24,10 +24,10 @@ const useCompileStatus = (): CompileStatus => {
 
 const removeFavicon = () => {
   const existingFavicons = document.head.querySelectorAll(
-    "link[rel='icon']"
+    "link[rel='icon'][data-compile-status='true']"
   ) as NodeListOf<HTMLLinkElement>
   existingFavicons.forEach(favicon => {
-    if (favicon.href.endsWith('.svg')) favicon.parentNode?.removeChild(favicon)
+    favicon.parentNode?.removeChild(favicon)
   })
 }
 

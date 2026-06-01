@@ -152,7 +152,7 @@ function decreaseInflight(userId, reservedTokens, reservedCostUsd) {
 }
 
 function buildProjectContext(project) {
-  const { docs, files: fileRefs } =
+  const { docs, files: fileRefs = [] } =
     ProjectEntityHandler.getAllEntitiesFromProject(project)
   const files = [
     ...docs.map(({ path, doc }) => ({

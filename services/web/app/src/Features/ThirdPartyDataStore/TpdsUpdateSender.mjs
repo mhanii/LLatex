@@ -149,7 +149,7 @@ async function deleteEntity(params) {
 }
 
 async function createProject(params) {
-  if (!tpdsUrl) return // Overleaf Community Edition/Server Pro
+  if (!tpdsUrl) return // DoubleBackSlash Community Edition/Server Pro
 
   const { projectId, projectName, userId } = params
 
