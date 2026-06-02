@@ -245,7 +245,7 @@ module.exports = {
       url: `http://${process.env.CLSI_HOST || '127.0.0.1'}:3013`,
       downloadHost: process.env.CLSI_LB_IP
         ? `http://${process.env.CLSI_LB_IP}:80`
-        : `http://${process.env.DOWNLOAD_HOST || '127.0.0.1'}:8080`,
+        : process.env.DOWNLOAD_HOST || 'http://127.0.0.1:8080',
       backendGroupName: undefined,
       submissionBackendClass:
         process.env.CLSI_SUBMISSION_BACKEND_CLASS || 'c3d',
