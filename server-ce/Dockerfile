@@ -98,7 +98,7 @@ ENV OVERLEAF_CONFIG=/etc/overleaf/settings.js
 ENV WEB_API_USER="overleaf"
 ENV ADMIN_PRIVILEGE_AVAILABLE="true"
 
-ENV OVERLEAF_APP_NAME="DoubleBackSlash Community Edition"
+ENV OVERLEAF_APP_NAME="dBackSlash"
 
 ENV OPTIMISE_PDF="true"
 
